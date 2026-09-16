@@ -41,7 +41,8 @@ import type {
   InstalledPack,
 } from "../main/store"
 import type { PublisherVerdict } from "../main/knownpublishers"
-import type { Conversation, StoredMessage } from "../main/conversations"
+import type { Conversation, StoredMessage, StoredTool } from "../main/conversations"
+import type { PlanItem, ToolShape } from "../main/tooltalk"
 import type {
   Change,
   ChangeStatus,
@@ -75,6 +76,9 @@ export type {
   Stash,
   Conversation,
   StoredMessage,
+  StoredTool,
+  PlanItem,
+  ToolShape,
 }
 
 const api = {
@@ -140,7 +144,21 @@ const api = {
     forget: (id: string): Promise<void> => ipcRenderer.invoke("agent:forget", id),
     cancel: (id: string): Promise<boolean> => ipcRenderer.invoke("agent:cancel", id),
     onText: (cb: (p: { id: string; text: string }) => void): Unsubscribe => on("agent:text", cb),
-    onTool: (cb: (p: { id: string; tool: string }) => void): Unsubscribe => on("agent:tool", cb),
+    onTool: (
+      cb: (p: {
+        id: string
+        callId: string
+        name: string
+        running: string
+        done: string
+        shape: ToolShape
+        detail: string
+        plan: PlanItem[]
+      }) => void
+    ): Unsubscribe => on("agent:tool", cb),
+    onToolResult: (
+      cb: (p: { id: string; callId: string; output: string; isError: boolean }) => void
+    ): Unsubscribe => on("agent:tool-result", cb),
     onModel: (cb: (p: { id: string; conversationId: string; model: string }) => void): Unsubscribe =>
       on("agent:model", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),

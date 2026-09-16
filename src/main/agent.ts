@@ -1,5 +1,6 @@
 import { type ChildProcess } from "node:child_process"
 import { installed as cliInstalled, launchPiped } from "./cli"
+import { describeTool, outputIn, planIn } from "./tooltalk"
 import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -426,16 +427,47 @@ export class AgentRunner {
       if (turn) turn.sentText = true
       target.send("agent:text", { id, text: separator + text })
     }
-    const note = (tool: string) => target.send("agent:tool", { id, tool })
+    // A tool call and its result are two events, and the result can arrive out
+    // of order: two Bash calls running at once come back in whichever finishes
+    // first. So they are paired by the call's own id and never by arrival.
+    const started = (callId: string, name: string, input: unknown) => {
+      const talk = describeTool(name, input)
+      target.send("agent:tool", {
+        id,
+        callId,
+        name,
+        running: talk.running,
+        done: talk.done,
+        shape: talk.shape,
+        detail: talk.detail,
+        plan: talk.shape === "plan" ? planIn(input) : [],
+      })
+    }
+    const finished = (callId: string, content: unknown, isError: boolean) =>
+      target.send("agent:tool-result", { id, callId, output: outputIn(content), isError })
 
     if (kind === "claude") {
       const type = parsed.type
       if (type === "assistant") {
         const message = parsed.message as { content?: unknown[] } | undefined
         for (const block of message?.content ?? []) {
-          const b = block as { type?: string; text?: string; name?: string }
+          const b = block as { type?: string; text?: string; name?: string; id?: string; input?: unknown }
           if (b.type === "text" && b.text) send(b.text)
-          if (b.type === "tool_use" && b.name) note(b.name)
+          if (b.type === "tool_use" && b.name) started(b.id ?? b.name, b.name, b.input)
+        }
+        return
+      }
+
+      // The results come back as a `user` message, which reads oddly until you
+      // remember whose turn it is from the model's point of view: the tool
+      // answered, and the answer is the user's half of the exchange.
+      if (type === "user") {
+        const message = parsed.message as { content?: unknown[] } | undefined
+        for (const block of message?.content ?? []) {
+          const b = block as { type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }
+          if (b.type === "tool_result" && b.tool_use_id) {
+            finished(b.tool_use_id, b.content, Boolean(b.is_error))
+          }
         }
         return
       }
@@ -450,6 +482,23 @@ export class AgentRunner {
     }
 
     // Codex
+    //
+    // Its stream names things differently and is younger; what is handled here
+    // is what it was seen to emit. Anything unrecognised still reaches the
+    // panel as text rather than being dropped, which is the rule this whole
+    // function follows.
+    const codexItem = parsed.item as
+      | { type?: string; text?: string; id?: string; name?: string; arguments?: unknown; output?: unknown; command?: string }
+      | undefined
+    if (parsed.type === "item.started" && codexItem?.type === "command_execution") {
+      started(codexItem.id ?? "codex", "Bash", { command: codexItem.command })
+      return
+    }
+    if (parsed.type === "item.completed" && codexItem?.type === "command_execution") {
+      finished(codexItem.id ?? "codex", codexItem.output, false)
+      return
+    }
+
     const item = parsed.item as { type?: string; text?: string } | undefined
     if (parsed.type === "item.completed" && item?.type === "agent_message" && item.text) {
       send(item.text)

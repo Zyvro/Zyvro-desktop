@@ -21,10 +21,27 @@ import type { AgentKind } from "./agent"
 // you have had is a fact about you, and a .zyvro folder that filled up with
 // chat logs would end up committed.
 
+// A tool call as the transcript keeps it. The name alone was kept before, and
+// a conversation reopened tomorrow then said "ran Edit" about work whose
+// details were gone — the same loss the panel had while it ran, made permanent.
+export type StoredTool = {
+  callId: string
+  /** The past-tense sentence, which is what the row shows. */
+  done: string
+  shape: string
+  detail: string
+  output: string
+  isError: boolean
+  plan?: { title: string; status: string }[]
+}
+
 export type StoredMessage = {
   role: "user" | "assistant"
   text: string
-  tools: string[]
+  // Old transcripts hold a list of names. Read rather than migrated: a
+  // conversation from last week is worth reopening even if its tool rows can
+  // only say what they knew then.
+  tools: (StoredTool | string)[]
   error?: string
 }
 

@@ -1,12 +1,14 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, Wrench, X } from "lucide-react"
+import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, WorkflowRef } from "../../preload"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
+import { ToolRow, type ToolCall } from "~/panels/ToolRow"
+import type { StoredTool } from "../../preload"
 
 // This panel runs the agent CLI that is already signed in on this machine, so
 // the streaming arrives as IPC events rather than as a fetch. Those events are
@@ -20,7 +22,7 @@ export type ChatMessage = {
   id: string
   role: ChatRole
   text: string
-  tools: string[]
+  tools: ToolCall[]
   error?: string
   streaming: boolean
 }
@@ -75,7 +77,7 @@ type ChatState = {
 // Events for a turn can reach the renderer before `agent:send` resolves with
 // that turn's id, so anything that arrives for an unbound turn is parked here
 // and replayed the moment the binding lands.
-type Orphan = { text: string; tools: string[]; error: string; done: boolean }
+type Orphan = { text: string; tools: ToolCall[]; error: string; done: boolean }
 
 const WORKFLOWS_KEY = ["local", "workflows"] as const
 
@@ -170,13 +172,39 @@ function ensureAttached(): void {
     mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, text: message.text + text }))
   })
 
-  window.zyvro.agent.onTool(({ id, tool }) => {
+  window.zyvro.agent.onTool(({ id, callId, running, done, shape, detail, plan }) => {
+    const call: ToolCall = {
+      callId,
+      running,
+      done,
+      shape,
+      detail,
+      plan,
+      output: "",
+      isError: false,
+      finished: false,
+    }
     const bound = turnToMessage.get(id)
     if (bound === undefined) {
-      orphanFor(id).tools.push(tool)
+      orphanFor(id).tools.push(call)
       return
     }
-    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, tools: [...message.tools, tool] }))
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, tools: [...message.tools, call] }))
+  })
+
+  // A result is paired by the call's own id and never by arrival: two commands
+  // running at once come back in whichever order they finish, which was seen
+  // happening in a real stream rather than guessed at.
+  window.zyvro.agent.onToolResult(({ id, callId, output, isError }) => {
+    const bound = turnToMessage.get(id)
+    const settle = (calls: ToolCall[]) =>
+      calls.map((call) => (call.callId === callId ? { ...call, output, isError, finished: true } : call))
+    if (bound === undefined) {
+      const orphan = orphanFor(id)
+      orphan.tools = settle(orphan.tools)
+      return
+    }
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, tools: settle(message.tools) }))
   })
 
   // The model is reported for the thread that ran it, whichever tab is on
@@ -342,7 +370,20 @@ function persist(threadId: string): void {
 
   const messages = thread.messages
     .filter((m) => m.text !== "" || m.tools.length > 0 || m.error)
-    .map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
+    .map((m) => ({
+      role: m.role,
+      text: m.text,
+      tools: m.tools.map((call) => ({
+        callId: call.callId,
+        done: call.done,
+        shape: call.shape,
+        detail: call.detail,
+        output: call.output,
+        isError: call.isError,
+        plan: call.plan,
+      })),
+      error: m.error,
+    }))
   if (messages.length === 0) return
 
   const stamp = JSON.stringify(messages)
@@ -390,7 +431,10 @@ export async function restore(): Promise<void> {
       id: nextMessageId(),
       role: m.role,
       text: m.text,
-      tools: m.tools ?? [],
+      // A transcript written before tools carried their detail holds a list of
+      // names. Read rather than migrated: a conversation from last week is
+      // worth reopening even if its rows can only say what they knew then.
+      tools: (m.tools ?? []).map(restoreTool),
       error: m.error,
       streaming: false,
     })),
@@ -405,6 +449,25 @@ export async function restore(): Promise<void> {
     ),
   }))
   commit({ threads, activeId: threads[0].id })
+}
+
+// restoreTool reads a stored call back, in either of the two shapes the file
+// may hold.
+function restoreTool(stored: StoredTool | string): ToolCall {
+  if (typeof stored === "string") {
+    return { callId: stored, running: stored, done: stored, shape: "other", detail: "", plan: [], output: "", isError: false, finished: true }
+  }
+  return {
+    callId: stored.callId,
+    running: stored.done,
+    done: stored.done,
+    shape: (stored.shape as ToolCall["shape"]) ?? "other",
+    detail: stored.detail ?? "",
+    plan: stored.plan ?? [],
+    output: stored.output ?? "",
+    isError: Boolean(stored.isError),
+    finished: true,
+  }
 }
 
 function setModel(threadId: string, model: string | null): void {
@@ -903,15 +966,9 @@ function Bubble({ message, kind }: { message: ChatMessage; kind: AgentKind }): J
       <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{kind}</div>
 
       {message.tools.length > 0 ? (
-        <div className="mb-1 flex flex-wrap gap-1">
-          {message.tools.map((tool, index) => (
-            <span
-              key={`${tool}-${index}`}
-              className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.04] px-1.5 py-0.5 text-[10px] text-muted-foreground"
-            >
-              <Wrench className="h-2.5 w-2.5" />
-              ran {tool}
-            </span>
+        <div className="mb-1 space-y-px">
+          {message.tools.map((call, index) => (
+            <ToolRow key={`${call.callId}-${index}`} call={call} />
           ))}
         </div>
       ) : null}
