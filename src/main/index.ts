@@ -2,6 +2,8 @@ import { app, BrowserWindow, Menu, nativeImage, shell } from "electron"
 import path from "node:path"
 import { registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { loadRecents } from "./recents"
+import { bundledBinary } from "./daemon"
+import { UpdateController, currentEngineVersion } from "./updateController"
 import fs from "node:fs"
 
 const isDev = !app.isPackaged
@@ -252,7 +254,9 @@ if (!app.requestSingleInstanceLock()) {
       const icon = appIcon()
       if (icon) app.dock?.setIcon(icon)
     }
-    registerIpc(buildMenu)
+    const updates = new UpdateController(() => currentEngineVersion(bundledBinary))
+    registerIpc(buildMenu, updates)
+    updates.start()
     buildMenu()
     createWindow()
 

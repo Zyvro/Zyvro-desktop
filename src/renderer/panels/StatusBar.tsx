@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Check, CircleSlash, Cpu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
+import { EngineUpdateNotice, EngineUpdateProblem } from "~/panels/EngineUpdate"
 
 // The one line that answers "can this project actually run anything right now".
 // On a desktop app that question is mostly about which CLIs are installed, so
@@ -65,6 +66,12 @@ export function StatusBar() {
       )}
 
       <div className="flex-1" />
+
+      {/* The update offer lives here and stays here until the user acts on it,
+          so an engine they chose not to install is never lost, only quiet. */}
+      <EngineUpdateNotice />
+      <EngineUpdateProblem />
+
       {dirtyCount > 0 && (
         <span className="text-foreground/80">
           {dirtyCount} unsaved file{dirtyCount === 1 ? "" : "s"}

@@ -13,6 +13,10 @@ files:
   # buildResources are inputs to the packager, not files it copies. The window
   # and taskbar icon is looked up at runtime, so it has to be shipped too.
   - resources/icon.png
+  # The public half of the engine release key. Without it the app refuses every
+  # engine update rather than installing an unverified binary, so shipping it is
+  # not optional.
+  - resources/engine-release.pub
 
   # Everything the renderer uses is already bundled into out/ by Vite, so the
   # packages themselves are dead weight: monaco-editor alone is 98 MB of source
@@ -28,8 +32,10 @@ files:
 # native binary that has to be executable on disk, and the daemon resolver in
 # src/main/daemon.ts looks for it at resources/bin.
 extraResources:
-  - from: ../Zyvro-backend/bin/${env.ZYVROD_BIN}
+  - from: ../Zyvro-engine/bin/${env.ZYVROD_BIN}
     to: bin/${env.ZYVROD_BIN}
+  - from: resources/engine-release.pub
+    to: engine-release.pub
 
 asar: true
 # node-pty is a native module; packing it into the asar would leave its .node

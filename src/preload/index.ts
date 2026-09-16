@@ -20,6 +20,24 @@ export type FileRead = { path: string; text: string; truncated: boolean } | { pa
 export type AgentKind = "claude" | "codex"
 export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
+export type EngineManifest = {
+  version: string
+  platform: string
+  size: number
+  sha256: string
+  released_at: string
+  notes?: string
+  signature: string
+  url: string
+}
+export type UpdateState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "current"; version: string; checkedAt: string }
+  | { status: "available"; current: string; manifest: EngineManifest; checkedAt: string }
+  | { status: "downloading"; manifest: EngineManifest; receivedBytes: number; totalBytes: number }
+  | { status: "installed"; version: string; restartRequired: true }
+  | { status: "failed"; message: string; checkedAt: string }
 
 const api = {
   platform: process.platform,
@@ -66,6 +84,16 @@ const api = {
     onTool: (cb: (p: { id: string; tool: string }) => void): Unsubscribe => on("agent:tool", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),
+  },
+
+  engineUpdate: {
+    state: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:state"),
+    check: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:check"),
+    // Takes no arguments on purpose: the main process installs the release it
+    // verified itself, never one named by this window.
+    install: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:install"),
+    dismiss: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:dismiss"),
+    onState: (cb: (state: UpdateState) => void): Unsubscribe => on("engine-update:state", cb),
   },
 
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),

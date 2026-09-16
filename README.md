@@ -40,6 +40,40 @@ Clicking a workflow opens the graph editor in a tab. It is not a reimplementatio
 the renderer compiles `Zyvro-frontend/src/components/Builder.tsx` directly, in
 `embedded` mode. A change to the editor lands in both products at once.
 
+## Updating the engine
+
+The app ships a copy of `zyvrod` and checks `server.zyv.ro` for a newer one,
+twenty seconds after launch and every six hours. It never installs anything by
+itself. An available release appears in the status bar and stays there until the
+user acts on it; declining only quiets the dialog, not the offer.
+
+The engine runs with the user's full privileges, reads and writes their project
+and holds their provider keys, which makes this the highest-value attack surface
+in the product. HTTPS proves who served a file; it says nothing about who built
+it, and it is worth nothing if the server or a CDN in front of it is ever
+compromised. So the artifact is signed:
+
+1. Every release is signed with an Ed25519 key that does not live on the server.
+2. The app ships the public half as `resources/engine-release.pub`. If it is
+   missing, updates are refused rather than performed unverified.
+3. The manifest's signature is checked before the download starts and again
+   before anything is written.
+4. The download must match the size and the SHA-256 the signed manifest
+   committed to.
+5. The binary becomes executable only in its final location, by rename, so a
+   partially written file is never nameable as an engine.
+6. Only a strictly newer version is offered, so a replayed old manifest cannot
+   walk someone backwards onto known bugs.
+7. An installed engine that fails its startup handshake is moved aside and the
+   bundled one takes over, rather than being retried forever.
+
+The renderer can ask for an install but cannot choose what gets installed: the
+IPC call takes no arguments, and the main process installs the release it
+fetched and verified itself.
+
+Set `ZYVRO_UPDATE_ORIGIN` to point the check at a test server, and
+`ZYVRO_RELEASE_PUBKEY` at a different key, while working on this.
+
 ## The agent panel
 
 The right-hand column runs the user's own `claude` or `codex` CLI in the project
@@ -101,13 +135,13 @@ backend, so both have to sit beside it under the same parent folder:
 
 ```
 Zyvro/
-├── Zyvro-backend/     https://github.com/Zyvro/Zyvro-backend   (Go, needs a Go toolchain)
+├── Zyvro-engine/      https://github.com/Zyvro/Zyvro-engine    (Go, needs a Go toolchain)
 ├── Zyvro-frontend/    https://github.com/Zyvro/Zyvro-frontend  (the shared graph editor)
 └── Zyvro-desktop/     this repository
 ```
 
 ```sh
-git clone https://github.com/Zyvro/Zyvro-backend.git
+git clone https://github.com/Zyvro/Zyvro-engine.git
 git clone https://github.com/Zyvro/Zyvro-frontend.git
 git clone https://github.com/Zyvro/Zyvro-desktop.git
 

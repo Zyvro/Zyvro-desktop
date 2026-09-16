@@ -3,6 +3,7 @@ import type { Readable } from "node:stream"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { app } from "electron"
+import { installedEngine, quarantineEngine } from "./engineUpdate"
 
 // The desktop app does not talk to zyv.ro. Every project gets its own local
 // daemon process (`zyvrod`) that owns the .zyvro folder and runs the graph
@@ -19,6 +20,9 @@ export type DaemonHandshake = {
   port: number
   token: string
   project: string
+  // Added by newer engines. An older one sends nothing here, which reads as
+  // "unknown" rather than as an error.
+  version?: string
 }
 
 export type DaemonInfo = DaemonHandshake & { origin: string }
@@ -31,16 +35,16 @@ export class DaemonError extends Error {
   }
 }
 
-// resolveBinary looks for zyvrod in the places it can legitimately be, most
-// specific first. A packaged build ships it under resources/bin; a developer
-// running from the repo has just built it into Zyvro-backend/bin.
-function resolveBinary(): string {
+// bundledBinary looks for the zyvrod that shipped with this app, most specific
+// place first. A packaged build carries it under resources/bin; a developer
+// running from the repo has just built it into Zyvro-engine/bin.
+export function bundledBinary(): string {
   const name = process.platform === "win32" ? "zyvrod.exe" : "zyvrod"
   const candidates = [
     process.env.ZYVROD_PATH,
     path.join(process.resourcesPath || "", "bin", name),
-    path.join(app.getAppPath(), "..", "..", "Zyvro-backend", "bin", name),
-    path.join(app.getAppPath(), "..", "Zyvro-backend", "bin", name),
+    path.join(app.getAppPath(), "..", "..", "Zyvro-engine", "bin", name),
+    path.join(app.getAppPath(), "..", "Zyvro-engine", "bin", name),
   ].filter((p): p is string => Boolean(p))
 
   for (const candidate of candidates) {
@@ -58,8 +62,16 @@ export class Daemon {
   private info: DaemonInfo | null = null
   private log: string[] = []
 
+  // engineVersion is the version of the binary currently serving this project,
+  // read from the handshake. Older engines do not send one.
+  private version = ""
+
   get current(): DaemonInfo | null {
     return this.info
+  }
+
+  get engineVersion(): string {
+    return this.version
   }
 
   // recentLog returns the tail of the daemon's stderr, which is what we show
@@ -68,9 +80,29 @@ export class Daemon {
     return this.log.join("\n")
   }
 
+  // start prefers an engine the user has installed through the update channel
+  // and falls back to the one that shipped with the app. A downloaded engine
+  // that cannot even complete its handshake is moved aside rather than retried,
+  // because the alternative is an app that will not open a project again until
+  // someone deletes a directory by hand.
   async start(projectDir: string): Promise<DaemonInfo> {
+    const installed = await installedEngine()
+    if (installed) {
+      try {
+        return await this.launch(installed.path, projectDir)
+      } catch (err) {
+        console.warn(
+          `The installed engine ${installed.version} failed to start, falling back to the bundled one:`,
+          (err as Error).message
+        )
+        await quarantineEngine(installed.version)
+      }
+    }
+    return this.launch(bundledBinary(), projectDir)
+  }
+
+  private async launch(bin: string, projectDir: string): Promise<DaemonInfo> {
     await this.stop()
-    const bin = resolveBinary()
     const child = spawn(bin, ["--project", projectDir, "--port", "0"], {
       cwd: projectDir,
       env: { ...process.env },
@@ -90,6 +122,7 @@ export class Daemon {
     })
 
     const handshake = await this.readHandshake(child, bin)
+    this.version = handshake.version || ""
     this.info = { ...handshake, origin: `http://127.0.0.1:${handshake.port}` }
     return this.info
   }
@@ -141,7 +174,7 @@ export class Daemon {
       child.on("error", (err: NodeJS.ErrnoException) => {
         const hint =
           err.code === "ENOENT"
-            ? `Could not find the local engine at "${bin}". Build it with: cd Zyvro-backend && go build -o bin/zyvrod ./cmd/zyvrod`
+            ? `Could not find the local engine at "${bin}". Build it with: cd Zyvro-engine && go build -o bin/zyvrod ./cmd/zyvrod`
             : err.message
         finish(() => reject(new DaemonError("The local Zyvro engine could not be launched.", hint)))
       })

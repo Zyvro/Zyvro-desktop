@@ -2,7 +2,7 @@ import { useState } from "react"
 import { Boxes, FolderTree, Settings2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
-import { useCurrentProject } from "~/lib/project"
+import { useCurrentProject, useNodeCatalogue } from "~/lib/project"
 import { TitleBar } from "~/panels/TitleBar"
 import { Explorer } from "~/panels/Explorer"
 import { WorkflowList } from "~/panels/WorkflowList"
@@ -74,6 +74,9 @@ export default function App() {
   // The query runs for its adoption side effect as much as its data: it is what
   // reattaches the shared API client to the daemon after a renderer reload.
   useCurrentProject()
+  // Runs for its side effect as much as its data: it is what tells the shared
+  // node registry which Lua packs this project has installed.
+  useNodeCatalogue()
 
   const panels = useWorkspace((s) => s.panels)
   const [sidebar, setSidebar] = useState(260)

@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
+import { registerPluginKinds, type NodeKind } from "@/lib/nodes"
 import type { OpenResult } from "../../preload"
 import { attachDaemon, detachDaemon } from "./daemon"
 import { queryClient } from "./queryClient"
@@ -12,13 +13,40 @@ import { useWorkspace } from "~/state/workspace"
 
 export const projectKey = ["project", "current"] as const
 export const workflowsKey = ["local", "workflows"] as const
+export const nodesKey = ["local", "nodes"] as const
 export const recentsKey = ["project", "recents"] as const
 
 function adopt(result: OpenResult | null): OpenResult | null {
   if (result) attachDaemon(result.daemon.origin, result.daemon.token)
   else detachDaemon()
+  // Node packs belong to a project. Closing one has to take its nodes with it,
+  // or the palette would go on offering a type the next project cannot run.
+  if (!result) registerPluginKinds([])
   useWorkspace.getState().setProject(result)
   return result
+}
+
+// useNodeCatalogue asks the engine what it can run. The set is no longer fixed:
+// a project can install packs of Lua nodes, and the palette has to show them.
+// Registering happens in the fetcher rather than in a component, because the
+// node registry is read during render by code that is not ours.
+export function useNodeCatalogue() {
+  const project = useWorkspace((s) => s.project)
+  return useQuery({
+    queryKey: nodesKey,
+    queryFn: async () => {
+      const response = await fetch("http://127.0.0.1:0/api/nodes")
+      if (!response.ok) throw new Error(`The engine listed no nodes (${response.status}).`)
+      const kinds = (await response.json()) as NodeKind[]
+      // The catalogue carries the built-ins too. registerPluginKinds drops
+      // anything that collides with one, so handing it the whole list is both
+      // correct and tolerant of the engine adding a built-in we do not know.
+      registerPluginKinds(Array.isArray(kinds) ? kinds : [])
+      return kinds
+    },
+    enabled: Boolean(project),
+    staleTime: 30_000,
+  })
 }
 
 // openProject opens a folder, or asks for one when given null. It resolves to
