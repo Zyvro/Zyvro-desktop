@@ -8,6 +8,7 @@ import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
+import * as git from "./git"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
 // the shells running in it and the agent turns in flight. Bundling them means
@@ -322,6 +323,91 @@ export function registerIpc(onRecents?: () => void): void {
       return store.publishWorkflow(payload)
     }
   )
+
+  // ---------- Git ----------
+  //
+  // Every one of these is the open project and nothing else: the root comes
+  // from the workspace, never from the renderer, so a window cannot be talked
+  // into running git somewhere else. The paths inside are checked against that
+  // root by git.ts itself.
+
+  ipcMain.handle("git:status", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.status(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:init", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.init(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:stage", async (event, paths: string[]) => {
+    const { ws } = requireWorkspace(event)
+    return git.stage(requireRoot(ws), paths.map(String))
+  })
+
+  ipcMain.handle("git:unstage", async (event, paths: string[]) => {
+    const { ws } = requireWorkspace(event)
+    return git.unstage(requireRoot(ws), paths.map(String))
+  })
+
+  ipcMain.handle("git:discard", async (event, paths: string[]) => {
+    const { ws } = requireWorkspace(event)
+    return git.discard(requireRoot(ws), paths.map(String))
+  })
+
+  ipcMain.handle("git:commit", async (event, message: string, options: git.CommitOptions) => {
+    const { ws } = requireWorkspace(event)
+    return git.commit(requireRoot(ws), String(message), {
+      amend: Boolean(options?.amend),
+      stageAll: Boolean(options?.stageAll),
+    })
+  })
+
+  ipcMain.handle("git:diff", async (event, relative: string, staged: boolean) => {
+    const { ws } = requireWorkspace(event)
+    return git.diff(requireRoot(ws), String(relative), Boolean(staged))
+  })
+
+  ipcMain.handle("git:file-at", async (event, relative: string, revision: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.fileAt(requireRoot(ws), String(relative), String(revision))
+  })
+
+  ipcMain.handle("git:log", async (event, limit?: number) => {
+    const { ws } = requireWorkspace(event)
+    return git.log(requireRoot(ws), Number(limit) || 50)
+  })
+
+  ipcMain.handle("git:branches", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.branches(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:checkout", async (event, branch: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.checkout(requireRoot(ws), String(branch))
+  })
+
+  ipcMain.handle("git:create-branch", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.createBranch(requireRoot(ws), String(name))
+  })
+
+  ipcMain.handle("git:fetch", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.fetch(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:pull", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.pull(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:push", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.push(requireRoot(ws))
+  })
 
   // Opening a link goes through the OS browser, never a new Electron window: a
   // window without our preload would still have Chromium privileges.

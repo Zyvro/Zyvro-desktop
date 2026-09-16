@@ -1,10 +1,11 @@
 import { useState } from "react"
-import { Boxes, FolderTree, Settings2, Store } from "lucide-react"
+import { Boxes, FolderTree, GitBranch, Settings2, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { useWorkspace } from "~/state/workspace"
+import { sidebarView, useWorkspace } from "~/state/workspace"
 import { useCurrentProject, useNodeCatalogue } from "~/lib/project"
 import { TitleBar } from "~/panels/TitleBar"
 import { Explorer } from "~/panels/Explorer"
+import { GitPanel } from "~/panels/GitPanel"
 import { WorkflowList } from "~/panels/WorkflowList"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
@@ -35,6 +36,12 @@ function ActivityBar() {
       label: "Explorer",
       active: panels.explorer,
       onClick: () => setPanel("explorer", !panels.explorer),
+    },
+    {
+      icon: GitBranch,
+      label: "Source Control",
+      active: panels.git,
+      onClick: () => setPanel("git", !panels.git),
     },
     {
       icon: Store,
@@ -86,6 +93,7 @@ export default function App() {
   useNodeCatalogue()
 
   const panels = useWorkspace((s) => s.panels)
+  const view = sidebarView(panels)
   const [sidebar, setSidebar] = useState(260)
   const [agent, setAgent] = useState(360)
   const [terminal, setTerminal] = useState(220)
@@ -97,14 +105,20 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <ActivityBar />
 
-        {panels.explorer && (
+        {view && (
           <>
             <aside
               className="flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-background"
               style={{ width: sidebar }}
             >
-              <Explorer />
-              <WorkflowList />
+              {view === "explorer" ? (
+                <>
+                  <Explorer />
+                  <WorkflowList />
+                </>
+              ) : (
+                <GitPanel />
+              )}
             </aside>
             <Splitter
               orientation="vertical"

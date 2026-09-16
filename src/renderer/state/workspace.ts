@@ -12,8 +12,27 @@ export type Tab =
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "store"; id: "store"; title: string }
+  // A diff is its own kind rather than a file tab with a flag: it has two sides,
+  // it is read-only, and closing it must not look like closing the file.
+  | { kind: "diff"; id: string; path: string; staged: boolean; title: string }
 
-export type PanelKey = "explorer" | "terminal" | "agent"
+export type PanelKey = "explorer" | "terminal" | "agent" | "git"
+
+// The sidebar holds one view at a time, the way every editor built on this
+// layout does: clicking Source Control puts the file tree away rather than
+// stacking underneath it. Two scrolling trees sharing one narrow column means
+// neither has room, and the activity bar stops meaning "where am I".
+//
+// It is derived rather than stored separately: `panels` is still the one place
+// that says what is open, so the menu item and the title-bar button keep
+// working on it unchanged.
+export type SidebarView = "explorer" | "git"
+
+export function sidebarView(panels: Record<PanelKey, boolean>): SidebarView | null {
+  if (panels.git) return "git"
+  if (panels.explorer) return "explorer"
+  return null
+}
 
 type WorkspaceState = {
   project: OpenResult | null
@@ -35,6 +54,7 @@ type WorkspaceState = {
 
   openFile: (path: string) => void
   openGraph: (workflowId: string, title: string) => void
+  openDiff: (path: string, staged: boolean) => void
   openProviders: () => void
   openStore: () => void
   closeTab: (id: string) => void
@@ -49,6 +69,16 @@ type WorkspaceState = {
 }
 
 const WELCOME: Tab = { kind: "welcome", id: "welcome", title: "Welcome" }
+
+const SIDEBAR: PanelKey[] = ["explorer", "git"]
+
+function withSidebar(panels: Record<PanelKey, boolean>, key: PanelKey, open: boolean) {
+  const next = { ...panels, [key]: open }
+  if (open && SIDEBAR.includes(key)) {
+    for (const other of SIDEBAR) if (other !== key) next[other] = false
+  }
+  return { panels: next }
+}
 
 function basename(p: string): string {
   const parts = p.split("/")
@@ -94,7 +124,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activeTabId: WELCOME.id,
   drafts: {},
 
-  panels: { explorer: true, terminal: true, agent: true },
+  panels: { explorer: true, terminal: true, agent: true, git: false },
 
   setProject: (project) =>
     set(
@@ -128,6 +158,25 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }
     const tab: Tab = { kind: "graph", id, workflowId, title }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
+  openDiff: (path, staged) => {
+    const id = `diff:${staged ? "staged" : "working"}:${path}`
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = {
+      kind: "diff",
+      id,
+      path,
+      staged,
+      title: `${basename(path)} (${staged ? "staged" : "working tree"})`,
+    }
+    set((s) => ({
+      tabs: [...s.tabs.filter((t) => t.kind !== "welcome" && !replacedByOpening(s, t, id)), tab],
+      activeTabId: id,
+    }))
   },
 
   openProviders: () => {
@@ -174,8 +223,11 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return { drafts }
     }),
 
-  togglePanel: (key) => set((s) => ({ panels: { ...s.panels, [key]: !s.panels[key] } })),
-  setPanel: (key, open) => set((s) => ({ panels: { ...s.panels, [key]: open } })),
+  // Opening one sidebar view closes the other. Terminal and agent are not part
+  // of that bargain: they live elsewhere on screen and have no reason to
+  // compete for the same column.
+  togglePanel: (key) => set((s) => withSidebar(s.panels, key, !s.panels[key])),
+  setPanel: (key, open) => set((s) => withSidebar(s.panels, key, open)),
 }))
 
 // openRoute is the landing point for the Next.js router shim. The shared

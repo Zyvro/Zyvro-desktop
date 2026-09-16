@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useWorkspace, type Tab } from "~/state/workspace"
 import { CodeEditor } from "./CodeEditor"
 import { GraphTab } from "./GraphTab"
+import { DiffView } from "./DiffView"
 import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
 import { StorePanel } from "./StorePanel"
@@ -61,6 +62,8 @@ function TabBody({ tab }: { tab: Tab }) {
       return <CodeEditor tabId={tab.id} path={tab.path} />
     case "graph":
       return <GraphTab workflowId={tab.workflowId} />
+    case "diff":
+      return <DiffView path={tab.path} staged={tab.staged} />
     case "providers":
       return <ProvidersTab />
     case "store":

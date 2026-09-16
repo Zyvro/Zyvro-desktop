@@ -41,6 +41,7 @@ import type {
   InstalledPack,
 } from "../main/store"
 import type { PublisherVerdict } from "../main/knownpublishers"
+import type { Change, ChangeStatus, CommitOptions, GitStatus, LogEntry, NoRepository } from "../main/git"
 
 export type {
   StoreListing,
@@ -52,6 +53,12 @@ export type {
   InstallResult,
   InstalledPack,
   PublisherVerdict,
+  Change,
+  ChangeStatus,
+  CommitOptions,
+  GitStatus,
+  LogEntry,
+  NoRepository,
 }
 
 const api = {
@@ -123,6 +130,30 @@ const api = {
       ipcRenderer.invoke("store:publish-pack", name, password),
     publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
       ipcRenderer.invoke("store:publish-workflow", payload),
+  },
+
+  // Git. The shapes are imported from the main process rather than restated
+  // here, the same rule the store types follow two blocks up and for the same
+  // reason: a description of somebody else's data that lives in two places
+  // disagrees with itself eventually.
+  git: {
+    status: (): Promise<GitStatus | NoRepository> => ipcRenderer.invoke("git:status"),
+    init: (): Promise<void> => ipcRenderer.invoke("git:init"),
+    stage: (paths: string[]): Promise<void> => ipcRenderer.invoke("git:stage", paths),
+    unstage: (paths: string[]): Promise<void> => ipcRenderer.invoke("git:unstage", paths),
+    discard: (paths: string[]): Promise<void> => ipcRenderer.invoke("git:discard", paths),
+    commit: (message: string, options: CommitOptions = {}): Promise<void> =>
+      ipcRenderer.invoke("git:commit", message, options),
+    diff: (path: string, staged: boolean): Promise<string> => ipcRenderer.invoke("git:diff", path, staged),
+    fileAt: (path: string, revision: string): Promise<string> =>
+      ipcRenderer.invoke("git:file-at", path, revision),
+    log: (limit?: number): Promise<LogEntry[]> => ipcRenderer.invoke("git:log", limit),
+    branches: (): Promise<string[]> => ipcRenderer.invoke("git:branches"),
+    checkout: (branch: string): Promise<void> => ipcRenderer.invoke("git:checkout", branch),
+    createBranch: (name: string): Promise<void> => ipcRenderer.invoke("git:create-branch", name),
+    fetch: (): Promise<void> => ipcRenderer.invoke("git:fetch"),
+    pull: (): Promise<void> => ipcRenderer.invoke("git:pull"),
+    push: (): Promise<void> => ipcRenderer.invoke("git:push"),
   },
 
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),
