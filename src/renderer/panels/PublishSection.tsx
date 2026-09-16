@@ -18,7 +18,7 @@ type MissingPacks = { types: string[]; packs: string[] }
 function whichPacksProvide(types: string[], installed: InstalledPack[]): string[] {
   const names = new Set<string>()
   for (const pack of installed) {
-    for (const file of Object.keys(pack.sources)) {
+    for (const { path: file } of pack.sources) {
       // A pack's node types are not in its manifest, so the type is matched
       // against the file that defines it, which is the convention the loader
       // already relies on.
@@ -111,8 +111,8 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
                   {pack.name} <span className="font-mono text-[11px] text-muted-foreground">{pack.version}</span>
                 </p>
                 <p className="truncate text-[12px] text-muted-foreground">
-                  {pack.description || "No description."} · {Object.keys(pack.sources).length} node
-                  {Object.keys(pack.sources).length === 1 ? "" : "s"}
+                  {pack.description || "No description."} · {pack.sources.length} node
+                  {pack.sources.length === 1 ? "" : "s"}
                 </p>
               </div>
               <PublishButton

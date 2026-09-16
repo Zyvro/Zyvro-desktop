@@ -22,21 +22,21 @@ export function PackSource({ name }: { name: string }) {
     return <p className="text-[12px] text-destructive">{(pack.error as Error).message}</p>
   }
 
-  const sources = Object.entries(pack.data?.sources ?? {})
+  const sources = pack.data?.sources ?? []
   if (sources.length === 0) {
     return <p className="text-[12px] text-muted-foreground">This pack carries no readable source.</p>
   }
 
   return (
     <div className="space-y-2">
-      {sources.map(([file, source]) => (
-        <div key={file} className="overflow-hidden rounded-lg border border-white/[0.08] bg-black/40">
+      {sources.map((source) => (
+        <div key={source.path} className="overflow-hidden rounded-lg border border-white/[0.08] bg-black/40">
           <div className="border-b border-white/[0.06] px-2.5 py-1 font-mono text-[10px] text-muted-foreground">
-            {file}
+            {source.path}
           </div>
           <pre className="zy-scroll max-h-72 overflow-auto px-2.5 py-2">
             <code className="zy-selectable font-mono text-[11px] leading-relaxed text-foreground/90">
-              {source}
+              {source.code}
             </code>
           </pre>
         </div>

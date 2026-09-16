@@ -69,9 +69,31 @@ export type StoreListing = {
   updatedAt: string
 }
 
+// The store carries sources as a list of {path, code}, not as a map. A map
+// cannot round-trip through the digest either: the digest is defined over an
+// ordered list of files, and JSON objects have no order.
+export type StoreSource = { path: string; code: string }
+
 export type StorePack = StoreListing & {
-  manifest: Record<string, unknown>
-  sources: Record<string, string>
+  manifest?: Record<string, unknown>
+  sources: StoreSource[]
+}
+
+// sourceMap turns the wire shape into the one the digest and the writer want.
+// A duplicate path would let two files disagree about which one is installed,
+// so it is a refusal rather than a last-one-wins.
+function sourceMap(sources: StoreSource[], pack: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const source of sources ?? []) {
+    if (typeof source?.path !== "string" || typeof source?.code !== "string") {
+      throw new StoreError(`The pack "${pack}" contains a malformed source entry.`)
+    }
+    if (source.path in out) {
+      throw new StoreError(`The pack "${pack}" lists "${source.path}" twice.`)
+    }
+    out[source.path] = source.code
+  }
+  return out
 }
 
 export type StoreWorkflow = {
@@ -97,16 +119,23 @@ function query(params: Record<string, string | number | undefined>): string {
   return text ? `?${text}` : ""
 }
 
+// The two listings name their array after what it holds. Reading a single
+// agreed key would have been tidier; reading the one the server actually sends
+// is what makes the panel show anything, and a silent empty list is the worst
+// possible failure here because it looks exactly like an empty store.
 export async function listNodes(q = "", limit = 50): Promise<StoreListing[]> {
-  const body = (await anonymous(`/api/store/nodes${query({ q, limit })}`)) as { items?: StoreListing[] }
-  return Array.isArray(body?.items) ? body.items : []
+  const body = (await anonymous(`/api/store/nodes${query({ q, limit })}`)) as {
+    packs?: StoreListing[]
+  }
+  return Array.isArray(body?.packs) ? body.packs : []
 }
 
 export async function listWorkflows(q = "", limit = 50): Promise<StoreWorkflow[]> {
   const body = (await anonymous(`/api/store/workflows${query({ q, limit })}`)) as {
-    items?: StoreWorkflow[]
+    workflows?: StoreWorkflow[]
+    templates?: StoreWorkflow[]
   }
-  return Array.isArray(body?.items) ? body.items : []
+  return body?.workflows ?? body?.templates ?? []
 }
 
 // readPack fetches a pack's sources without installing anything, which is what
@@ -133,7 +162,7 @@ async function writePack(projectDir: string, pack: StorePack): Promise<void> {
   assertName(pack.name)
   assertVersion(pack.version)
 
-  const sources = pack.sources ?? {}
+  const sources = sourceMap(pack.sources, pack.name)
 
   // The server says what a version's bytes should hash to. Checking it here is
   // what makes that promise worth anything: a store that served different bytes
@@ -227,7 +256,7 @@ export type InstalledPack = {
   description: string
   author: string
   capabilities: string[]
-  sources: Record<string, string>
+  sources: StoreSource[]
 }
 
 // listInstalledPacks reads what the project actually carries, which is what a
@@ -267,10 +296,13 @@ export async function readInstalledPack(projectDir: string, name: string): Promi
     unknown
   >
   const nodesDir = path.join(dir, "nodes")
-  const files = (await fs.readdir(nodesDir)).filter((f) => SOURCE_NAME.test(f))
-  const sources: Record<string, string> = {}
+  // Sorted, because the digest is defined over files in ascending name order
+  // and a publish that sends them in another order would hash differently from
+  // what the store computes.
+  const files = (await fs.readdir(nodesDir)).filter((f) => SOURCE_NAME.test(f)).sort()
+  const sources: StoreSource[] = []
   for (const file of files) {
-    sources[file] = await fs.readFile(path.join(nodesDir, file), "utf8")
+    sources.push({ path: file, code: await fs.readFile(path.join(nodesDir, file), "utf8") })
   }
 
   return {

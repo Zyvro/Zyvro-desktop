@@ -30,9 +30,10 @@ export type StoreListing = {
   nodeTypes?: string[]
   updatedAt: string
 }
+export type StoreSource = { path: string; code: string }
 export type StorePack = StoreListing & {
-  manifest: Record<string, unknown>
-  sources: Record<string, string>
+  manifest?: Record<string, unknown>
+  sources: StoreSource[]
 }
 export type StoreWorkflow = {
   name: string
@@ -49,7 +50,7 @@ export type InstalledPack = {
   description: string
   author: string
   capabilities: string[]
-  sources: Record<string, string>
+  sources: StoreSource[]
 }
 export type EngineManifest = {
   version: string
