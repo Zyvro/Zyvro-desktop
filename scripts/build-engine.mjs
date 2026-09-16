@@ -9,7 +9,7 @@
 //     node scripts/build-engine.mjs darwin arm64     one specific target
 //     node scripts/build-engine.mjs --all            every target a release needs
 import { spawnSync } from "node:child_process"
-import { copyFileSync, existsSync, renameSync } from "node:fs"
+import { copyFileSync, existsSync, renameSync, rmSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -119,7 +119,19 @@ if (args[0] === "--all") {
   // A rename is also the only safe way to do this while another window still
   // has the old binary running: that process keeps the old inode and lives.
   const target = path.join(engine, "bin", os === "windows" ? "zyvrod.exe" : "zyvrod")
-  const staging = `${target}.new`
-  copyFileSync(path.join(engine, "bin", name), staging)
-  renameSync(staging, target)
+  // The staging name carries this process's pid, because two `npm run dev` in
+  // two terminals share this bin directory and would otherwise copy into the
+  // same file at the same time: one would rename a half-written binary into
+  // place. Per-process names make the two builds independent, and the rename
+  // stays the atomic step that decides which one wins.
+  const staging = `${target}.${process.pid}.new`
+  try {
+    copyFileSync(path.join(engine, "bin", name), staging)
+    renameSync(staging, target)
+  } catch (err) {
+    // A staging file left behind would be copied into a release by any glob
+    // over bin/, so it goes even when the rename is what failed.
+    rmSync(staging, { force: true })
+    throw err
+  }
 }
