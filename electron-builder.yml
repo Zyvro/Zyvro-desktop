@@ -49,11 +49,20 @@ mac:
   target:
     - target: dmg
       arch: [arm64, x64]
-  # The app spawns the user's own claude and codex CLIs, which is the point of
-  # the product, so the hardened runtime has to allow an unsigned child.
-  hardenedRuntime: true
-  entitlements: resources/entitlements.mac.plist
-  entitlementsInherit: resources/entitlements.mac.plist
+  # Not signed for distribution, and that is a fact about this build rather
+  # than a preference. The only certificate available is an Apple Development
+  # one, which signs for the machines on a provisioning profile and satisfies
+  # Gatekeeper nowhere else; using it would add a step and change nothing.
+  # Distribution needs a Developer ID Application certificate and notarization.
+  #
+  # null makes electron-builder ad-hoc sign instead, which is the minimum an
+  # Apple Silicon Mac needs to run a binary at all. RELEASE.md says what the
+  # person who downloads it will see.
+  identity: null
+  # The hardened runtime exists to be paired with notarization. Without it the
+  # entitlements buy nothing and only constrain the child processes this app
+  # is built to spawn.
+  hardenedRuntime: false
 
 win:
   icon: resources/icon.ico
