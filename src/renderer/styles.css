@@ -1,0 +1,72 @@
+/* The product's own stylesheet, imported wholesale. It carries the Tailwind
+   directives, the colour tokens and the React Flow port styling the graph
+   editor depends on, so the desktop app looks like the web app because it
+   literally is the web app's CSS. */
+@import "../../../Zyvro-frontend/src/app/globals.css";
+@import "@xterm/xterm/css/xterm.css";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+body {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  /* A desktop window should not rubber-band or offer text selection on chrome
+     the way a web page does. */
+  overscroll-behavior: none;
+  user-select: none;
+}
+
+/* Anything the user reads or edits opts back in. */
+input,
+textarea,
+[contenteditable="true"],
+.zy-selectable {
+  user-select: text;
+}
+
+/* The macOS title bar is hidden, so this strip is what the user drags. The
+   interactive controls inside it opt out again. */
+.zy-drag {
+  -webkit-app-region: drag;
+}
+.zy-nodrag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbars: the default macOS overlay bars vanish on a dark panel. */
+.zy-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.zy-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 6px;
+}
+.zy-scroll::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+  background-clip: content-box;
+}
+.zy-scroll::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Monaco paints its own background; matching it to the panel stops a seam
+   appearing down the side of the editor. */
+.monaco-editor,
+.monaco-editor .overflow-guard,
+.monaco-editor-background,
+.monaco-editor .margin {
+  background-color: hsl(var(--background)) !important;
+}
+
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}

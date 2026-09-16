@@ -1,0 +1,48 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "paths": {
+      "next/link": [
+        "./src/renderer/shims/next-link.tsx"
+      ],
+      "next/navigation": [
+        "./src/renderer/shims/next-navigation.ts"
+      ],
+      "next/image": [
+        "./src/renderer/shims/next-image.tsx"
+      ],
+      "@/*": [
+        "../Zyvro-frontend/src/*"
+      ],
+      "~/*": [
+        "./src/renderer/*"
+      ]
+    }
+  },
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/preload/**/*.ts",
+    "../Zyvro-frontend/src/**/*.ts",
+    "../Zyvro-frontend/src/**/*.tsx"
+  ]
+}

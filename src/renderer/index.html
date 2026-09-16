@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Zyvro Studio</title>
+    <!-- The renderer only ever loads its own bundle and talks to a loopback
+         daemon, so the policy can be this tight. connect-src keeps http open
+         for 127.0.0.1 because the daemon's port is not known until runtime. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:*; worker-src 'self' blob:;"
+    />
+  </head>
+  <body class="dark">
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

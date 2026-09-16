@@ -1,0 +1,65 @@
+appId: ro.zyv.studio
+productName: Zyvro Studio
+copyright: Zyvro
+
+directories:
+  output: dist
+  buildResources: resources
+
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+  # buildResources are inputs to the packager, not files it copies. The window
+  # and taskbar icon is looked up at runtime, so it has to be shipped too.
+  - resources/icon.png
+
+  # Everything the renderer uses is already bundled into out/ by Vite, so the
+  # packages themselves are dead weight: monaco-editor alone is 98 MB of source
+  # that never gets loaded. node-pty is the exception, because the main process
+  # requires it at runtime rather than bundling it.
+  - "!node_modules/**/*"
+  - "node_modules/node-pty/**/*"
+  - "!node_modules/node-pty/{src,deps,scripts,.github,typings}/**/*"
+  - "!node_modules/node-pty/build/**/*.{o,a,d,mk,gypi,Makefile}"
+  - "!node_modules/node-pty/build/Release/{obj,obj.target,.deps}/**/*"
+
+# The local engine ships beside the app rather than inside the asar: it is a
+# native binary that has to be executable on disk, and the daemon resolver in
+# src/main/daemon.ts looks for it at resources/bin.
+extraResources:
+  - from: ../Zyvro-backend/bin/${env.ZYVROD_BIN}
+    to: bin/${env.ZYVROD_BIN}
+
+asar: true
+# node-pty is a native module; packing it into the asar would leave its .node
+# binary unloadable.
+asarUnpack:
+  - "**/node_modules/node-pty/**"
+
+mac:
+  icon: resources/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  # The app spawns the user's own claude and codex CLIs, which is the point of
+  # the product, so the hardened runtime has to allow an unsigned child.
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  icon: resources/icon.png
+  target: [AppImage]
+  category: Development

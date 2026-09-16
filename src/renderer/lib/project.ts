@@ -1,0 +1,90 @@
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { api } from "@/lib/api"
+import type { OpenResult } from "../../preload"
+import { attachDaemon, detachDaemon } from "./daemon"
+import { queryClient } from "./queryClient"
+import { useWorkspace } from "~/state/workspace"
+
+// Opening a project is the operation that changes everything: it starts a
+// daemon, points the shared API client at it, and gives the file tree a root.
+// It lives here as a plain function, not only as a hook, because the File menu
+// has to be able to trigger it from outside the React tree.
+
+export const projectKey = ["project", "current"] as const
+export const workflowsKey = ["local", "workflows"] as const
+export const recentsKey = ["project", "recents"] as const
+
+function adopt(result: OpenResult | null): OpenResult | null {
+  if (result) attachDaemon(result.daemon.origin, result.daemon.token)
+  else detachDaemon()
+  useWorkspace.getState().setProject(result)
+  return result
+}
+
+// openProject opens a folder, or asks for one when given null. It resolves to
+// null when the user cancels the dialog, which is not an error.
+export async function openProject(dir: string | null): Promise<OpenResult | null> {
+  const store = useWorkspace.getState()
+  try {
+    const target = dir ?? (await window.zyvro.project.choose())
+    if (!target) {
+      store.setOpening(false)
+      return null
+    }
+    store.setOpening(true)
+    const result = await window.zyvro.project.open(target)
+    adopt(result)
+    queryClient.setQueryData(projectKey, result)
+    // The previous project's workflows and file listings must not survive into
+    // the new one, or the tree would describe a folder that is no longer open.
+    queryClient.removeQueries({ queryKey: ["local"] })
+    queryClient.removeQueries({ queryKey: ["files"] })
+    void queryClient.invalidateQueries({ queryKey: recentsKey })
+    return result
+  } catch (err) {
+    store.setOpenError((err as Error).message)
+    return null
+  }
+}
+
+// useRecents backs the list on the welcome screen. The File menu reads the
+// same data from disk in the main process, so the two cannot disagree.
+export function useRecents() {
+  return useQuery({ queryKey: recentsKey, queryFn: () => window.zyvro.project.recents() })
+}
+
+export async function forgetRecents(): Promise<void> {
+  const recents = await window.zyvro.project.forgetRecents()
+  queryClient.setQueryData(recentsKey, recents)
+}
+
+export async function closeProject(): Promise<void> {
+  await window.zyvro.project.close()
+  adopt(null)
+  queryClient.setQueryData(projectKey, null)
+  queryClient.removeQueries({ queryKey: ["local"] })
+  queryClient.removeQueries({ queryKey: ["files"] })
+}
+
+// createWorkflow is here rather than in the list panel for the same reason:
+// the New Workflow menu item must reach it without a component being mounted.
+export async function createWorkflow(name: string): Promise<void> {
+  const workflow = await api.createWorkflow(name, { nodes: [], edges: [] })
+  await queryClient.invalidateQueries({ queryKey: workflowsKey })
+  useWorkspace.getState().openGraph(workflow.id, workflow.name)
+}
+
+// useCurrentProject asks the main process what this window already has open.
+// The daemon outlives a renderer reload in development, so the answer is not
+// always "nothing".
+export function useCurrentProject() {
+  return useQuery({
+    queryKey: projectKey,
+    queryFn: async () => adopt(await window.zyvro.project.current()),
+    staleTime: Infinity,
+  })
+}
+
+export function useOpenProject() {
+  return useMutation({ mutationFn: (dir: string | null) => openProject(dir) })
+}
