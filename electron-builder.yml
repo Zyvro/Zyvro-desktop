@@ -34,6 +34,8 @@ extraResources:
   - from: resources/engine-release.pub
     to: engine-release.pub
 
+afterPack: scripts/adhoc-sign.cjs
+
 asar: true
 # node-pty is a native module; packing it into the asar would leave its .node
 # binary unloadable.
@@ -63,6 +65,8 @@ mac:
   # Apple Silicon Mac needs to run a binary at all. RELEASE.md says what the
   # person who downloads it will see.
   identity: null
+  # identity: null skips signing, and what that leaves on arm64 does not run.
+  # scripts/adhoc-sign.cjs signs it properly afterwards; see the comment there.
   # The hardened runtime exists to be paired with notarization. Without it the
   # entitlements buy nothing and only constrain the child processes this app
   # is built to spawn.

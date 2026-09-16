@@ -33,10 +33,14 @@ jobs:
             # runners macOS d'Actions, et un zip se distribue aussi bien. Le
             # dmg reste produit localement par npm run release.
             target: zip
+            # Sans ces deux drapeaux, electron-builder ne construit que
+            # l'architecture du runner, et les Mac Intel n'ont rien.
+            arches: "--arm64 --x64"
             artifacts: "dist/*.zip"
           - os: windows-2022
             platform: win
             target: nsis
+            arches: "--x64"
             artifacts: "dist/*.exe"
 
     runs-on: ${{ matrix.os }}
@@ -134,7 +138,7 @@ jobs:
         # picking up a certificate that would not help anyway.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} --publish never
+        run: npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} ${{ matrix.arches }} --publish never
 
       - name: Hash the artifacts
         working-directory: Zyvro-desktop
