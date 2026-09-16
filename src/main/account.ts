@@ -207,3 +207,22 @@ export async function kdfParamsFor(email: string): Promise<KdfParams> {
     body: JSON.stringify({ email }),
   })) as KdfParams
 }
+
+// webOrigin is where a person opens a link, as opposed to where the app talks
+// to the API.
+//
+// They are two different hosts — server.zyv.ro answers requests, zyv.ro serves
+// pages — and a share link that pointed at the API would hand somebody a page
+// of JSON. Derived from the store origin rather than written down a second
+// time, so pointing the app at a test instance moves both together, and
+// overridable for a deployment that names its hosts differently.
+export function webOrigin(): string {
+  const override = process.env.ZYVRO_WEB_ORIGIN
+  if (override) return override.replace(/\/+$/, "")
+  const api = storeOrigin().replace(/\/+$/, "")
+  // The convention this deployment uses: the API is the web host with a
+  // `server.` in front of it. Anything that does not look like that is left
+  // alone rather than mangled — a local daemon on a port is not a web host with
+  // a prefix to strip.
+  return api.replace(/^(https?:\/\/)server\./, "$1")
+}

@@ -44,6 +44,7 @@ import type { PublisherVerdict } from "../main/knownpublishers"
 import type { Conversation, StoredMessage, StoredTool } from "../main/conversations"
 import type { PlanItem, ToolShape } from "../main/tooltalk"
 import type { Importable, ImportableWorkflow } from "../main/importing"
+import type { HostedWorkflow, SharedWorkflow } from "../main/sharing"
 import type {
   Change,
   ChangeStatus,
@@ -82,6 +83,8 @@ export type {
   ToolShape,
   Importable,
   ImportableWorkflow,
+  HostedWorkflow,
+  SharedWorkflow,
 }
 
 const api = {
@@ -241,6 +244,9 @@ const api = {
 
   workflows: {
     chooseSource: (): Promise<Importable | null> => ipcRenderer.invoke("workflows:choose-source"),
+    share: (payload: { name: string; description: string; graph: unknown }): Promise<SharedWorkflow> =>
+      ipcRenderer.invoke("workflows:share", payload),
+    mine: (): Promise<HostedWorkflow[]> => ipcRenderer.invoke("workflows:mine"),
   },
 
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),

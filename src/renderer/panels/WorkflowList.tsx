@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
-import { Download, Loader2, Plus, Workflow as WorkflowIcon } from "lucide-react"
+import { Cloud, Download, Link2, Loader2, Plus, Workflow as WorkflowIcon } from "lucide-react"
 import { api, type Workflow } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { workflowsKey } from "~/lib/project"
 import { askName } from "~/state/prompt"
 import { ImportWorkflows } from "~/panels/ImportWorkflows"
+import { MyWorkflows } from "~/panels/MyWorkflows"
+import { ShareWorkflow } from "~/panels/ShareWorkflow"
 
 // The workflow list sits under the file tree because that is what the project
 // actually contains: files, and the graphs that act on them. Clicking one opens
@@ -20,6 +22,8 @@ export function WorkflowList() {
   const activeTabId = useWorkspace((s) => s.activeTabId)
   const client = useQueryClient()
   const [importing, setImporting] = useState(false)
+  const [mine, setMine] = useState(false)
+  const [sharing, setSharing] = useState<Workflow | null>(null)
 
   const workflows = useQuery({
     queryKey: workflowsKey,
@@ -44,6 +48,13 @@ export function WorkflowList() {
           Workflows
         </span>
         {workflows.isFetching && <Loader2 className="h-3 w-3 zy-spin text-muted-foreground" />}
+        <button
+          className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
+          title="My workflows on Zyvro"
+          onClick={() => setMine(true)}
+        >
+          <Cloud className="h-3.5 w-3.5" />
+        </button>
         <button
           className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
           title="Import from another project"
@@ -87,23 +98,38 @@ export function WorkflowList() {
         {(workflows.data ?? []).map((workflow) => {
           const isActive = activeTabId === `graph:${workflow.id}`
           return (
-            <button
+            <div
               key={workflow.id}
               className={cn(
-                "flex w-full items-center gap-2 py-[3px] pl-3 pr-2 text-left text-[13px] leading-5",
+                "group flex w-full items-center gap-2 py-[3px] pl-3 pr-2 text-left text-[13px] leading-5",
                 isActive ? "bg-white/[0.08] text-foreground" : "text-foreground/80 hover:bg-white/[0.05]"
               )}
-              onClick={() => openGraph(workflow.id, workflow.name)}
-              title={workflow.description || workflow.name}
             >
-              <WorkflowIcon className="h-3.5 w-3.5 shrink-0 text-violet-300" />
-              <span className="truncate">{workflow.name}</span>
-            </button>
+              <button
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                onClick={() => openGraph(workflow.id, workflow.name)}
+                title={workflow.description || workflow.name}
+              >
+                <WorkflowIcon className="h-3.5 w-3.5 shrink-0 text-violet-300" />
+                <span className="truncate">{workflow.name}</span>
+              </button>
+              {/* On the row rather than in the header: sharing is about one
+                  workflow, and a header button would have to ask which. */}
+              <button
+                className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-white/[0.1] hover:text-foreground group-hover:opacity-100"
+                title="Share with a private link"
+                onClick={() => setSharing(workflow)}
+              >
+                <Link2 className="h-3 w-3" />
+              </button>
+            </div>
           )
         })}
       </div>
 
       {importing && <ImportWorkflows onClose={() => setImporting(false)} />}
+      {mine && <MyWorkflows onClose={() => setMine(false)} />}
+      {sharing && <ShareWorkflow workflow={sharing} onClose={() => setSharing(null)} />}
     </div>
   )
 }

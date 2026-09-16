@@ -14,6 +14,7 @@ import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
 import * as importing from "./importing"
+import * as sharing from "./sharing"
 import * as commitMessage from "./commitmessage"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
@@ -610,6 +611,24 @@ export function registerIpc(onRecents?: () => void): void {
     const { win } = requireWorkspace(event)
     return importing.choose(win)
   })
+
+  // ---------- the account's own workflows ----------
+  //
+  // A workflow in a project is a file; on the account it is a row. These two
+  // are the crossing between them: one sends a copy up and hands back a link,
+  // the other reads back what is already there.
+
+  ipcMain.handle(
+    "workflows:share",
+    async (_event, payload: { name: string; description: string; graph: unknown }) =>
+      sharing.share({
+        name: String(payload?.name ?? ""),
+        description: String(payload?.description ?? ""),
+        graph: payload?.graph ?? {},
+      })
+  )
+
+  ipcMain.handle("workflows:mine", async () => sharing.mine())
 
   // Opening a link goes through the OS browser, never a new Electron window: a
   // window without our preload would still have Chromium privileges.
