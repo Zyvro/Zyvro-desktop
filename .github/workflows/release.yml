@@ -77,6 +77,14 @@ jobs:
         with:
           node-version: 22
 
+      # node-gyp still reaches for distutils, which Python removed in 3.12.
+      # The runner's default is newer than that, so the build fails with
+      # "No module named 'distutils'" the moment anything is actually
+      # compiled rather than taken from a cache.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       # node-pty is built from source, and the node-gyp bundled with
       # electron-rebuild does not recognise the Visual Studio version on
       # current runner images: it reports "Could not find any Visual Studio
