@@ -34,7 +34,7 @@ jobs:
             # dmg reste produit localement par npm run release.
             target: zip
             artifacts: "dist/*.zip"
-          - os: windows-latest
+          - os: windows-2022
             platform: win
             target: nsis
             artifacts: "dist/*.exe"
