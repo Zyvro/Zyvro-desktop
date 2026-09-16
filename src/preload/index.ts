@@ -41,7 +41,17 @@ import type {
   InstalledPack,
 } from "../main/store"
 import type { PublisherVerdict } from "../main/knownpublishers"
-import type { Change, ChangeStatus, CommitOptions, GitStatus, LogEntry, NoRepository } from "../main/git"
+import type {
+  Change,
+  ChangeStatus,
+  CommitOptions,
+  GitCommandLog,
+  GitStatus,
+  LogEntry,
+  NoRepository,
+  Remote,
+  Stash,
+} from "../main/git"
 
 export type {
   StoreListing,
@@ -56,9 +66,12 @@ export type {
   Change,
   ChangeStatus,
   CommitOptions,
+  GitCommandLog,
   GitStatus,
   LogEntry,
   NoRepository,
+  Remote,
+  Stash,
 }
 
 const api = {
@@ -154,6 +167,30 @@ const api = {
     fetch: (): Promise<void> => ipcRenderer.invoke("git:fetch"),
     pull: (): Promise<void> => ipcRenderer.invoke("git:pull"),
     push: (): Promise<void> => ipcRenderer.invoke("git:push"),
+    pushTo: (remote: string, setUpstream: boolean): Promise<void> =>
+      ipcRenderer.invoke("git:push-to", remote, setUpstream),
+    pushTags: (): Promise<void> => ipcRenderer.invoke("git:push-tags"),
+    remotes: (): Promise<Remote[]> => ipcRenderer.invoke("git:remotes"),
+    addRemote: (name: string, url: string): Promise<void> => ipcRenderer.invoke("git:add-remote", name, url),
+    removeRemote: (name: string): Promise<void> => ipcRenderer.invoke("git:remove-remote", name),
+    stashList: (): Promise<Stash[]> => ipcRenderer.invoke("git:stash-list"),
+    stash: (message: string, includeUntracked: boolean): Promise<void> =>
+      ipcRenderer.invoke("git:stash", message, includeUntracked),
+    stashPop: (index: number): Promise<void> => ipcRenderer.invoke("git:stash-pop", index),
+    stashApply: (index: number): Promise<void> => ipcRenderer.invoke("git:stash-apply", index),
+    stashDrop: (index: number): Promise<void> => ipcRenderer.invoke("git:stash-drop", index),
+    tags: (): Promise<string[]> => ipcRenderer.invoke("git:tags"),
+    createTag: (name: string, message: string): Promise<void> =>
+      ipcRenderer.invoke("git:create-tag", name, message),
+    deleteTag: (name: string): Promise<void> => ipcRenderer.invoke("git:delete-tag", name),
+    renameBranch: (from: string, to: string): Promise<void> =>
+      ipcRenderer.invoke("git:rename-branch", from, to),
+    deleteBranch: (name: string, force: boolean): Promise<void> =>
+      ipcRenderer.invoke("git:delete-branch", name, force),
+    output: (): Promise<GitCommandLog[]> => ipcRenderer.invoke("git:output"),
+    agent: (): Promise<"claude" | "codex" | null> => ipcRenderer.invoke("git:agent"),
+    suggestMessage: (): Promise<string> => ipcRenderer.invoke("git:suggest-message"),
+    clone: (url: string): Promise<string | null> => ipcRenderer.invoke("git:clone", url),
   },
 
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),

@@ -9,6 +9,7 @@ import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import * as git from "./git"
+import * as commitMessage from "./commitmessage"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
 // the shells running in it and the agent turns in flight. Bundling them means
@@ -407,6 +408,103 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("git:push", async (event) => {
     const { ws } = requireWorkspace(event)
     return git.push(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:push-to", async (event, remote: string, setUpstream: boolean) => {
+    const { ws } = requireWorkspace(event)
+    return git.pushTo(requireRoot(ws), String(remote), Boolean(setUpstream))
+  })
+
+  ipcMain.handle("git:push-tags", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.pushTags(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:remotes", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.remoteList(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:add-remote", async (event, name: string, url: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.addRemote(requireRoot(ws), String(name), String(url))
+  })
+
+  ipcMain.handle("git:remove-remote", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.removeRemote(requireRoot(ws), String(name))
+  })
+
+  ipcMain.handle("git:stash-list", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.stashList(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:stash", async (event, message: string, includeUntracked: boolean) => {
+    const { ws } = requireWorkspace(event)
+    return git.stash(requireRoot(ws), String(message ?? ""), Boolean(includeUntracked))
+  })
+
+  ipcMain.handle("git:stash-pop", async (event, index: number) => {
+    const { ws } = requireWorkspace(event)
+    return git.stashPop(requireRoot(ws), Number(index))
+  })
+
+  ipcMain.handle("git:stash-apply", async (event, index: number) => {
+    const { ws } = requireWorkspace(event)
+    return git.stashApply(requireRoot(ws), Number(index))
+  })
+
+  ipcMain.handle("git:stash-drop", async (event, index: number) => {
+    const { ws } = requireWorkspace(event)
+    return git.stashDrop(requireRoot(ws), Number(index))
+  })
+
+  ipcMain.handle("git:tags", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return git.tags(requireRoot(ws))
+  })
+
+  ipcMain.handle("git:create-tag", async (event, name: string, message: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.createTag(requireRoot(ws), String(name), String(message ?? ""))
+  })
+
+  ipcMain.handle("git:delete-tag", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.deleteTag(requireRoot(ws), String(name))
+  })
+
+  ipcMain.handle("git:rename-branch", async (event, from: string, to: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.renameBranch(requireRoot(ws), String(from), String(to))
+  })
+
+  ipcMain.handle("git:delete-branch", async (event, name: string, force: boolean) => {
+    const { ws } = requireWorkspace(event)
+    return git.deleteBranch(requireRoot(ws), String(name), Boolean(force))
+  })
+
+  ipcMain.handle("git:output", async () => git.output())
+
+  ipcMain.handle("git:agent", async () => commitMessage.availableAgent())
+
+  ipcMain.handle("git:suggest-message", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return commitMessage.suggest(requireRoot(ws))
+  })
+
+  // Clone is the one that has no project yet: the person picks where it lands
+  // through a real directory dialog, so nothing the renderer says decides that.
+  ipcMain.handle("git:clone", async (event, url: string) => {
+    const { win } = requireWorkspace(event)
+    const chosen = await dialog.showOpenDialog(win, {
+      title: "Where should the repository be cloned?",
+      properties: ["openDirectory", "createDirectory"],
+      buttonLabel: "Clone here",
+    })
+    if (chosen.canceled || chosen.filePaths.length === 0) return null
+    return git.clone(chosen.filePaths[0], String(url))
   })
 
   // Opening a link goes through the OS browser, never a new Electron window: a

@@ -54,6 +54,34 @@ type RunOptions = {
   allow?: number[]
 }
 
+// Show Git Output, which VS Code has and which is the only honest answer to
+// "pourquoi ça n'a pas marché". A panel that turns every failure into its own
+// sentence eventually meets one it has no sentence for; the command and what
+// git said about it always explain more than we can.
+//
+// A ring buffer, in memory, per process: this is a log to read now, not a
+// record to keep, and writing the person's branch names to disk for no reason
+// would be a small betrayal.
+export type GitCommandLog = {
+  at: string
+  args: string[]
+  code: number
+  stderr: string
+  ms: number
+}
+
+const LOG_LIMIT = 200
+const commandLog: GitCommandLog[] = []
+
+export function output(): GitCommandLog[] {
+  return [...commandLog]
+}
+
+function record(entry: GitCommandLog): void {
+  commandLog.push(entry)
+  if (commandLog.length > LOG_LIMIT) commandLog.splice(0, commandLog.length - LOG_LIMIT)
+}
+
 function run(root: string, args: string[], options: RunOptions = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("git", args, {
@@ -72,6 +100,7 @@ function run(root: string, args: string[], options: RunOptions = {}): Promise<st
       },
     })
 
+    const started = Date.now()
     let out = ""
     let err = ""
     child.stdout.on("data", (chunk) => (out += chunk))
@@ -87,6 +116,7 @@ function run(root: string, args: string[], options: RunOptions = {}): Promise<st
     })
     child.on("close", (code) => {
       const status = code ?? -1
+      record({ at: new Date().toISOString(), args, code: status, stderr: err.trim(), ms: Date.now() - started })
       if (status === 0 || options.allow?.includes(status)) return resolve(out)
       reject(new GitError(firstLine(err) || `git ${args[0]} failed (${status})`, status, err))
     })
@@ -377,6 +407,94 @@ export async function log(root: string, limit = 50): Promise<LogEntry[]> {
     .filter((entry) => Boolean(entry.hash))
 }
 
+export type Remote = { name: string; url: string }
+
+// remoteList answers with the fetch URL of each remote, because "origin" alone
+// is not enough to decide whether you are about to push to the right place.
+export async function remoteList(root: string): Promise<Remote[]> {
+  const out = await run(root, ["remote", "-v"], { allow: [128] })
+  const seen = new Map<string, string>()
+  for (const line of out.split("\n")) {
+    const match = /^(\S+)\s+(\S+)\s+\(fetch\)$/.exec(line.trim())
+    if (match) seen.set(match[1], match[2])
+  }
+  return [...seen].map(([name, url]) => ({ name, url }))
+}
+
+export async function addRemote(root: string, name: string, url: string): Promise<void> {
+  await run(root, ["remote", "add", name, url])
+}
+
+export async function removeRemote(root: string, name: string): Promise<void> {
+  await run(root, ["remote", "remove", name])
+}
+
+export type Stash = { index: number; label: string }
+
+// Stashes are addressed by index, and the index shifts every time one is
+// dropped or popped. So the label is carried with it and the caller is expected
+// to re-read the list after any change rather than hold on to a number.
+export async function stashList(root: string): Promise<Stash[]> {
+  const out = await run(root, ["stash", "list", "--format=%gd%x00%s%x00%x00"], { allow: [128] })
+  return out
+    .split("\0\0")
+    .map((row) => row.replace(/^\n/, ""))
+    .filter((row) => row.trim())
+    .map((row, index) => {
+      const [, subject] = row.split("\0")
+      return { index, label: subject ?? "" }
+    })
+}
+
+export async function stash(root: string, message: string, includeUntracked: boolean): Promise<void> {
+  const args = ["stash", "push"]
+  // Untracked files are not stashed by default, which surprises everybody the
+  // first time: you stash, the tree still has your new file in it, and you
+  // conclude the stash did nothing.
+  if (includeUntracked) args.push("--include-untracked")
+  if (message.trim()) args.push("--message", message.trim())
+  await run(root, args)
+}
+
+export async function stashPop(root: string, index: number): Promise<void> {
+  await run(root, ["stash", "pop", `stash@{${Math.max(0, Math.trunc(index))}}`])
+}
+
+export async function stashApply(root: string, index: number): Promise<void> {
+  await run(root, ["stash", "apply", `stash@{${Math.max(0, Math.trunc(index))}}`])
+}
+
+export async function stashDrop(root: string, index: number): Promise<void> {
+  await run(root, ["stash", "drop", `stash@{${Math.max(0, Math.trunc(index))}}`])
+}
+
+export async function tags(root: string): Promise<string[]> {
+  const out = await run(root, ["tag", "--sort=-creatordate"], { allow: [128] })
+  return out.split("\n").map((t) => t.trim()).filter(Boolean)
+}
+
+export async function createTag(root: string, name: string, message: string): Promise<void> {
+  // An annotated tag when there is something to say, a lightweight one
+  // otherwise — which is the distinction git makes and the one people mean.
+  if (message.trim()) await run(root, ["tag", "--annotate", name, "--message", message.trim()])
+  else await run(root, ["tag", name])
+}
+
+export async function deleteTag(root: string, name: string): Promise<void> {
+  await run(root, ["tag", "--delete", name])
+}
+
+export async function renameBranch(root: string, from: string, to: string): Promise<void> {
+  await run(root, ["branch", "--move", from, to])
+}
+
+// deleteBranch refuses by default when the branch holds commits that are
+// nowhere else, which is git's own guard and worth keeping: `--delete` says no,
+// and only an explicit force says yes.
+export async function deleteBranch(root: string, name: string, force: boolean): Promise<void> {
+  await run(root, ["branch", force ? "-D" : "--delete", name])
+}
+
 export async function branches(root: string): Promise<string[]> {
   const out = await run(root, ["branch", "--format=%(refname:short)"], { allow: [128] })
   return out.split("\n").map((b) => b.trim()).filter(Boolean)
@@ -500,6 +618,22 @@ export async function pull(root: string): Promise<void> {
   await run(root, ["pull", "--ff-only"])
 }
 
+// pushTo is Push to… : the branch goes where the person says, and the choice
+// is remembered as the upstream so the plain Push afterwards needs no question.
+export async function pushTo(root: string, remote: string, setUpstream: boolean): Promise<void> {
+  const state = await status(root)
+  if (!state.repository) throw new NotARepository()
+  if (!state.branch) throw new Error("A detached HEAD has no branch to push.")
+  const args = ["push"]
+  if (setUpstream) args.push("--set-upstream")
+  args.push(remote, state.branch)
+  await run(root, args)
+}
+
+export async function pushTags(root: string): Promise<void> {
+  await run(root, ["push", "--tags"])
+}
+
 export async function push(root: string): Promise<void> {
   const state = await status(root)
   if (!state.repository) throw new NotARepository()
@@ -514,4 +648,32 @@ export async function push(root: string): Promise<void> {
   // First push of a branch: name where it goes, and remember it, so the next
   // one is just `push`.
   await run(root, ["push", "--set-upstream", state.remotes[0], state.branch])
+}
+
+// clone is the one command here that does not run inside an open project: it
+// makes the folder the project will be. The parent is chosen by the person
+// through a real directory dialog, so nothing in the renderer decides where on
+// the disk this lands.
+//
+// The destination is derived from the URL rather than asked for, the way git
+// itself does it, and then checked: a URL is remote input, and a repository
+// name of `../..` would otherwise decide where the clone goes.
+export async function clone(parent: string, url: string): Promise<string> {
+  const name = cloneFolderName(url)
+  const target = path.join(parent, name)
+  if (path.dirname(target) !== path.resolve(parent)) {
+    throw new Error(`That URL would clone outside the folder you chose.`)
+  }
+  await run(parent, ["clone", "--", url, name])
+  return target
+}
+
+export function cloneFolderName(url: string): string {
+  const trimmed = url.trim().replace(/\/+$/, "")
+  const last = trimmed.split(/[/:]/).pop() ?? ""
+  const name = last.replace(/\.git$/, "")
+  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\\")) {
+    throw new Error(`Could not work out a folder name from "${url}".`)
+  }
+  return name
 }

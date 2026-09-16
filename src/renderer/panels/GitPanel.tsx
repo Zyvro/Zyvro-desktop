@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import {
   Check,
   ChevronDown,
@@ -8,13 +8,16 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  Sparkles,
   Undo2,
 } from "lucide-react"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import type { Change, GitStatus } from "../../preload"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
+import { GitMenu } from "~/panels/GitMenu"
 
 // Source control, laid out the way VS Code lays it out, because that layout is
 // what everybody who will open this window already knows: the message box above
@@ -173,8 +176,80 @@ function NotARepository({ onInit, busy }: { onInit: () => void; busy: boolean })
   )
 }
 
+// fit keeps the box exactly as tall as its text, up to the max-height the class
+// sets. Written against the element rather than held in state: the height is a
+// fact about the DOM node, and mirroring it into React would mean a render per
+// keystroke to say something the browser already knows.
+//
+// An empty box is left to CSS, at one row. Measuring it would grow it instead:
+// a textarea's scrollHeight counts the placeholder, and this placeholder —
+// `Message (⌘⏎ to commit on "…")` — wraps onto two lines in a panel this
+// narrow, so an empty box measured itself at 52px. That is why VS Code shows
+// that text clipped rather than wrapped: the box is one line, and the sentence
+// is longer than the box.
+function fit(node: HTMLTextAreaElement): void {
+  if (node.value === "") {
+    node.style.height = ""
+    return
+  }
+  node.style.height = "auto"
+  node.style.height = `${node.scrollHeight}px`
+}
+
+// The generator, using the agent already installed on this machine — the same
+// claude or codex the person runs in their terminal. Nothing leaves for a
+// server of ours and there is no key to add. If neither is installed the button
+// is not rendered at all, rather than offered and then failing.
+function SuggestButton({ onMessage }: { onMessage: (message: string) => void }) {
+  const agent = useQuery({
+    queryKey: ["git", "agent"],
+    queryFn: () => window.zyvro.git.agent(),
+    staleTime: Infinity,
+  })
+  const suggest = useMutation({
+    mutationFn: () => window.zyvro.git.suggestMessage(),
+    onSuccess: (text) => onMessage(text),
+  })
+
+  if (!agent.data) return null
+
+  return (
+    <button
+      className="absolute right-1 top-1 rounded p-1 text-muted-foreground hover:bg-white/[0.08] hover:text-foreground disabled:opacity-50"
+      title={
+        suggest.isError
+          ? (suggest.error as Error).message
+          : `Generate a commit message from the diff, with ${agent.data}`
+      }
+      disabled={suggest.isPending}
+      onClick={() => suggest.mutate()}
+    >
+      {suggest.isPending ? <Loader2 className="h-3.5 w-3.5 zy-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+    </button>
+  )
+}
+
 function CommitBox({ status }: { status: GitStatus }) {
   const [message, setMessage] = useState("")
+  // The box is resized when it is handed to us and again on every keystroke.
+  // A callback ref is the mount half of that, and it is what this project uses
+  // in place of an effect.
+  const boxRef = useRef<HTMLTextAreaElement | null>(null)
+  const grow = useCallback((node: HTMLTextAreaElement | null) => {
+    boxRef.current = node
+    if (node) fit(node)
+  }, [])
+
+  // A generated message arrives from outside the keystroke path, so it has to
+  // resize the box itself; otherwise a three-line suggestion lands in a
+  // one-line box and reads as truncated.
+  const setAndFit = useCallback((text: string) => {
+    setMessage(text)
+    if (boxRef.current) {
+      boxRef.current.value = text
+      fit(boxRef.current)
+    }
+  }, [])
   const commit = useGitAction(gitActions.commit)
   const push = useGitAction(gitActions.push)
 
@@ -198,18 +273,29 @@ function CommitBox({ status }: { status: GitStatus }) {
 
   return (
     <div className="space-y-2 px-2 pb-2">
-      <textarea
-        className="zy-scroll min-h-[52px] w-full resize-y rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1.5 text-[13px] outline-none placeholder:text-muted-foreground focus:border-primary/50"
-        placeholder={label}
-        value={message}
-        onChange={(event) => setMessage(event.target.value)}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-            event.preventDefault()
-            void run(false)
-          }
-        }}
-      />
+      {/* One line to start with, growing with what is typed. A box that opens
+          three lines tall asks for a paragraph, and most commits are a
+          sentence; it is also three lines of the panel not showing files. */}
+      <div className="relative">
+        <textarea
+          ref={grow}
+          rows={1}
+          className="zy-scroll max-h-40 w-full resize-none overflow-y-auto rounded-md border border-white/[0.08] bg-white/[0.03] py-[6px] pl-2 pr-8 text-[13px] leading-5 outline-none placeholder:text-muted-foreground focus:border-primary/50"
+          placeholder={label}
+          value={message}
+          onChange={(event) => {
+            setMessage(event.target.value)
+            fit(event.currentTarget)
+          }}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault()
+              void run(false)
+            }
+          }}
+        />
+        <SuggestButton onMessage={setAndFit} />
+      </div>
       <div className="flex">
         <button
           className="flex flex-1 items-center justify-center gap-1.5 rounded-l-md bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
@@ -326,6 +412,7 @@ export function GitPanel() {
         >
           <RefreshCw className={cn("h-3.5 w-3.5", status.isFetching && "zy-spin")} />
         </button>
+        <GitMenu status={repo} />
       </div>
 
       <CommitBox status={repo} />

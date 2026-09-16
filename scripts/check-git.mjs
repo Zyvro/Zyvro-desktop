@@ -238,6 +238,77 @@ try {
   }
   check("an empty commit message is refused here, not by git", refused)
 
+  // ---- remises, etiquettes, remotes, branches ---------------------------
+  const remotes = await git.remoteList(repo)
+  check("the remote is listed with its URL", remotes.some((r) => r.name === "origin" && r.url === remote), JSON.stringify(remotes))
+
+  await git.addRemote(repo, "mirror", remote)
+  check("a remote can be added", (await git.remoteList(repo)).some((r) => r.name === "mirror"))
+  await git.removeRemote(repo, "mirror")
+  check("and removed", !(await git.remoteList(repo)).some((r) => r.name === "mirror"))
+
+  // A stash has to take untracked files with it, which is not git's default and
+  // is the thing everyone is caught by once.
+  write("stashed.txt", "keep me\n")
+  write("ahead.txt", "1\n2\n3\n")
+  await git.stash(repo, "work in progress", true)
+  const afterStash = await git.status(repo)
+  check("stashing clears the working tree", afterStash.staged.length + afterStash.unstaged.length === 0, JSON.stringify(afterStash.unstaged))
+  const stashes = await git.stashList(repo)
+  check("the stash is listed", stashes.length === 1, JSON.stringify(stashes))
+  check("with its message", stashes[0]?.label.includes("work in progress"), stashes[0]?.label)
+  await git.stashPop(repo, 0)
+  const afterPop = await git.status(repo)
+  check("popping brings the tracked change back", afterPop.unstaged.concat(afterPop.staged).some((c) => c.path === "ahead.txt"))
+  check("and the untracked file with it", afterPop.unstaged.concat(afterPop.staged).some((c) => c.path === "stashed.txt"))
+  check("the stash list is empty again", (await git.stashList(repo)).length === 0)
+
+  await git.stage(repo, ["ahead.txt", "stashed.txt"])
+  await git.commit(repo, "chore: settle the tree")
+
+  await git.createTag(repo, "v0.1.0", "first")
+  check("an annotated tag is created", (await git.tags(repo)).includes("v0.1.0"))
+  await git.createTag(repo, "v0.1.1", "")
+  check("a lightweight one too", (await git.tags(repo)).includes("v0.1.1"))
+  await git.deleteTag(repo, "v0.1.1")
+  check("and deleted", !(await git.tags(repo)).includes("v0.1.1"))
+
+  await git.createBranch(repo, "to-rename")
+  await git.renameBranch(repo, "to-rename", "renamed")
+  check("a branch can be renamed", (await git.branches(repo)).includes("renamed") && !(await git.branches(repo)).includes("to-rename"))
+  sh("checkout", "feature/with-slash")
+  await git.deleteBranch(repo, "renamed", true)
+  check("and deleted", !(await git.branches(repo)).includes("renamed"))
+
+  // Push to a named remote, which is what "Push to…" does.
+  write("pushed.txt", "x\n")
+  await git.stage(repo, ["pushed.txt"])
+  await git.commit(repo, "feat: push to a named remote")
+  await git.pushTo(repo, "origin", true)
+  check("pushing to a named remote works", (await git.status(repo)).ahead === 0)
+  await git.pushTags(repo)
+  check("tags can be pushed", execFileSync("git", ["ls-remote", "--tags", remote], { encoding: "utf8" }).includes("v0.1.0"))
+
+  // ---- le journal des commandes -----------------------------------------
+  const journal = git.output()
+  check("every command was recorded", journal.length > 20, `${journal.length} entries`)
+  check("a recorded entry names its arguments", journal.some((e) => e.args[0] === "status"))
+  check("and a failure kept git's own words", journal.some((e) => e.code !== 0 && e.stderr.length > 0))
+
+  // ---- le nom de dossier deduit d'une URL de clone -----------------------
+  check("an https URL gives its repository name", git.cloneFolderName("https://github.com/Zyvro/Zyvro-desktop.git") === "Zyvro-desktop")
+  check("an ssh URL too", git.cloneFolderName("git@github.com:Zyvro/Zyvro-desktop.git") === "Zyvro-desktop")
+  check("a trailing slash is not a folder called nothing", git.cloneFolderName("https://example.com/thing/") === "thing")
+  let badUrl = false
+  try {
+    // The name comes from remote input, so a repository called `..` must not
+    // decide where on the disk the clone lands.
+    git.cloneFolderName("https://example.com/..")
+  } catch {
+    badUrl = true
+  }
+  check("a URL whose name is .. is refused", badUrl)
+
   rmSync(remote, { recursive: true, force: true })
 } finally {
   rmSync(repo, { recursive: true, force: true })

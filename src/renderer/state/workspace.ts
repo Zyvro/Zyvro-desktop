@@ -15,6 +15,7 @@ export type Tab =
   // A diff is its own kind rather than a file tab with a flag: it has two sides,
   // it is read-only, and closing it must not look like closing the file.
   | { kind: "diff"; id: string; path: string; staged: boolean; title: string }
+  | { kind: "gitOutput"; id: "git-output"; title: string }
 
 export type PanelKey = "explorer" | "terminal" | "agent" | "git"
 
@@ -55,6 +56,7 @@ type WorkspaceState = {
   openFile: (path: string) => void
   openGraph: (workflowId: string, title: string) => void
   openDiff: (path: string, staged: boolean) => void
+  openGitOutput: () => void
   openProviders: () => void
   openStore: () => void
   closeTab: (id: string) => void
@@ -177,6 +179,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       tabs: [...s.tabs.filter((t) => t.kind !== "welcome" && !replacedByOpening(s, t, id)), tab],
       activeTabId: id,
     }))
+  },
+
+  openGitOutput: () => {
+    const id = "git-output"
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "gitOutput", id, title: "Git Output" }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 
   openProviders: () => {
