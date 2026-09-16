@@ -21,28 +21,26 @@ export type AgentKind = "claude" | "codex"
 export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
 export type Account = { id: string; email: string; name: string }
-export type StoreListing = {
-  name: string
-  version: string
-  description: string
-  author: string
-  capabilities: string[]
-  nodeTypes?: string[]
-  updatedAt: string
-}
-export type StoreSource = { path: string; code: string }
-export type StorePack = StoreListing & {
-  manifest?: Record<string, unknown>
-  sources: StoreSource[]
-}
-export type StoreWorkflow = {
-  name: string
-  description: string
-  author: string
-  graph: unknown
-  requires: { name: string; version: string }[]
-  updatedAt: string
-}
+// The store's wire shapes live in src/main/store.ts and are imported, never
+// copied. They were copied, and the copies drifted: this file declared a
+// workflow with `author`, `graph` and `updatedAt` where the server sends
+// `publisher_name`, `graph_json` and `created_at`, so every card read "by
+// unknown" and the type agreed with the mistake. A type that describes someone
+// else's JSON has to have exactly one declaration.
+//
+// Type-only imports, so nothing from the main process is pulled into the
+// preload bundle.
+import type {
+  StoreListing,
+  StoreSource,
+  StorePack,
+  StoreWorkflow,
+  StorePreview,
+  StoreDependency,
+} from "../main/store"
+
+export type { StoreListing, StoreSource, StorePack, StoreWorkflow, StorePreview, StoreDependency }
+
 export type InstallResult = { workflow?: string; packs: { name: string; version: string }[] }
 export type InstalledPack = {
   name: string

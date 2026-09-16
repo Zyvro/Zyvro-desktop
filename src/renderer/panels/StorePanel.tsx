@@ -12,7 +12,7 @@ import {
   Workflow as WorkflowIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { StoreListing, StoreWorkflow } from "../../preload"
+import type { StoreListing, StorePreview, StoreWorkflow } from "../../preload"
 import { useWorkspace } from "~/state/workspace"
 import { useAccount } from "~/lib/account"
 import { SignInDialog } from "~/panels/SignInDialog"
@@ -25,6 +25,45 @@ import { PublishSection } from "~/panels/PublishSection"
 // a small store gets.
 
 type Section = "nodes" | "workflows" | "publish"
+
+// The input/output pair from a real run, the same picture the web store shows.
+// A catalogue of names is a catalogue nobody browses, and this window is where
+// somebody decides whether to put a stranger's Lua on their machine.
+//
+// The paths arrive absolute: the main process resolves them, because this
+// window is loaded from disk and has no origin of its own to resolve against.
+function WorkflowThumb({ preview }: { preview?: StorePreview | null }) {
+  if (!preview || (preview.input_kind === "none" && preview.output_kind === "none")) return null
+
+  const pane = (kind: string, text?: string, image?: string, label?: string) => {
+    if (kind === "image" && image) {
+      // eslint-disable-next-line @next/next/no-img-element
+      return <img src={image} alt={label} loading="lazy" className="h-full w-full object-contain p-1.5" />
+    }
+    if (kind === "text" && text) {
+      return (
+        <div className="flex h-full flex-col justify-center overflow-hidden px-3 py-2">
+          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70">{label}</div>
+          <p className="mt-1 line-clamp-3 text-[11px] leading-snug text-foreground/80">{text}</p>
+        </div>
+      )
+    }
+    return <div className="h-full w-full bg-white/[0.02]" />
+  }
+
+  const both = preview.input_kind !== "none" && preview.output_kind !== "none"
+  return (
+    <div
+      className={cn(
+        "h-24 w-full border-b border-white/[0.06] bg-white/[0.02]",
+        both && "grid grid-cols-2 gap-px bg-white/[0.06]"
+      )}
+    >
+      {preview.input_kind !== "none" && pane(preview.input_kind, preview.input_text, preview.input_image, "Input")}
+      {preview.output_kind !== "none" && pane(preview.output_kind, preview.output_text, preview.output_image, "Result")}
+    </div>
+  )
+}
 
 // A capability is the one thing in a listing worth reading before installing.
 // Most packs ask for nothing or for llm; anything else is worth a second look,
@@ -192,21 +231,22 @@ export function StorePanel() {
             const busy = install.isPending && install.variables?.name === item.name
 
             return (
-              <article key={item.name} className="panel p-4">
-                <div className="flex items-start gap-3">
+              <article key={item.name} className="panel overflow-hidden">
+                {isWorkflow && <WorkflowThumb preview={workflow.preview} />}
+                <div className="flex items-start gap-3 p-4">
                   <div className="min-w-0 flex-1">
                     <h2 className="flex items-center gap-2 text-sm font-medium">
                       {item.name}
-                      {!isWorkflow && (
-                        <span className="font-mono text-[11px] text-muted-foreground">{pack.version}</span>
-                      )}
+                      <span className="font-mono text-[11px] text-muted-foreground">
+                        {isWorkflow ? workflow.version : pack.version}
+                      </span>
                     </h2>
                     <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
                       {item.description || "No description."}
                     </p>
 
                     <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                      <span>by {item.author || "unknown"}</span>
+                      <span>by {(isWorkflow ? workflow.publisher_name : pack.author) || "unknown"}</span>
                       {!isWorkflow && <Capabilities capabilities={pack.capabilities} />}
                       {isWorkflow && workflow.requires?.length > 0 && (
                         <span className="flex items-center gap-1">

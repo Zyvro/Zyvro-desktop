@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { anonymous, authorized, StoreError } from "./account"
+import { anonymous, authorized, storeOrigin, StoreError } from "./account"
 
 // The store hands this process Lua source from strangers and asks it to write
 // that source into the user's project. Everything here is written on the
@@ -96,13 +96,38 @@ function sourceMap(sources: StoreSource[], pack: string): Record<string, string>
   return out
 }
 
+// StoreWorkflow mirrors the server's workflow template, field for field.
+//
+// It did not before: it declared `author`, `graph` and `updatedAt` where the
+// server sends `publisher_name`, `graph_json` and `created_at`, so every card
+// read "by unknown" and carried no version. Named after what arrives on the
+// wire rather than after what would read nicely here — the nice name is the
+// one that silently reads undefined.
 export type StoreWorkflow = {
+  id: string
   name: string
+  version: string
   description: string
-  author: string
-  graph: unknown
+  graph_json: string
   requires: { name: string; version: string; digest?: string }[]
-  updatedAt: string
+  node_types: string[]
+  pack_node_types: string[]
+  publisher_name?: string
+  // The input/output pair from a real run, so a card can show what this
+  // workflow produces instead of only what it is called.
+  preview?: StorePreview | null
+  yanked?: boolean
+  created_at: string
+}
+
+export type StorePreview = {
+  kind: string
+  input_kind: "text" | "image" | "none"
+  output_kind: "text" | "image" | "none"
+  input_text?: string
+  input_image?: string
+  output_text?: string
+  output_image?: string
 }
 
 export type InstallResult = {
@@ -135,7 +160,25 @@ export async function listWorkflows(q = "", limit = 50): Promise<StoreWorkflow[]
     workflows?: StoreWorkflow[]
     templates?: StoreWorkflow[]
   }
-  return body?.workflows ?? body?.templates ?? []
+  return (body?.workflows ?? body?.templates ?? []).map(withAbsolutePreview)
+}
+
+// withAbsolutePreview turns a preview's media paths into URLs a window can load.
+//
+// The server names them relative to itself, which is right for a web app served
+// from the same place and useless here: this renderer is loaded from disk and
+// has no origin to resolve them against. Resolved in the main process because
+// that is where the store's address lives, rather than handing the renderer an
+// origin it would then have to remember to apply.
+function withAbsolutePreview(workflow: StoreWorkflow): StoreWorkflow {
+  const preview = workflow.preview
+  if (!preview) return workflow
+  const absolute = (path?: string) =>
+    !path || /^(https?:|data:)/.test(path) ? path : `${storeOrigin()}${path.startsWith("/") ? "" : "/"}${path}`
+  return {
+    ...workflow,
+    preview: { ...preview, input_image: absolute(preview.input_image), output_image: absolute(preview.output_image) },
+  }
 }
 
 // readPack fetches a pack's sources without installing anything, which is what
@@ -144,7 +187,21 @@ export async function readPack(name: string, version?: string): Promise<StorePac
   assertName(name)
   if (version) assertVersion(version)
   const suffix = version ? `/${encodeURIComponent(version)}` : ""
-  return (await anonymous(`/api/store/nodes/${encodeURIComponent(name)}${suffix}`)) as StorePack
+  const body = (await anonymous(`/api/store/nodes/${encodeURIComponent(name)}${suffix}`)) as
+    | StorePack
+    | { pack: StorePack; warning?: string }
+
+  // The two routes answer in two shapes, and only one of them was handled. The
+  // latest version comes back bare; a pinned version comes back wrapped, with a
+  // warning beside it when that version was yanked — which is exactly the case
+  // somebody installing a pinned pack needs to hear about. Reading the wrapper
+  // as a pack gave an object with no name, and the install failed on a name
+  // that was never missing.
+  if (body && typeof body === "object" && "pack" in body) {
+    if (body.warning) console.warn(`store: ${body.warning}`)
+    return body.pack
+  }
+  return body as StorePack
 }
 
 function assertName(name: string): void {
@@ -223,19 +280,37 @@ export async function installPack(projectDir: string, name: string, version?: st
 // nodes arrive separately can be installed half-way, which leaves the user
 // with a graph that names a type nothing provides.
 export async function installWorkflow(projectDir: string, name: string): Promise<InstallResult> {
+  // The field names are the server's, checked against it rather than guessed.
+  // They were guessed before — this asked for `workflow` and `missing` where
+  // the server sends `template` and `problems`, so every install ended in "the
+  // store returned no workflow named …" about a workflow that was right there.
   const body = (await anonymous(`/api/store/workflows/${encodeURIComponent(name)}`)) as {
-    workflow?: StoreWorkflow
-    packs?: StorePack[]
-    missing?: { name: string; reason: string }[]
+    template?: StoreWorkflow
+    packs?: StoreDependency[]
+    installable?: boolean
+    problems?: string[]
   }
 
-  if (body?.missing?.length) {
-    const named = body.missing.map((m) => `${m.name} (${m.reason})`).join(", ")
-    throw new StoreError(`This workflow cannot be installed: ${named}`)
+  if (!body?.template) throw new StoreError(`The store returned no workflow named "${name}".`)
+  if (body.installable === false) {
+    // The server already phrased each problem for a reader; repeating them is
+    // more use than replacing them with a summary of our own.
+    const named = (body.problems ?? []).join("; ")
+    throw new StoreError(named || `This workflow cannot be installed.`)
   }
-  if (!body?.workflow) throw new StoreError(`The store returned no workflow named "${name}".`)
 
-  const packs = body.packs ?? []
+  // A dependency arrives as a descriptor with the pack nested inside it. One
+  // that resolved to nothing is a problem the server would already have
+  // reported, so reaching here with a hole means the two disagree — and writing
+  // half a closure is worse than refusing.
+  const packs: StorePack[] = []
+  for (const dep of body.packs ?? []) {
+    if (!dep.pack) {
+      throw new StoreError(`This workflow needs ${dep.name}@${dep.version}, which the store did not send.`)
+    }
+    packs.push(dep.pack)
+  }
+
   // Every pack is validated before any of them is written, so a bad one in the
   // middle of the closure cannot leave a half-installed set behind.
   for (const pack of packs) {
@@ -245,9 +320,20 @@ export async function installWorkflow(projectDir: string, name: string): Promise
   for (const pack of packs) await writePack(projectDir, pack)
 
   return {
-    workflow: body.workflow.name,
+    workflow: body.template.name,
     packs: packs.map((p) => ({ name: p.name, version: p.version })),
   }
+}
+
+// StoreDependency is one pack a workflow needs, as the server describes it.
+export type StoreDependency = {
+  name: string
+  version: string
+  digest: string
+  yanked: boolean
+  changed: boolean
+  missing: boolean
+  pack?: StorePack
 }
 
 export type InstalledPack = {

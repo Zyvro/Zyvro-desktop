@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node scripts/dev-app-name.mjs && node scripts/build-engine.mjs && electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-markdown.mjs && node scripts/check-store-digest.mjs && node scripts/check-node-kinds.mjs && node scripts/check-store-names.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-markdown.mjs && node scripts/check-store-digest.mjs && node scripts/check-node-kinds.mjs && node scripts/check-store-names.mjs && node scripts/check-store-shapes.mjs",
     "start": "electron-vite preview",
     "pack:mac": "node scripts/build-engine.mjs darwin && electron-vite build && cross-env ZYVROD_BIN=zyvrod electron-builder --mac --dir",
     "pack:win": "node scripts/build-engine.mjs windows && electron-vite build && cross-env ZYVROD_BIN=zyvrod.exe electron-builder --win --dir",
@@ -20,7 +20,8 @@
     "check:digest": "node scripts/check-store-digest.mjs",
     "release": "node scripts/release.mjs",
     "check:nodes": "node scripts/check-node-kinds.mjs",
-    "check:names": "node scripts/check-store-names.mjs"
+    "check:names": "node scripts/check-store-names.mjs",
+    "check:shapes": "node scripts/check-store-shapes.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",
