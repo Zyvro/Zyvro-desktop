@@ -9,6 +9,7 @@ import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import * as git from "./git"
+import * as conversations from "./conversations"
 import * as commitMessage from "./commitmessage"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
@@ -257,17 +258,62 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle(
     "agent:send",
-    async (event, kind: AgentKind, prompt: string, ctx: Partial<AgentContext>) => {
+    async (
+      event,
+      kind: AgentKind,
+      prompt: string,
+      ctx: Partial<AgentContext>,
+      conversationId: string
+    ) => {
       const { ws } = requireWorkspace(event)
       const root = requireRoot(ws)
-      return ws.agent.send(event.sender, kind === "codex" ? "codex" : "claude", String(prompt), {
-        projectDir: root,
-        workflows: Array.isArray(ctx?.workflows) ? ctx.workflows : [],
-        daemonOrigin: ws.daemon.current?.origin,
-        daemonToken: ws.daemon.current?.token,
-      })
+      return ws.agent.send(
+        event.sender,
+        kind === "codex" ? "codex" : "claude",
+        String(prompt),
+        {
+          projectDir: root,
+          workflows: Array.isArray(ctx?.workflows) ? ctx.workflows : [],
+          daemonOrigin: ws.daemon.current?.origin,
+          daemonToken: ws.daemon.current?.token,
+        },
+        String(conversationId)
+      )
     }
   )
+
+  // ---------- conversations ----------
+  //
+  // The transcript is stored beside the session id, and both are loaded back
+  // when a project reopens. Storing only the id would be worse than storing
+  // nothing: the panel would open empty while the agent still remembered every
+  // word, which is an assistant nobody can predict.
+
+  ipcMain.handle("agent:conversations", async (event) => {
+    const { ws } = requireWorkspace(event)
+    const all = await conversations.load(requireRoot(ws))
+    // The runner is told what it is expected to resume, so a conversation
+    // reopened after a restart carries on rather than starting over.
+    for (const conversation of all) ws.agent.resumeAt(conversation.id, conversation.sessionId)
+    return all
+  })
+
+  ipcMain.handle("agent:remember", async (event, conversation: conversations.Conversation) => {
+    const { ws } = requireWorkspace(event)
+    return conversations.remember(requireRoot(ws), {
+      ...conversation,
+      // The id the CLI actually reported wins over whatever the renderer last
+      // saw: it is learned from the output stream, and the renderer only hears
+      // about it through an event that may still be in flight.
+      sessionId: ws.agent.sessionFor(conversation.id) ?? conversation.sessionId ?? null,
+    })
+  })
+
+  ipcMain.handle("agent:forget", async (event, id: string) => {
+    const { ws } = requireWorkspace(event)
+    ws.agent.resumeAt(String(id), null)
+    return conversations.forget(requireRoot(ws), String(id))
+  })
 
   ipcMain.handle("agent:cancel", async (event, id: string) => {
     const { ws } = requireWorkspace(event)

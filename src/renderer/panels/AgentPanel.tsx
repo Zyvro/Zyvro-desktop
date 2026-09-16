@@ -30,6 +30,17 @@ type ChatState = {
   turnId: string | null
   /** True from the moment the user sends, before the turn id is known. */
   busy: boolean
+  /**
+   * This thread's own id, which is what the CLI's session is filed under.
+   *
+   * Not the CLI's session id: that one is learned from the output of the first
+   * turn and lives in the main process. This is ours, it exists before any
+   * turn has run, and it is what makes "the conversation the user is looking
+   * at" a thing that can be named, saved and reopened.
+   */
+  conversationId: string
+  /** What the panel has already written down, so a save can be skipped. */
+  saved: string
 }
 
 // Events for a turn can reach the renderer before `agent:send` resolves with
@@ -39,7 +50,17 @@ type Orphan = { text: string; tools: string[]; error: string; done: boolean }
 
 const WORKFLOWS_KEY = ["local", "workflows"] as const
 
-let state: ChatState = { messages: [], turnId: null, busy: false }
+function newConversationId(): string {
+  return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+}
+
+let state: ChatState = {
+  messages: [],
+  turnId: null,
+  busy: false,
+  conversationId: newConversationId(),
+  saved: "",
+}
 const subscribers = new Set<() => void>()
 const turnToMessage = new Map<string, string>()
 const orphans = new Map<string, Orphan>()
@@ -145,7 +166,27 @@ function endTurn(id: string): void {
   cancelled.delete(id)
   if (state.turnId !== id) return
   commit({ ...state, turnId: null, busy: false })
+  persist()
 }
+
+// Reloading is driven by the project, not by a component mounting.
+//
+// A subscription at module level rather than an effect: this project bans
+// useEffect, and the question "which project is open" is answered by the
+// workspace store, which anything can watch. Opening a project is exactly when
+// its conversations become readable, and closing one is when the panel has to
+// stop showing somebody else's.
+let restoredFor: string | null = null
+useWorkspace.subscribe((workspace) => {
+  const project = workspace.project?.project ?? null
+  if (project === restoredFor) return
+  restoredFor = project
+  if (!project) {
+    resetChat()
+    return
+  }
+  void restore()
+})
 
 function subscribe(listener: () => void): () => void {
   ensureAttached()
@@ -172,7 +213,7 @@ function beginTurn(prompt: string): string {
     tools: [],
     streaming: true,
   }
-  commit({ messages: [...state.messages, user, assistant], turnId: null, busy: true })
+  commit({ ...state, messages: [...state.messages, user, assistant], turnId: null, busy: true })
   return assistantId
 }
 
@@ -203,15 +244,103 @@ function failTurn(messageId: string, message: string): void {
   commit({ ...state, turnId: null, busy: false })
 }
 
+// ---------------------------------------------------------------------------
+// Remembering
+// ---------------------------------------------------------------------------
+
+// The transcript is written down after every turn, beside the CLI's session id
+// that main holds. Both or neither: a session resumed into an empty panel is an
+// assistant that remembers more than its window shows, which is worse than one
+// that remembers nothing.
+//
+// Saved at the end of a turn rather than on every chunk — a save per streamed
+// character would be a file write per character.
+function persist(): void {
+  if (typeof window === "undefined" || !window.zyvro) return
+  const messages = state.messages
+    .filter((m) => m.text !== "" || m.tools.length > 0 || m.error)
+    .map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
+  if (messages.length === 0) return
+
+  const stamp = JSON.stringify(messages)
+  if (stamp === state.saved) return
+  commit({ ...state, saved: stamp })
+
+  const first = state.messages.find((m) => m.role === "user")
+  void window.zyvro.agent.remember({
+    id: state.conversationId,
+    kind: currentKind,
+    title: titleFrom(first?.text ?? ""),
+    // Main overwrites this with what the CLI actually reported; sending what we
+    // last knew keeps a conversation whose session has not changed intact.
+    sessionId: null,
+    messages,
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+// titleFrom is deliberately the same rule the main process uses, and it is one
+// line, so it is written twice rather than sent across IPC for every keystroke.
+// If it ever becomes more than this, it moves and this goes.
+function titleFrom(prompt: string): string {
+  const line = prompt.trim().split("\n").find((l) => l.trim()) ?? ""
+  const clean = line.trim().replace(/\s+/g, " ")
+  return clean.length > 48 ? `${clean.slice(0, 47)}…` : clean || "New chat"
+}
+
+// currentKind is which CLI this thread is talking to. Held at module level
+// because persist() runs from an IPC callback, outside any component.
+let currentKind: AgentKind = "claude"
+export function rememberKind(kind: AgentKind): void {
+  currentKind = kind
+}
+
+// restore loads this project's most recent conversation back into the panel.
+//
+// One conversation for now, because the panel shows one. The store already
+// holds a list, so the tabs that come next are a change to this function and
+// to the header, not to anything below it.
+export async function restore(): Promise<void> {
+  if (typeof window === "undefined" || !window.zyvro) return
+  const all = await window.zyvro.agent.conversations()
+  const latest = all[0]
+  if (!latest || latest.messages.length === 0) return
+  commit({
+    messages: latest.messages.map((m) => ({
+      id: nextMessageId(),
+      role: m.role,
+      text: m.text,
+      tools: m.tools ?? [],
+      error: m.error,
+      streaming: false,
+    })),
+    turnId: null,
+    busy: false,
+    conversationId: latest.id,
+    saved: JSON.stringify(latest.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))),
+  })
+  currentKind = latest.kind
+}
+
 function markCancelled(turnId: string): void {
   cancelled.add(turnId)
 }
 
+// A new chat is a new conversation id, which is what makes it a new session:
+// the next turn finds nothing to resume and the CLI starts fresh. Clearing the
+// messages alone would empty the window and leave the agent still remembering
+// everything, which is the failure this whole change exists to remove.
 function resetChat(): void {
   turnToMessage.clear()
   orphans.clear()
   cancelled.clear()
-  commit({ messages: [], turnId: null, busy: false })
+  commit({
+    messages: [],
+    turnId: null,
+    busy: false,
+    conversationId: newConversationId(),
+    saved: "",
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -321,7 +450,8 @@ export function AgentPanel(): JSX.Element {
     }
 
     try {
-      const turnId = await window.zyvro.agent.send(kind, text, workflows)
+      rememberKind(kind)
+      const turnId = await window.zyvro.agent.send(kind, text, workflows, chat.conversationId)
       bindTurn(messageId, turnId)
     } catch (error: unknown) {
       failTurn(messageId, error instanceof Error ? error.message : String(error))

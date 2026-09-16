@@ -41,6 +41,7 @@ import type {
   InstalledPack,
 } from "../main/store"
 import type { PublisherVerdict } from "../main/knownpublishers"
+import type { Conversation, StoredMessage } from "../main/conversations"
 import type {
   Change,
   ChangeStatus,
@@ -72,6 +73,8 @@ export type {
   NoRepository,
   Remote,
   Stash,
+  Conversation,
+  StoredMessage,
 }
 
 const api = {
@@ -113,8 +116,16 @@ const api = {
   },
 
   agent: {
-    send: (kind: AgentKind, prompt: string, workflows: WorkflowRef[]): Promise<string> =>
-      ipcRenderer.invoke("agent:send", kind, prompt, { workflows }),
+    send: (
+      kind: AgentKind,
+      prompt: string,
+      workflows: WorkflowRef[],
+      conversationId: string
+    ): Promise<string> => ipcRenderer.invoke("agent:send", kind, prompt, { workflows }, conversationId),
+    conversations: (): Promise<Conversation[]> => ipcRenderer.invoke("agent:conversations"),
+    remember: (conversation: Conversation): Promise<void> =>
+      ipcRenderer.invoke("agent:remember", conversation),
+    forget: (id: string): Promise<void> => ipcRenderer.invoke("agent:forget", id),
     cancel: (id: string): Promise<boolean> => ipcRenderer.invoke("agent:cancel", id),
     onText: (cb: (p: { id: string; text: string }) => void): Unsubscribe => on("agent:text", cb),
     onTool: (cb: (p: { id: string; tool: string }) => void): Unsubscribe => on("agent:tool", cb),

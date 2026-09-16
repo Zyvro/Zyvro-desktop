@@ -94,8 +94,52 @@ function claudeMcpConfig(ctx: AgentContext): { path: string; dispose: () => void
   return { path: file, dispose: () => rmSync(dir, { recursive: true, force: true }) }
 }
 
+// argsFor builds the command line for one turn.
+//
+// Pulled out and exported so it can be pinned by a check, because this is the
+// part that breaks silently. The two CLIs disagree about how a session is
+// resumed, and neither complains when you get it wrong:
+//
+//   claude   --resume <id> is a flag, anywhere on the line
+//   codex    resume is a SUBCOMMAND, before its options, with the id positional
+//
+// Put codex's id in the wrong place and it is read as the prompt: the process
+// starts, the model answers a question made of a UUID, and nothing anywhere
+// says the session was not resumed. That is the failure worth a test.
+//
+// Both shapes were checked against the installed binaries rather than recalled
+// — `codex exec resume --help` prints `[OPTIONS] [SESSION_ID] [PROMPT]`.
+export function argsFor(kind: AgentKind, ctx: AgentContext, resume: string | null): string[] {
+  if (kind === "claude") {
+    return [
+      "-p",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--append-system-prompt",
+      preamble(ctx),
+      ...(resume ? ["--resume", resume] : []),
+    ]
+  }
+  return resume
+    ? ["exec", "resume", "--json", "--skip-git-repo-check", resume]
+    : ["exec", "--json", "--skip-git-repo-check"]
+}
+
+// sessionIn reads the CLI's own id for the conversation out of one event.
+//
+// The two call it different things — claude `session_id`, codex `thread_id` —
+// and that was read out of their real output, not assumed. Guessing it wrong
+// costs nothing visible: resume simply never happens, and the agent is
+// amnesiac again with no error to explain it.
+export function sessionIn(event: Record<string, unknown>): string | null {
+  const value = event.session_id ?? event.thread_id
+  return typeof value === "string" && value ? value : null
+}
+
 type Turn = {
   id: string
+  conversationId: string
   child: ChildProcess
   // Whether any assistant text has gone out for this turn yet. The CLI emits
   // one assistant message per stretch of thinking, and between two of them
@@ -106,6 +150,30 @@ type Turn = {
 
 export class AgentRunner {
   private turns = new Map<string, Turn>()
+
+  // The CLI's own id for each conversation, learned from its output stream.
+  //
+  // This is what makes the agent remember. Without it every message opened a
+  // fresh process that knew nothing of the one before: the panel showed a
+  // conversation, and the CLI was answering a series of unrelated questions.
+  // "Add a function" then "now the tests" got a puzzled answer about tests in
+  // general, and nothing in the window explained why.
+  //
+  // Held here and handed back to the caller, which is what writes it down: this
+  // class knows how to talk to a CLI and should not also own a file.
+  private sessions = new Map<string, string>()
+
+  // sessionFor is what the panel's persistence reads after a turn.
+  sessionFor(conversationId: string): string | null {
+    return this.sessions.get(conversationId) ?? null
+  }
+
+  // resumeAt seeds a session learned in a previous run of the app, so a
+  // conversation reopened tomorrow carries on rather than starting over.
+  resumeAt(conversationId: string, sessionId: string | null): void {
+    if (sessionId) this.sessions.set(conversationId, sessionId)
+    else this.sessions.delete(conversationId)
+  }
 
   available(kind: AgentKind): string {
     return kind === "codex" ? "codex" : "claude"
@@ -119,19 +187,20 @@ export class AgentRunner {
     return cliInstalled(this.available(kind))
   }
 
-  // send starts one turn and streams it back. Each turn is a fresh process:
-  // `claude -p` and `codex exec` are one-shot by design, and threading a
-  // session id through them is a later refinement, not a prototype concern.
-  send(target: WebContents, kind: AgentKind, prompt: string, ctx: AgentContext): string {
+  // send starts one turn and streams it back.
+  //
+  // Each turn is still a fresh process — `claude -p` and `codex exec` are
+  // one-shot by design — but it is no longer a fresh conversation: both CLIs
+  // can pick up a previous session by id, and that id is what turns a row of
+  // separate questions into a thread.
+  send(target: WebContents, kind: AgentKind, prompt: string, ctx: AgentContext, conversationId: string): string {
     const id = randomUUID()
+    const resume = this.sessions.get(conversationId)
     const bin = this.available(kind)
     const env: NodeJS.ProcessEnv = { ...process.env }
     let disposeConfig: (() => void) | null = null
 
-    const args: string[] =
-      kind === "claude"
-        ? ["-p", "--output-format", "stream-json", "--verbose", "--append-system-prompt", preamble(ctx)]
-        : ["exec", "--json", "--skip-git-repo-check"]
+    const args: string[] = argsFor(kind, ctx, resume ?? null)
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -171,7 +240,7 @@ export class AgentRunner {
     // carries an extension and may be a .cmd that Node refuses to start
     // without a shell.
     const child = launchPiped(bin, args, { cwd: ctx.projectDir, env })
-    this.turns.set(id, { id, child, sentText: false })
+    this.turns.set(id, { id, conversationId, child, sentText: false })
 
     child.stdin.write(text)
     child.stdin.end()
@@ -237,6 +306,18 @@ export class AgentRunner {
     }
 
     const turn = this.turns.get(id)
+
+    // The session id, wherever it appears. Claude calls it session_id and puts
+    // it on every event; codex calls it thread_id — a difference worth reading
+    // out of the real output rather than assuming, because guessing it wrong
+    // means resume silently never happens and the agent is amnesiac again.
+    const learned = sessionIn(parsed)
+    if (turn && learned) {
+      if (this.sessions.get(turn.conversationId) !== learned) {
+        this.sessions.set(turn.conversationId, learned)
+        target.send("agent:session", { id, conversationId: turn.conversationId, sessionId: learned })
+      }
+    }
     const send = (text: string) => {
       if (!text) return
       // A new block starts a new paragraph, which is also what makes the
