@@ -58,9 +58,7 @@ writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 // Each installer carries the engine for its own platform, so all three are
 // built before any packaging starts.
 console.log("\n--- engine ---")
-for (const platform of ["darwin", "windows"]) {
-  run("node", ["scripts/build-engine.mjs", platform])
-}
+run("node", ["scripts/build-engine.mjs", "--all"])
 
 console.log("\n--- renderer and main ---")
 run("npx", ["electron-vite", "build"])
@@ -73,12 +71,19 @@ console.log("\n--- installers ---")
 const sdk = newestCltSdk()
 if (sdk) console.log(`native rebuild against ${sdk}`)
 
-run("npx", ["electron-builder", "--mac", "dmg", "--arm64", "--x64"], {
-  env: nativeBuildEnv({ ...process.env, ZYVROD_BIN: "zyvrod" }),
-})
-run("npx", ["electron-builder", "--win", "nsis", "--x64"], {
-  env: nativeBuildEnv({ ...process.env, ZYVROD_BIN: "zyvrod.exe" }),
-})
+// The engine is picked per architecture by electron-builder's ${arch} macro,
+// so there is nothing left to select here.
+run("npx", ["electron-builder", "--mac", "dmg", "--arm64", "--x64"], { env: nativeBuildEnv() })
+
+// Windows is built here only when this machine can. node-gyp cannot
+// cross-compile node-pty, so a Windows installer produced on macOS would either
+// fail to build or ship without a real terminal. The release workflow builds it
+// on a Windows runner, which is the answer rather than a workaround.
+if (process.platform === "win32") {
+  run("npx", ["electron-builder", "--win", "nsis", "--x64"], { env: nativeBuildEnv() })
+} else {
+  console.log("  skipped: Windows is built by the release workflow, on a Windows runner")
+}
 
 // The hashes are the only integrity check an unsigned download has. They belong
 // in the release notes, so they are printed in a form that can be pasted there.

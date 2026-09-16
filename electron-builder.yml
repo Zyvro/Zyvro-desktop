@@ -28,12 +28,9 @@ files:
   - "!node_modules/node-pty/build/**/*.{o,a,d,mk,gypi,Makefile}"
   - "!node_modules/node-pty/build/Release/{obj,obj.target,.deps}/**/*"
 
-# The local engine ships beside the app rather than inside the asar: it is a
-# native binary that has to be executable on disk, and the daemon resolver in
-# src/main/daemon.ts looks for it at resources/bin.
+# The release key ships with the app. Without it every engine update is
+# refused rather than installed unverified, so it is not optional.
 extraResources:
-  - from: ../Zyvro-engine/bin/${env.ZYVROD_BIN}
-    to: bin/${env.ZYVROD_BIN}
   - from: resources/engine-release.pub
     to: engine-release.pub
 
@@ -45,6 +42,13 @@ asarUnpack:
 
 mac:
   icon: resources/icon.icns
+  # The engine ships beside the app rather than inside the asar: it is a native
+  # binary that has to be executable on disk. It is named per architecture
+  # because an Intel installer carrying an arm64 engine opens a window that can
+  # do nothing, and the failure would arrive on a user's machine, not here.
+  extraResources:
+    - from: ../Zyvro-engine/bin/zyvrod-darwin-${arch}
+      to: bin/zyvrod
   category: public.app-category.developer-tools
   target:
     - target: dmg
@@ -66,6 +70,9 @@ mac:
 
 win:
   icon: resources/icon.ico
+  extraResources:
+    - from: ../Zyvro-engine/bin/zyvrod-windows-${arch}.exe
+      to: bin/zyvrod.exe
   target:
     - target: nsis
       arch: [x64, arm64]
@@ -76,5 +83,8 @@ nsis:
 
 linux:
   icon: resources/icon.png
+  extraResources:
+    - from: ../Zyvro-engine/bin/zyvrod-linux-${arch}
+      to: bin/zyvrod
   target: [AppImage]
   category: Development

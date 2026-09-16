@@ -1,0 +1,143 @@
+# Builds Zyvro Studio for macOS and Windows and attaches the installers to a
+# GitHub Release.
+#
+# It exists because a Windows installer cannot honestly be produced on a Mac:
+# node-gyp does not cross-compile native modules, so node-pty would either fail
+# to build or be left out, and an app whose terminal is a pipe is an app where
+# `claude` and `codex` stop behaving interactively. Each platform is therefore
+# built on its own runner.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. 0.1.0-alpha.2"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      # One platform failing should not hide whether the other one works.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+            artifacts: "dist/*.dmg"
+          - os: windows-latest
+            platform: win
+            artifacts: "dist/*.exe"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out the desktop app
+        uses: actions/checkout@v4
+        with:
+          path: Zyvro-desktop
+
+      # The renderer compiles the web app's graph editor from source and the
+      # installer carries an engine built from Go, so both siblings are real
+      # build inputs rather than optional extras.
+      - name: Check out the engine
+        uses: actions/checkout@v4
+        with:
+          repository: Zyvro/Zyvro-engine
+          path: Zyvro-engine
+
+      - name: Check out the frontend
+        uses: actions/checkout@v4
+        with:
+          repository: Zyvro/Zyvro-frontend
+          path: Zyvro-frontend
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Zyvro-engine/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the frontend's dependencies
+        working-directory: Zyvro-frontend
+        run: npm ci
+
+      - name: Install the desktop's dependencies
+        working-directory: Zyvro-desktop
+        run: npm ci
+
+      - name: Set the version
+        working-directory: Zyvro-desktop
+        shell: bash
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [ -z "$VERSION" ]; then VERSION="${GITHUB_REF_NAME#v}"; fi
+          node -e "const f='package.json';const p=require('./'+f);p.version=process.argv[1];require('fs').writeFileSync(f,JSON.stringify(p,null,2)+'\n')" "$VERSION"
+          echo "Building $VERSION"
+
+      - name: Build the engine for this platform
+        working-directory: Zyvro-desktop
+        run: node scripts/build-engine.mjs ${{ matrix.platform }}
+
+      - name: Verify the app and its tests
+        working-directory: Zyvro-desktop
+        run: npm run typecheck
+
+      - name: Package
+        working-directory: Zyvro-desktop
+        # Nothing is signed. RELEASE.md says what that means for whoever
+        # downloads it; CSC_IDENTITY_AUTO_DISCOVERY off stops electron-builder
+        # picking up a certificate that would not help anyway.
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npx electron-builder --${{ matrix.platform }} --publish never
+
+      - name: Hash the artifacts
+        working-directory: Zyvro-desktop
+        shell: bash
+        run: |
+          echo "### ${{ matrix.platform }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '| File | SHA-256 |' >> "$GITHUB_STEP_SUMMARY"
+          echo '|---|---|' >> "$GITHUB_STEP_SUMMARY"
+          for f in ${{ matrix.artifacts }}; do
+            [ -e "$f" ] || continue
+            printf '| `%s` | `%s` |\n' "$(basename "$f")" "$(shasum -a 256 "$f" | cut -d" " -f1)" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zyvro-studio-${{ matrix.platform }}
+          path: Zyvro-desktop/${{ matrix.artifacts }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    # Only a tag publishes. A manual run builds and leaves the artifacts to be
+    # looked at, which is the point of being able to trigger it by hand.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Anything with a suffix after the patch number is a pre-release.
+          PRERELEASE=""
+          case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease";; esac
+          gh release create "${GITHUB_REF_NAME}" $PRERELEASE \
+            --title "Zyvro Studio ${GITHUB_REF_NAME}" \
+            --notes-file .github/RELEASE_NOTES.md \
+            artifacts/*
