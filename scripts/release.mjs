@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs"
 import path from "node:path"
+import { nativeBuildEnv, newestCltSdk } from "./mac-sdk.mjs"
 
 const ROOT = path.resolve(import.meta.dirname, "..")
 const ENGINE = path.resolve(ROOT, "../Zyvro-engine")
@@ -67,11 +68,16 @@ run("npx", ["electron-vite", "build"])
 console.log("\n--- installers ---")
 // macOS and Windows want different engine binaries under the same name in the
 // config, which is why ZYVROD_BIN is set per pass rather than once.
+// electron-builder runs its own native rebuild, once per architecture, so it
+// needs the same SDK workaround the install does.
+const sdk = newestCltSdk()
+if (sdk) console.log(`native rebuild against ${sdk}`)
+
 run("npx", ["electron-builder", "--mac", "dmg", "--arm64", "--x64"], {
-  env: { ...process.env, ZYVROD_BIN: "zyvrod" },
+  env: nativeBuildEnv({ ...process.env, ZYVROD_BIN: "zyvrod" }),
 })
 run("npx", ["electron-builder", "--win", "nsis", "--x64"], {
-  env: { ...process.env, ZYVROD_BIN: "zyvrod.exe" },
+  env: nativeBuildEnv({ ...process.env, ZYVROD_BIN: "zyvrod.exe" }),
 })
 
 // The hashes are the only integrity check an unsigned download has. They belong

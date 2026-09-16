@@ -1,7 +1,7 @@
 {
   "name": "zyvro-desktop",
-  "version": "0.1.0",
-  "description": "Zyvro Studio \u2014 local workflow IDE",
+  "version": "0.1.0-alpha.1",
+  "description": "Zyvro Studio — local workflow IDE",
   "main": "./out/main/index.js",
   "author": "Zyvro",
   "private": true,
