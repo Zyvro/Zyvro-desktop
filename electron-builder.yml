@@ -13,10 +13,6 @@ files:
   # buildResources are inputs to the packager, not files it copies. The window
   # and taskbar icon is looked up at runtime, so it has to be shipped too.
   - resources/icon.png
-  # The public half of the engine release key. Without it the app refuses every
-  # engine update rather than installing an unverified binary, so shipping it is
-  # not optional.
-  - resources/engine-release.pub
 
   # Everything the renderer uses is already bundled into out/ by Vite, so the
   # packages themselves are dead weight: monaco-editor alone is 98 MB of source
@@ -27,12 +23,6 @@ files:
   - "!node_modules/node-pty/{src,deps,scripts,.github,typings}/**/*"
   - "!node_modules/node-pty/build/**/*.{o,a,d,mk,gypi,Makefile}"
   - "!node_modules/node-pty/build/Release/{obj,obj.target,.deps}/**/*"
-
-# The release key ships with the app. Without it every engine update is
-# refused rather than installed unverified, so it is not optional.
-extraResources:
-  - from: resources/engine-release.pub
-    to: engine-release.pub
 
 afterPack: scripts/adhoc-sign.cjs
 
