@@ -70,7 +70,21 @@ try {
   check("untracked files carry the letter U", unborn.unstaged.find((c) => c.path === "readme.md")?.letter === "U")
 
   // ---- names that break a reader who skipped -z -------------------------
-  const awkward = ["a file with spaces.txt", "réglages.txt", `quote"inside.txt`, "accentué é.md"]
+  //
+  // The quote is the sharpest case and the one Windows cannot have: NTFS
+  // refuses `"` in a filename outright, so including it unconditionally made
+  // this check fail on the Windows release runner with ENOENT — a check about
+  // reading someone else's rules, failing because it assumed someone else's
+  // rules. The accented names carry the same point everywhere: without `-z`,
+  // git escapes them in octal and a reader that forgot to unescape asks for a
+  // file that does not exist.
+  const windows = process.platform === "win32"
+  const awkward = [
+    "a file with spaces.txt",
+    "réglages.txt",
+    "accentué é.md",
+    ...(windows ? [] : [`quote"inside.txt`]),
+  ]
   for (const name of awkward) write(name, "x\n")
   const messy = await git.status(repo)
   for (const name of awkward) {
