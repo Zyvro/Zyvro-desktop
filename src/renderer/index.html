@@ -5,10 +5,19 @@
     <title>Zyvro Studio</title>
     <!-- The renderer only ever loads its own bundle and talks to a loopback
          daemon, so the policy can be this tight. connect-src keeps http open
-         for 127.0.0.1 because the daemon's port is not known until runtime. -->
+         for 127.0.0.1 because the daemon's port is not known until runtime.
+
+         img-src also allows https: — the store's cards show thumbnails the
+         server hosts, and the store's address is overridable at runtime
+         (ZYVRO_STORE_ORIGIN), which a static policy in this file cannot know.
+         Naming a scheme rather than a host is the honest way to write that.
+         It stays narrow where it matters: an image is not a script, and
+         script-src is still 'self' alone. connect-src is not widened, so the
+         renderer still cannot talk to the store — the main process does that
+         and hands the results across. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:*; worker-src 'self' blob:;"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:*; worker-src 'self' blob:;"
     />
   </head>
   <body class="dark">

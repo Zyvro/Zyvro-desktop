@@ -95,7 +95,9 @@ function Capabilities({ capabilities }: { capabilities: string[] }) {
 
 export function StorePanel() {
   const project = useWorkspace((s) => s.project)
-  const [section, setSection] = useState<Section>("nodes")
+  // Workflows first: it is what somebody opening a store is looking for. A
+  // node pack is a dependency of one, and the tab beside this holds it.
+  const [section, setSection] = useState<Section>("workflows")
   const [search, setSearch] = useState("")
   const [reading, setReading] = useState<string | null>(null)
   const [signingIn, setSigningIn] = useState(false)
