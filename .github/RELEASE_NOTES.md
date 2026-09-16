@@ -19,9 +19,10 @@ machine is the model call itself, and it goes straight to the provider.
 
 ## First launch
 
-**macOS.** The app is not notarized, so macOS says the developer cannot be
-verified. Right-click the app and choose **Open**, which offers the same dialog
-with a button that proceeds. Or:
+**macOS.** The download is a zip. Unzip it in Finder, or with `ditto -x -k`,
+and move the app to Applications. The app is ad-hoc signed but not notarized,
+so macOS says the developer cannot be verified: right-click it and choose
+**Open**, which offers the same dialog with a button that proceeds. Or:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Zyvro Studio.app"
@@ -31,9 +32,14 @@ xattr -dr com.apple.quarantine "/Applications/Zyvro Studio.app"
 protected your PC". Choose **More info**, then **Run anyway**.
 
 Both warnings are accurate: neither platform can tell you this download came
-from us rather than from someone who intercepted it. The SHA-256 of every file
-is in the build summary, and checking it is the only verification available
+from us rather than from someone who intercepted it. Every file's SHA-256 is at
+the bottom of this page, and checking it is the only verification available
 until the certificates are in place.
+
+```sh
+shasum -a 256 ~/Downloads/Zyvro*        # macOS
+certutil -hashfile Zyvro*.exe SHA256    # Windows
+```
 
 ## What is in it
 

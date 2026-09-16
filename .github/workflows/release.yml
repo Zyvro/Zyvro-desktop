@@ -183,10 +183,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The notes promise a hash for every file, and an unsigned download
+          # has no other integrity check at all. Appending them here rather
+          # than keeping them in a build summary is what makes that promise
+          # true for the person who reads the release page.
+          cp .github/RELEASE_NOTES.md /tmp/notes.md
+          {
+            echo
+            echo "## Checksums"
+            echo
+            echo "| File | SHA-256 |"
+            echo "|---|---|"
+            for f in artifacts/*; do
+              printf '| `%s` | `%s` |\n' "$(basename "$f")" "$(sha256sum "$f" | cut -d" " -f1)"
+            done
+          } >> /tmp/notes.md
+
           # Anything with a suffix after the patch number is a pre-release.
           PRERELEASE=""
           case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease";; esac
           gh release create "${GITHUB_REF_NAME}" $PRERELEASE \
             --title "Zyvro Studio ${GITHUB_REF_NAME}" \
-            --notes-file .github/RELEASE_NOTES.md \
+            --notes-file /tmp/notes.md \
             artifacts/*
