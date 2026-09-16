@@ -113,7 +113,8 @@ export function argsFor(
   kind: AgentKind,
   ctx: AgentContext,
   resume: string | null,
-  model: string | null = null
+  model: string | null = null,
+  images: string[] = []
 ): string[] {
   // An empty model is not a model. Passing `--model ""` is not the same as
   // passing nothing: the CLI takes it as a value and refuses it, and the user
@@ -130,6 +131,17 @@ export function argsFor(
       preamble(ctx),
       ...(pinned ? ["--model", pinned] : []),
       ...(resume ? ["--resume", resume] : []),
+      // claude has no image flag: it reads an image by path with its Read tool,
+      // so the paths go in the prompt — see promptWith. But its tools are
+      // confined to the working directory, and the attachments live beside the
+      // conversation, outside the project. Without this the agent answers "la
+      // permission a été refusée" for a file it was just handed, which is
+      // exactly what it did the first time this was run.
+      //
+      // Only the directories the images are actually in, and only when there
+      // are images: widening tool access for a turn that does not need it
+      // would be paying for a feature nobody used.
+      ...(images.length > 0 ? ["--add-dir", ...directoriesOf(images)] : []),
     ]
   }
   return [
@@ -138,8 +150,32 @@ export function argsFor(
     "--json",
     "--skip-git-repo-check",
     ...(pinned ? ["--model", pinned] : []),
+    // -i takes one path per occurrence. Several paths after a single -i would
+    // be swallowed as one argument by some shells and as the prompt by codex.
+    ...images.flatMap((file) => ["-i", file]),
     ...(resume ? [resume] : []),
   ]
+}
+
+// directoriesOf is the set of folders a batch of images sits in, without
+// repeats — one --add-dir per folder rather than per file.
+function directoriesOf(files: string[]): string[] {
+  return [...new Set(files.map((file) => path.dirname(file)))]
+}
+
+// promptWith is how images reach claude, which has no flag for them.
+//
+// It reads an image by path with its Read tool — verified against the binary:
+// asked to read a logo from a path, it used Read and described the picture. So
+// the paths are named in the message, with an instruction plain enough that it
+// reads them before answering rather than talking about the filenames.
+//
+// codex gets nothing added here: it takes the same images as `-i` arguments,
+// and repeating them in the text would make it describe a list of paths.
+export function promptWith(kind: AgentKind, prompt: string, images: string[]): string {
+  if (kind !== "claude" || images.length === 0) return prompt
+  const listed = images.map((file) => `- ${file}`).join("\n")
+  return `${prompt}\n\nThe user attached ${images.length === 1 ? "this image" : "these images"}. Read ${images.length === 1 ? "it" : "them"} with the Read tool before answering:\n${listed}`
 }
 
 // modelIn reads which model actually ran, out of the CLI's own init event.
@@ -249,7 +285,8 @@ export class AgentRunner {
     prompt: string,
     ctx: AgentContext,
     conversationId: string,
-    model: string | null = null
+    model: string | null = null,
+    images: string[] = []
   ): string {
     const id = randomUUID()
     const resume = this.sessions.get(conversationId)
@@ -257,7 +294,7 @@ export class AgentRunner {
     const env: NodeJS.ProcessEnv = { ...process.env }
     let disposeConfig: (() => void) | null = null
 
-    const args: string[] = argsFor(kind, ctx, resume ?? null, model)
+    const args: string[] = argsFor(kind, ctx, resume ?? null, model, images)
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -291,7 +328,8 @@ export class AgentRunner {
 
     if (kind === "codex") args.push("-")
 
-    const text = kind === "codex" ? `${preamble(ctx)}\n\n---\n\n${prompt}` : prompt
+    const withImages = promptWith(kind, prompt, images)
+    const text = kind === "codex" ? `${preamble(ctx)}\n\n---\n\n${withImages}` : withImages
 
     // launch rather than spawn: it resolves the real file, which on Windows
     // carries an extension and may be a .cmd that Node refuses to start

@@ -121,9 +121,18 @@ const api = {
       prompt: string,
       workflows: WorkflowRef[],
       conversationId: string,
-      model: string | null
+      model: string | null,
+      images: string[]
     ): Promise<string> =>
-      ipcRenderer.invoke("agent:send", kind, prompt, { workflows }, conversationId, model),
+      ipcRenderer.invoke("agent:send", kind, prompt, { workflows }, conversationId, model, images),
+    attach: (
+      conversationId: string,
+      name: string,
+      bytes: Uint8Array
+    ): Promise<{ id: string; name: string; mime: string }> =>
+      ipcRenderer.invoke("agent:attach", conversationId, name, bytes),
+    detach: (conversationId: string, id: string): Promise<void> =>
+      ipcRenderer.invoke("agent:detach", conversationId, id),
     models: (kind: AgentKind): Promise<string[]> => ipcRenderer.invoke("agent:models", kind),
     conversations: (): Promise<Conversation[]> => ipcRenderer.invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>

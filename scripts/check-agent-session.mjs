@@ -28,14 +28,14 @@ import { createRequire } from "node:module"
 const ROOT = path.resolve(import.meta.dirname, "..")
 const dir = path.join(ROOT, "node_modules", ".zyvro-agent-check")
 mkdirSync(dir, { recursive: true })
-writeFileSync(path.join(dir, "h.ts"), `export { argsFor, sessionIn, modelIn, aliasesFrom } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n`)
+writeFileSync(path.join(dir, "h.ts"), `export { argsFor, sessionIn, modelIn, aliasesFrom, promptWith } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n`)
 await build({
   entryPoints: [path.join(dir, "h.ts")],
   outfile: path.join(dir, "h.cjs"),
   bundle: true, format: "cjs", platform: "node", external: ["electron"],
   absWorkingDir: ROOT, logLevel: "silent",
 })
-const { argsFor, sessionIn, modelIn, aliasesFrom } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
+const { argsFor, sessionIn, modelIn, aliasesFrom, promptWith } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -136,6 +136,43 @@ check("les alias sortent de l'aide", aliasesFrom(HELP).join(",") === "fable,opus
 check("une aide sans alias ne fabrique rien", aliasesFrom("Usage: codex [OPTIONS]").length === 0)
 check("une aide vide non plus", aliasesFrom("").length === 0)
 
+// ---- les images -----------------------------------------------------------
+//
+// Les deux CLI ne les prennent pas de la même façon, et c'est relevé sur les
+// binaires : codex a `-i <FILE>...`, claude n'a aucun drapeau et lit l'image
+// par son chemin avec son outil Read. Se tromper de côté ne produit pas
+// d'erreur — claude ignorerait un `-i` inconnu ou refuserait de démarrer, et
+// codex décrirait une liste de chemins au lieu de regarder les images.
+const IMAGES = ["/tmp/a.png", "/tmp/b.png"]
+
+const claudeImages = argsFor("claude", ctx, null, null, IMAGES)
+check("claude ne reçoit pas -i", !claudeImages.includes("-i"), claudeImages.join(" "))
+check("et pas de chemin d'image en argument", !claudeImages.some((a) => IMAGES.includes(a)))
+// Les outils de claude sont confinés au répertoire de travail, et les pièces
+// jointes vivent ailleurs. Sans --add-dir, il répond « la permission a été
+// refusée » pour un fichier qu'on vient de lui donner — c'est ce qu'il a fait
+// au premier essai réel.
+check("le dossier des images lui est ouvert", claudeImages.includes("--add-dir"), claudeImages.join(" "))
+check("un seul --add-dir par dossier, pas par fichier", claudeImages.filter((a) => a === "/tmp").length === 1, claudeImages.join(" "))
+check("sans image, on n'ouvre rien", !argsFor("claude", ctx, null, null, []).includes("--add-dir"))
+
+const withPaths = promptWith("claude", "regarde ça", IMAGES)
+check("les chemins arrivent à claude par le message", IMAGES.every((p) => withPaths.includes(p)))
+check("avec une consigne de les lire", /Read tool/.test(withPaths), withPaths)
+check("sans image, le message n'est pas touché", promptWith("claude", "bonjour", []) === "bonjour")
+
+const codexImages = argsFor("codex", ctx, null, null, IMAGES)
+check("codex reçoit un -i par image", codexImages.filter((a) => a === "-i").length === 2, codexImages.join(" "))
+check("chaque -i est suivi de son chemin", codexImages[codexImages.indexOf("-i") + 1] === IMAGES[0])
+check("codex ne se voit pas répéter les chemins dans le texte", promptWith("codex", "regarde ça", IMAGES) === "regarde ça")
+
+const codexBoth = argsFor("codex", ctx, ID, "gpt-5", IMAGES)
+check(
+  "avec reprise, l'identifiant reste le dernier argument malgré les images",
+  codexBoth[codexBoth.length - 1] === ID,
+  codexBoth.join(" ")
+)
+
 rmSync(dir, { recursive: true, force: true })
-console.log(failures === 0 ? "\nSession et modèle sont passés aux deux CLI comme ils l'attendent." : `\n${failures} vérification(s) en échec.`)
+console.log(failures === 0 ? "\nSession, modèle et images sont passés aux deux CLI comme ils l'attendent." : `\n${failures} vérification(s) en échec.`)
 process.exit(failures === 0 ? 0 : 1)

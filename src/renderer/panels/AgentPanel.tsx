@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, MessageSquarePlus, Square, Wrench, X } from "lucide-react"
+import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, Wrench, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -57,6 +57,14 @@ type Thread = {
   kind: AgentKind
   /** What has already been written down, so a save can be skipped. */
   saved: string
+  /**
+   * Images waiting to go with the next message.
+   *
+   * Ids and names only: the file itself is written by the main process and its
+   * path never comes back here. The renderer naming a path is exactly how "here
+   * is an image to read" would become a way to read any file on the machine.
+   */
+  images: { id: string; name: string }[]
 }
 
 type ChatState = {
@@ -86,6 +94,7 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     ranWith: null,
     kind,
     saved: "",
+    images: [],
   }
 }
 
@@ -257,12 +266,15 @@ function subscribe(listener: () => void): () => void {
 }
 
 /** Records the prompt and the assistant placeholder, and returns its id. */
-function beginTurn(threadId: string, prompt: string): string {
+function beginTurn(threadId: string, prompt: string, images: string[] = []): string {
   const assistantId = nextMessageId()
   const user: ChatMessage = {
     id: nextMessageId(),
     role: "user",
-    text: prompt,
+    // The names go into the transcript so the message still says what was sent
+    // once the chips are gone. The files are not kept in the transcript: they
+    // live beside the conversation and go when it does.
+    text: images.length > 0 ? `${prompt}${prompt ? "\n\n" : ""}${images.map((n) => `📎 ${n}`).join("\n")}` : prompt,
     tools: [],
     streaming: false,
   }
@@ -277,7 +289,7 @@ function beginTurn(threadId: string, prompt: string): string {
     ...thread,
     // The tab is named after what was first asked of it, which is what a
     // person recognises in a row of tabs.
-    title: thread.messages.length === 0 ? titleFrom(prompt) : thread.title,
+    title: thread.messages.length === 0 ? titleFrom(prompt || images[0] || "") : thread.title,
     messages: [...thread.messages, user, assistant],
     turnId: null,
     busy: true,
@@ -387,6 +399,7 @@ export async function restore(): Promise<void> {
     model: c.model ?? null,
     ranWith: c.ranWith ?? null,
     kind: c.kind,
+    images: [],
     saved: JSON.stringify(
       c.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
     ),
@@ -396,6 +409,18 @@ export async function restore(): Promise<void> {
 
 function setModel(threadId: string, model: string | null): void {
   mapThread(threadId, (thread) => ({ ...thread, model }))
+}
+
+// attach writes one image and hangs a chip on the composer. The file is the
+// main process's business; what comes back is what a chip needs to draw itself.
+async function attach(threadId: string, name: string, bytes: Uint8Array): Promise<void> {
+  const kept = await window.zyvro.agent.attach(threadId, name, bytes)
+  mapThread(threadId, (thread) => ({ ...thread, images: [...thread.images, { id: kept.id, name: kept.name }] }))
+}
+
+function detach(threadId: string, id: string): void {
+  void window.zyvro.agent.detach(threadId, id)
+  mapThread(threadId, (thread) => ({ ...thread, images: thread.images.filter((i) => i.id !== id) }))
 }
 
 function setKind(threadId: string, kind: AgentKind): void {
@@ -543,14 +568,21 @@ export function AgentPanel(): JSX.Element {
 
   const send = async (prompt: string): Promise<void> => {
     const text = prompt.trim()
-    if (text === "" || thread.busy || project === null) return
+    // An image on its own is a message: "what is wrong with this?" is often the
+    // whole question, and refusing it because the box is empty would be
+    // pedantry.
+    if ((text === "" && thread.images.length === 0) || thread.busy || project === null) return
     const threadId = thread.id
+    const images = thread.images.map((i) => i.id)
 
     setDraft("")
     const node = composer.current
     if (node) node.style.height = ""
 
-    const messageId = beginTurn(threadId, text)
+    const messageId = beginTurn(threadId, text, thread.images.map((i) => i.name))
+    // The chips clear with the message they went with: they belong to what was
+    // just sent, not to whatever gets typed next.
+    mapThread(threadId, (t) => ({ ...t, images: [] }))
 
     // The workflow list is context, not a precondition. If the local daemon is
     // not answering, the agent should still run — it just will not know the
@@ -571,7 +603,7 @@ export function AgentPanel(): JSX.Element {
     }
 
     try {
-      const turnId = await window.zyvro.agent.send(kind, text, workflows, threadId, thread.model)
+      const turnId = await window.zyvro.agent.send(kind, text, workflows, threadId, thread.model, images)
       bindTurn(threadId, messageId, turnId)
     } catch (error: unknown) {
       failTurn(threadId, messageId, error instanceof Error ? error.message : String(error))
@@ -598,6 +630,45 @@ export function AgentPanel(): JSX.Element {
       node.focus()
       grow(node)
     }
+  }
+
+  // Three ways in, which is what Cursor and VS Code both offer: paste, drop,
+  // and a button. Paste is the one that matters — a screenshot is usually the
+  // shortest way to say what is wrong — and it is also the one that has to
+  // distinguish an image on the clipboard from the text beside it.
+  const [dropping, setDropping] = useState(false)
+  const [attachError, setAttachError] = useState("")
+
+  const take = async (files: File[]): Promise<void> => {
+    const images = files.filter((file) => file.type.startsWith("image/"))
+    if (images.length === 0) return
+    setAttachError("")
+    for (const file of images) {
+      try {
+        await attach(thread.id, file.name, new Uint8Array(await file.arrayBuffer()))
+      } catch (error) {
+        setAttachError(error instanceof Error ? error.message : String(error))
+      }
+    }
+  }
+
+  const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = [...event.clipboardData.files]
+    if (files.length === 0) return
+    // Only when there is really an image: a paste of ordinary text also carries
+    // an empty file list, and swallowing the event would stop text pasting.
+    if (!files.some((file) => file.type.startsWith("image/"))) return
+    event.preventDefault()
+    void take(files)
+  }
+
+  const pick = async (): Promise<void> => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "image/png,image/jpeg,image/gif,image/webp"
+    input.multiple = true
+    input.onchange = () => void take([...(input.files ?? [])])
+    input.click()
   }
 
   const disabled = project === null
@@ -714,8 +785,68 @@ export function AgentPanel(): JSX.Element {
         )}
       </div>
 
-      <div className="shrink-0 border-t border-white/[0.06] p-2">
-        <div className="flex items-end gap-2 rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1.5 focus-within:border-white/[0.12]">
+      <div
+        className="shrink-0 border-t border-white/[0.06] p-2"
+        onDragOver={(event) => {
+          if (![...event.dataTransfer.types].includes("Files")) return
+          event.preventDefault()
+          setDropping(true)
+        }}
+        onDragLeave={() => setDropping(false)}
+        onDrop={(event) => {
+          if (![...event.dataTransfer.types].includes("Files")) return
+          event.preventDefault()
+          setDropping(false)
+          void take([...event.dataTransfer.files])
+        }}
+      >
+        {/* One chip per image, with its name and a cross — the same shape VS
+            Code and Cursor use, and for the same reason: an attachment you
+            cannot see is one you send by accident. */}
+        {thread.images.length > 0 && (
+          <div className="mb-1.5 flex flex-wrap gap-1">
+            {thread.images.map((image) => (
+              <span
+                key={image.id}
+                className="group flex max-w-[14rem] items-center gap-1 rounded border border-white/[0.08] bg-white/[0.05] px-1.5 py-0.5 text-[11px] text-muted-foreground"
+                title={image.name}
+              >
+                <ImageIcon className="h-3 w-3 shrink-0" />
+                <span className="truncate">{image.name}</span>
+                <button
+                  type="button"
+                  title="Remove"
+                  className="shrink-0 rounded p-0.5 hover:bg-white/[0.1] hover:text-foreground"
+                  onClick={() => detach(thread.id, image.id)}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {attachError && (
+          <p className="mb-1.5 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+            {attachError}
+          </p>
+        )}
+
+        <div
+          className={cn(
+            "flex items-end gap-2 rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1.5 focus-within:border-white/[0.12]",
+            dropping && "border-primary/60 bg-primary/[0.08]"
+          )}
+        >
+          <button
+            type="button"
+            title="Attach an image"
+            disabled={disabled}
+            onClick={() => void pick()}
+            className="mb-[1px] shrink-0 rounded p-1 text-muted-foreground hover:bg-white/[0.08] hover:text-foreground disabled:opacity-40"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </button>
           <textarea
             ref={composer}
             rows={1}
@@ -727,6 +858,7 @@ export function AgentPanel(): JSX.Element {
               grow(event.currentTarget)
             }}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
 

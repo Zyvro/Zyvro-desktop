@@ -12,6 +12,7 @@ import { currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import * as git from "./git"
 import * as conversations from "./conversations"
+import * as attachments from "./attachments"
 import * as commitMessage from "./commitmessage"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
@@ -266,7 +267,8 @@ export function registerIpc(onRecents?: () => void): void {
       prompt: string,
       ctx: Partial<AgentContext>,
       conversationId: string,
-      model: string | null
+      model: string | null,
+      images: string[]
     ) => {
       const { ws } = requireWorkspace(event)
       const root = requireRoot(ws)
@@ -281,7 +283,11 @@ export function registerIpc(onRecents?: () => void): void {
           daemonToken: ws.daemon.current?.token,
         },
         String(conversationId),
-        typeof model === "string" && model.trim() ? model.trim() : null
+        typeof model === "string" && model.trim() ? model.trim() : null,
+        // Only paths this process wrote itself are accepted. The renderer names
+        // an attachment by its id; it never hands over a path, so it cannot ask
+        // the CLI to read /etc/passwd by calling it an image.
+        Array.isArray(images) ? attachments.pathsFor(String(conversationId), images.map(String)) : []
       )
     }
   )
@@ -316,8 +322,32 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("agent:forget", async (event, id: string) => {
     const { ws } = requireWorkspace(event)
     ws.agent.resumeAt(String(id), null)
+    // The images go with the conversation. That is what keeps this folder from
+    // growing forever without a sweeper to write and then forget about.
+    await attachments.drop(String(id))
     return conversations.forget(requireRoot(ws), String(id))
   })
+
+  // ---------- images for the agent ----------
+  //
+  // Both CLIs want a file on disk and neither takes bytes, so whatever is
+  // pasted, dropped or picked becomes a file here first. It lives beside the
+  // conversation rather than in the project: a screenshot pasted to explain a
+  // bug is not part of anybody's repository.
+
+  ipcMain.handle(
+    "agent:attach",
+    async (_event, conversationId: string, name: string, bytes: Uint8Array) => {
+      const kept = await attachments.keep(String(conversationId), String(name ?? ""), new Uint8Array(bytes))
+      // The path stays in this process. The renderer gets an id and a name,
+      // which is everything a chip needs to draw itself.
+      return { id: kept.id, name: kept.name, mime: kept.mime }
+    }
+  )
+
+  ipcMain.handle("agent:detach", async (_event, conversationId: string, id: string) =>
+    attachments.forget(String(conversationId), String(id))
+  )
 
   // The models a CLI offers, read out of its own --help rather than written
   // down here. There is no machine-readable list to ask either of them for, so
