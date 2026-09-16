@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from "electron"
 import path from "node:path"
 import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
-import type { UpdateController } from "./updateController"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
 import fs from "node:fs/promises"
@@ -68,20 +67,9 @@ export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
 // replaced rather than mutated.
 let onRecentsChanged: (() => void) | null = null
 
-export function registerIpc(onRecents?: () => void, updates?: UpdateController): void {
+export function registerIpc(onRecents?: () => void): void {
   onRecentsChanged = onRecents ?? null
 
-  // The engine update surface. Note what is not here: no channel that takes a
-  // URL or a manifest from the renderer. The controller installs the release it
-  // fetched and verified itself, so a compromised window can ask for an install
-  // but cannot choose what gets installed.
-  ipcMain.handle("engine-update:state", async () => updates?.snapshot() ?? { status: "idle" })
-  ipcMain.handle("engine-update:check", async () => updates?.check() ?? { status: "idle" })
-  ipcMain.handle("engine-update:install", async () => updates?.install() ?? { status: "idle" })
-  ipcMain.handle("engine-update:dismiss", async () => {
-    updates?.dismiss()
-    return updates?.snapshot() ?? { status: "idle" }
-  })
   ipcMain.handle("project:choose", async (event) => {
     const { win } = requireWorkspace(event)
     const result = await dialog.showOpenDialog(win, {

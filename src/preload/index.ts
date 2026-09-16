@@ -52,24 +52,6 @@ export type InstalledPack = {
   capabilities: string[]
   sources: StoreSource[]
 }
-export type EngineManifest = {
-  version: string
-  platform: string
-  size: number
-  sha256: string
-  released_at: string
-  notes?: string
-  signature: string
-  url: string
-}
-export type UpdateState =
-  | { status: "idle" }
-  | { status: "checking" }
-  | { status: "current"; version: string; checkedAt: string }
-  | { status: "available"; current: string; manifest: EngineManifest; checkedAt: string }
-  | { status: "downloading"; manifest: EngineManifest; receivedBytes: number; totalBytes: number }
-  | { status: "installed"; version: string; restartRequired: true }
-  | { status: "failed"; message: string; checkedAt: string }
 
 const api = {
   platform: process.platform,
@@ -139,16 +121,6 @@ const api = {
     publishPack: (name: string): Promise<unknown> => ipcRenderer.invoke("store:publish-pack", name),
     publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
       ipcRenderer.invoke("store:publish-workflow", payload),
-  },
-
-  engineUpdate: {
-    state: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:state"),
-    check: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:check"),
-    // Takes no arguments on purpose: the main process installs the release it
-    // verified itself, never one named by this window.
-    install: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:install"),
-    dismiss: (): Promise<UpdateState> => ipcRenderer.invoke("engine-update:dismiss"),
-    onState: (cb: (state: UpdateState) => void): Unsubscribe => on("engine-update:state", cb),
   },
 
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),

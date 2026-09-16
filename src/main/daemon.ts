@@ -3,7 +3,6 @@ import type { Readable } from "node:stream"
 import { existsSync } from "node:fs"
 import path from "node:path"
 import { app } from "electron"
-import { installedEngine, quarantineEngine } from "./engineUpdate"
 
 // The desktop app does not talk to zyv.ro. Every project gets its own local
 // daemon process (`zyvrod`) that owns the .zyvro folder and runs the graph
@@ -80,24 +79,14 @@ export class Daemon {
     return this.log.join("\n")
   }
 
-  // start prefers an engine the user has installed through the update channel
-  // and falls back to the one that shipped with the app. A downloaded engine
-  // that cannot even complete its handshake is moved aside rather than retried,
-  // because the alternative is an app that will not open a project again until
-  // someone deletes a directory by hand.
+  // start launches the engine that shipped with this app, and only that one.
+  //
+  // There used to be an update channel: the app checked a server for a newer
+  // engine, verified a signature and ran what it downloaded. It is gone. The
+  // engine now travels with the build, so a new engine means a new version of
+  // the app — which is one fewer signed channel to get right, one fewer key to
+  // keep safe, and no executable fetched at runtime at all.
   async start(projectDir: string): Promise<DaemonInfo> {
-    const installed = await installedEngine()
-    if (installed) {
-      try {
-        return await this.launch(installed.path, projectDir)
-      } catch (err) {
-        console.warn(
-          `The installed engine ${installed.version} failed to start, falling back to the bundled one:`,
-          (err as Error).message
-        )
-        await quarantineEngine(installed.version)
-      }
-    }
     return this.launch(bundledBinary(), projectDir)
   }
 

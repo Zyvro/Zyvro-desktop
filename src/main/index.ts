@@ -3,7 +3,6 @@ import path from "node:path"
 import { registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { loadRecents } from "./recents"
 import { bundledBinary } from "./daemon"
-import { UpdateController, currentEngineVersion } from "./updateController"
 import fs from "node:fs"
 
 const isDev = !app.isPackaged
@@ -243,6 +242,22 @@ function buildMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
+// forgetDownloadedEngines removes anything the old update channel left behind.
+//
+// Those binaries were fetched over the network and checked against a key that
+// shipped in this repository as a placeholder. Nothing launches them any more,
+// so they are already harmless — but an unused executable that arrived that way
+// is not something to leave sitting in the user's folder.
+async function forgetDownloadedEngines(): Promise<void> {
+  const root = path.join(app.getPath("userData"), "engines")
+  try {
+    await fs.promises.rm(root, { recursive: true, force: true })
+  } catch {
+    // Best effort. Failing to delete a directory nothing reads is not a reason
+    // to stop the app from starting.
+  }
+}
+
 // One instance owns the app. A second launch focuses the existing window
 // instead of starting a rival daemon against the same project folder.
 if (!app.requestSingleInstanceLock()) {
@@ -269,9 +284,8 @@ if (!app.requestSingleInstanceLock()) {
       const icon = appIcon()
       if (icon) app.dock?.setIcon(icon)
     }
-    const updates = new UpdateController(() => currentEngineVersion(bundledBinary))
-    registerIpc(buildMenu, updates)
-    updates.start()
+    void forgetDownloadedEngines()
+    registerIpc(buildMenu)
     buildMenu()
     createWindow()
 
