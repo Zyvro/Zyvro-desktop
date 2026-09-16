@@ -137,7 +137,7 @@ const api = {
       ipcRenderer.invoke("store:install-workflow", name),
     installedPacks: (): Promise<InstalledPack[]> => ipcRenderer.invoke("store:installed-packs"),
     publishPack: (name: string): Promise<unknown> => ipcRenderer.invoke("store:publish-pack", name),
-    publishWorkflow: (payload: { name: string; description: string; graph: unknown }): Promise<unknown> =>
+    publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
       ipcRenderer.invoke("store:publish-workflow", payload),
   },
 

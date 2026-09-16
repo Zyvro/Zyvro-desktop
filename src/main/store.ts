@@ -330,13 +330,75 @@ export async function publishPack(projectDir: string, name: string): Promise<unk
   })
 }
 
+// storeName turns a workflow's title into a name the store will accept:
+// lowercase letters, digits and dashes, starting on a letter or digit.
+//
+// The server's rule is not a suggestion — "Untitled workflow" was refused
+// outright, which is how publishing from this app came to be broken.
+export function storeName(title: string): string {
+  const slug = title
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/, "")
+  return slug
+}
+
+// nextVersion is the version to publish under: the first one, or one patch past
+// whatever is already published under this name.
+//
+// Without it the app could publish a given workflow exactly once and then only
+// ever collide — the server refuses a name@version that exists, and rightly so,
+// because somebody may have that exact version installed.
+export function nextVersion(latest: string | null): string {
+  if (!latest) return "1.0.0"
+  const parts = latest.split(".")
+  const numeric = parts.length === 3 && parts.every((p) => /^\d+$/.test(p))
+  if (!numeric) return `${latest}.1`
+  return `${parts[0]}.${parts[1]}.${Number(parts[2]) + 1}`
+}
+
+async function publishedVersion(name: string): Promise<string | null> {
+  try {
+    const body = (await anonymous(`/api/store/workflows/${encodeURIComponent(name)}`)) as {
+      template?: { version?: string }
+    }
+    return body?.template?.version ?? null
+  } catch {
+    // Not published yet is the common case and reads as an error from the
+    // fetch. Anything else here would only cost a version bump, never a wrong
+    // publish: the server refuses a collision either way.
+    return null
+  }
+}
+
 // publishWorkflow sends the graph and lets the server derive what it needs. A
 // dependency the store does not have comes back named, which is what the panel
 // turns into "publish these packs first" rather than a dead end.
+//
+// The workflow id travels with it so the server can copy the preview off the
+// publisher's own workflow: a catalogue of names is a catalogue nobody browses.
 export async function publishWorkflow(payload: {
+  id: string
   name: string
   description: string
   graph: unknown
 }): Promise<unknown> {
-  return authorized("/api/store/workflows", { method: "POST", body: JSON.stringify(payload) })
+  const name = storeName(payload.name)
+  if (!name) {
+    throw new StoreError(
+      `"${payload.name}" has no letters or digits to make a store name from. Rename the workflow and try again.`
+    )
+  }
+  const body = {
+    name,
+    version: nextVersion(await publishedVersion(name)),
+    description: payload.description,
+    graph_json: payload.graph,
+    source_workflow_id: payload.id,
+  }
+  return authorized("/api/store/workflows", { method: "POST", body: JSON.stringify(body) })
 }

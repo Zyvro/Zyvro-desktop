@@ -326,7 +326,7 @@ export function registerIpc(onRecents?: () => void, updates?: UpdateController):
 
   ipcMain.handle(
     "store:publish-workflow",
-    async (event, payload: { name: string; description: string; graph: unknown }) => {
+    async (event, payload: { id: string; name: string; description: string; graph: unknown }) => {
       requireWorkspace(event)
       return store.publishWorkflow(payload)
     }

@@ -65,6 +65,7 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
     mutationFn: async (workflow: Workflow) => {
       const graph = typeof workflow.graph_json === "string" ? JSON.parse(workflow.graph_json) : workflow.graph_json
       return window.zyvro.store.publishWorkflow({
+        id: workflow.id,
         name: workflow.name,
         description: workflow.description ?? "",
         graph,
