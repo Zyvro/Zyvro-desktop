@@ -29,19 +29,36 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-            # zip plutôt que dmg : hdiutil échoue régulièrement sur les
-            # runners macOS d'Actions, et un zip se distribue aussi bien. Le
-            # dmg reste produit localement par npm run release.
-            target: zip
+            # dmg et zip. Le dmg est ce qu'on attend d'une application macOS
+            # et ce que les gens savent ouvrir ; le zip reste parce qu'il
+            # se télécharge sans monter d'image et qu'il est le format qu'un
+            # auto-updater lira le jour où il y en aura un.
+            #
+            # Ce travail a produit un zip seul pendant une version, sur une
+            # note disant que `hdiutil` échouait sur ces runners. La note
+            # était fausse : le run cité avait d'abord échoué sur
+            # `ModuleNotFoundError: No module named 'distutils'`, donc sur
+            # node-gyp, et hdiutil est tombé après, dans un build déjà mort.
+            # Le Python est épinglé depuis. Conclusion tirée du mauvais
+            # coupable, et recopiée sans être revérifiée.
+            target: dmg zip
             # Sans ces deux drapeaux, electron-builder ne construit que
             # l'architecture du runner, et les Mac Intel n'ont rien.
             arches: "--arm64 --x64"
-            artifacts: "dist/*.zip"
+            # Deux clés pour deux consommateurs : la boucle de hachage veut une
+            # liste séparée par des espaces, l'action d'upload veut un glob par
+            # ligne. Les confondre donnait un chemin d'upload où le deuxième
+            # motif avait perdu son préfixe et ne correspondait à rien.
+            artifacts: "dist/*.dmg dist/*.zip"
+            upload: |
+              Zyvro-desktop/dist/*.dmg
+              Zyvro-desktop/dist/*.zip
           - os: windows-2022
             platform: win
             target: nsis
             arches: "--x64"
             artifacts: "dist/*.exe"
+            upload: Zyvro-desktop/dist/*.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -163,7 +180,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: zyvro-studio-${{ matrix.platform }}
-          path: Zyvro-desktop/${{ matrix.artifacts }}
+          path: ${{ matrix.upload }}
           if-no-files-found: error
 
   publish:
