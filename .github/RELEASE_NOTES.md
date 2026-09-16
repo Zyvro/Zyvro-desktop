@@ -19,9 +19,17 @@ machine is the model call itself, and it goes straight to the provider.
 
 ## First launch
 
-**macOS.** The download is a zip. Unzip it in Finder, or with `ditto -x -k`,
-and move the app to Applications. The app is ad-hoc signed but not notarized,
-so macOS says the developer cannot be verified: right-click it and choose
+**macOS.** Take the `.dmg` for your machine — `arm64` for Apple Silicon, the
+other for Intel — open it and drag the app to Applications. A `.zip` of the same
+build is there too, for anyone who would rather not mount an image.
+
+alpha.2 shipped without a `.dmg` at all, on a note in the build workflow saying
+`hdiutil` failed on the build machines. It does not; the run that note came from
+had already failed for an unrelated reason, and the last error in the log was
+read as the cause. The `.dmg` is back.
+
+The app is ad-hoc signed but not notarized, so macOS says the developer cannot
+be verified: right-click it and choose
 **Open**, which offers the same dialog with a button that proceeds. Or:
 
 ```sh
