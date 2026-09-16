@@ -235,3 +235,31 @@ export function launchPiped(
 export function installed(name: string): boolean {
   return locate(name) !== null
 }
+
+// helpOf runs a tool's own --help and hands back what it printed.
+//
+// It exists so the app can read what a CLI says about itself rather than
+// restate it. Cached for the life of the process: the answer cannot change
+// while the app runs, and asking once per menu open would spawn a process
+// every time somebody looked at a dropdown.
+const helpCache = new Map<string, string>()
+
+export function helpOf(name: string): string {
+  const cached = helpCache.get(name)
+  if (cached !== undefined) return cached
+  const found = locate(name)
+  if (!found) {
+    helpCache.set(name, "")
+    return ""
+  }
+  const result = spawnSync(found.file, ["--help"], {
+    encoding: "utf8",
+    timeout: TIMEOUT_MS,
+    shell: found.needsShell,
+  })
+  // Some tools print their help on stderr, and a non-zero exit from --help is
+  // common enough not to be treated as a failure.
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`
+  helpCache.set(name, text)
+  return text
+}

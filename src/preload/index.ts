@@ -120,8 +120,11 @@ const api = {
       kind: AgentKind,
       prompt: string,
       workflows: WorkflowRef[],
-      conversationId: string
-    ): Promise<string> => ipcRenderer.invoke("agent:send", kind, prompt, { workflows }, conversationId),
+      conversationId: string,
+      model: string | null
+    ): Promise<string> =>
+      ipcRenderer.invoke("agent:send", kind, prompt, { workflows }, conversationId, model),
+    models: (kind: AgentKind): Promise<string[]> => ipcRenderer.invoke("agent:models", kind),
     conversations: (): Promise<Conversation[]> => ipcRenderer.invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
       ipcRenderer.invoke("agent:remember", conversation),
@@ -129,6 +132,8 @@ const api = {
     cancel: (id: string): Promise<boolean> => ipcRenderer.invoke("agent:cancel", id),
     onText: (cb: (p: { id: string; text: string }) => void): Unsubscribe => on("agent:text", cb),
     onTool: (cb: (p: { id: string; tool: string }) => void): Unsubscribe => on("agent:tool", cb),
+    onModel: (cb: (p: { id: string; conversationId: string; model: string }) => void): Unsubscribe =>
+      on("agent:model", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),
   },

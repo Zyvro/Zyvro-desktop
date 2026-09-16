@@ -35,6 +35,19 @@ export type Conversation = {
   // The CLI's own id for this thread, learned from its output stream. Null
   // until the first turn has run: there is nothing to resume before then.
   sessionId: string | null
+  // The model this thread is pinned to, or null for whatever the CLI picks.
+  //
+  // Null is a real answer and not a missing one: the default belongs to the
+  // CLI, it changes without asking us, and a thread that recorded today's
+  // default as a choice would quietly stop following it tomorrow.
+  //
+  // Per conversation rather than per app, because switching model mid-thread
+  // is a thing people do deliberately — start on the fast one, move to the
+  // careful one when it gets hard.
+  model: string | null
+  // What the CLI reported actually running, so the picker can show the default
+  // by name instead of the word "default".
+  ranWith?: string | null
   messages: StoredMessage[]
   updatedAt: string
 }

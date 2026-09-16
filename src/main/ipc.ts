@@ -3,6 +3,8 @@ import path from "node:path"
 import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
+import * as agentModule from "./agent"
+import { helpOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
@@ -263,7 +265,8 @@ export function registerIpc(onRecents?: () => void): void {
       kind: AgentKind,
       prompt: string,
       ctx: Partial<AgentContext>,
-      conversationId: string
+      conversationId: string,
+      model: string | null
     ) => {
       const { ws } = requireWorkspace(event)
       const root = requireRoot(ws)
@@ -277,7 +280,8 @@ export function registerIpc(onRecents?: () => void): void {
           daemonOrigin: ws.daemon.current?.origin,
           daemonToken: ws.daemon.current?.token,
         },
-        String(conversationId)
+        String(conversationId),
+        typeof model === "string" && model.trim() ? model.trim() : null
       )
     }
   )
@@ -313,6 +317,16 @@ export function registerIpc(onRecents?: () => void): void {
     const { ws } = requireWorkspace(event)
     ws.agent.resumeAt(String(id), null)
     return conversations.forget(requireRoot(ws), String(id))
+  })
+
+  // The models a CLI offers, read out of its own --help rather than written
+  // down here. There is no machine-readable list to ask either of them for, so
+  // the choice was between a second list that goes stale and a narrow parse of
+  // what the tool states. A parse that finds nothing is not a failure: the
+  // picker then offers the default and a box to type a full name in.
+  ipcMain.handle("agent:models", async (_event, kind: AgentKind) => {
+    const bin = kind === "codex" ? "codex" : "claude"
+    return agentModule.aliasesFrom(helpOf(bin))
   })
 
   ipcMain.handle("agent:cancel", async (event, id: string) => {

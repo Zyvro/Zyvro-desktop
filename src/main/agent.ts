@@ -109,7 +109,17 @@ function claudeMcpConfig(ctx: AgentContext): { path: string; dispose: () => void
 //
 // Both shapes were checked against the installed binaries rather than recalled
 // — `codex exec resume --help` prints `[OPTIONS] [SESSION_ID] [PROMPT]`.
-export function argsFor(kind: AgentKind, ctx: AgentContext, resume: string | null): string[] {
+export function argsFor(
+  kind: AgentKind,
+  ctx: AgentContext,
+  resume: string | null,
+  model: string | null = null
+): string[] {
+  // An empty model is not a model. Passing `--model ""` is not the same as
+  // passing nothing: the CLI takes it as a value and refuses it, and the user
+  // sees a failure for a box they simply left alone.
+  const pinned = model?.trim() ? model.trim() : null
+
   if (kind === "claude") {
     return [
       "-p",
@@ -118,12 +128,52 @@ export function argsFor(kind: AgentKind, ctx: AgentContext, resume: string | nul
       "--verbose",
       "--append-system-prompt",
       preamble(ctx),
+      ...(pinned ? ["--model", pinned] : []),
       ...(resume ? ["--resume", resume] : []),
     ]
   }
-  return resume
-    ? ["exec", "resume", "--json", "--skip-git-repo-check", resume]
-    : ["exec", "--json", "--skip-git-repo-check"]
+  return [
+    "exec",
+    ...(resume ? ["resume"] : []),
+    "--json",
+    "--skip-git-repo-check",
+    ...(pinned ? ["--model", pinned] : []),
+    ...(resume ? [resume] : []),
+  ]
+}
+
+// modelIn reads which model actually ran, out of the CLI's own init event.
+//
+// Shown rather than assumed, because the default is the CLI's to choose and it
+// changes without asking us: a picker that printed a name of our own would be
+// telling the person something we do not know. Claude puts it on the `system`
+// init event; the `result` event keys its usage by the same name.
+export function modelIn(event: Record<string, unknown>): string | null {
+  const value = event.model
+  if (typeof value === "string" && value.trim()) return value.trim()
+  const usage = event.modelUsage
+  if (usage && typeof usage === "object") {
+    const [first] = Object.keys(usage as Record<string, unknown>)
+    if (first) return first
+  }
+  return null
+}
+
+// aliasesFrom pulls the model aliases out of a CLI's own --help text.
+//
+// There is no machine-readable list to ask for — neither CLI has one — so the
+// choice was between writing the names down here and reading them where the
+// tool states them. Written down, they would be a second list: a new alias
+// would appear in the CLI and never in this menu, and one that went away would
+// stay in it and fail.
+//
+// The parse is deliberately narrow, and a parse that finds nothing is not a
+// failure: the picker then offers the default and a box to type a name in,
+// which is what it offers anyway for a full model name.
+export function aliasesFrom(help: string): string[] {
+  const sentence = /alias[^.]*?\(e\.g\.([^)]*)\)/is.exec(help)
+  if (!sentence) return []
+  return [...sentence[1].matchAll(/'([a-z0-9][a-z0-9.-]*)'/gi)].map((m) => m[1])
 }
 
 // sessionIn reads the CLI's own id for the conversation out of one event.
@@ -193,14 +243,21 @@ export class AgentRunner {
   // one-shot by design — but it is no longer a fresh conversation: both CLIs
   // can pick up a previous session by id, and that id is what turns a row of
   // separate questions into a thread.
-  send(target: WebContents, kind: AgentKind, prompt: string, ctx: AgentContext, conversationId: string): string {
+  send(
+    target: WebContents,
+    kind: AgentKind,
+    prompt: string,
+    ctx: AgentContext,
+    conversationId: string,
+    model: string | null = null
+  ): string {
     const id = randomUUID()
     const resume = this.sessions.get(conversationId)
     const bin = this.available(kind)
     const env: NodeJS.ProcessEnv = { ...process.env }
     let disposeConfig: (() => void) | null = null
 
-    const args: string[] = argsFor(kind, ctx, resume ?? null)
+    const args: string[] = argsFor(kind, ctx, resume ?? null, model)
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -311,6 +368,11 @@ export class AgentRunner {
     // it on every event; codex calls it thread_id — a difference worth reading
     // out of the real output rather than assuming, because guessing it wrong
     // means resume silently never happens and the agent is amnesiac again.
+    // Which model actually ran, reported once so the picker can show the CLI's
+    // own default instead of a name we made up.
+    const ranWith = modelIn(parsed)
+    if (turn && ranWith) target.send("agent:model", { id, conversationId: turn.conversationId, model: ranWith })
+
     const learned = sessionIn(parsed)
     if (turn && learned) {
       if (this.sessions.get(turn.conversationId) !== learned) {

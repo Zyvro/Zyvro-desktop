@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, WorkflowRef } from "../../preload"
 import { useWorkspace } from "../state/workspace"
+import { ModelPicker } from "~/panels/ModelPicker"
 
 // This panel runs the agent CLI that is already signed in on this machine, so
 // the streaming arrives as IPC events rather than as a fetch. Those events are
@@ -41,6 +42,10 @@ type ChatState = {
   conversationId: string
   /** What the panel has already written down, so a save can be skipped. */
   saved: string
+  /** The model this thread is pinned to, or null for the CLI's own choice. */
+  model: string | null
+  /** What the CLI reported running last, so the picker can name the default. */
+  ranWith: string | null
 }
 
 // Events for a turn can reach the renderer before `agent:send` resolves with
@@ -60,6 +65,8 @@ let state: ChatState = {
   busy: false,
   conversationId: newConversationId(),
   saved: "",
+  model: null,
+  ranWith: null,
 }
 const subscribers = new Set<() => void>()
 const turnToMessage = new Map<string, string>()
@@ -120,6 +127,12 @@ function ensureAttached(): void {
       return
     }
     mapMessage(messageId, (message) => ({ ...message, tools: [...message.tools, tool] }))
+  })
+
+  window.zyvro.agent.onModel(({ conversationId, model }) => {
+    if (conversationId !== state.conversationId) return
+    if (state.ranWith === model) return
+    commit({ ...state, ranWith: model })
   })
 
   window.zyvro.agent.onError(({ id, message }) => {
@@ -274,6 +287,8 @@ function persist(): void {
     // Main overwrites this with what the CLI actually reported; sending what we
     // last knew keeps a conversation whose session has not changed intact.
     sessionId: null,
+    model: state.model,
+    ranWith: state.ranWith,
     messages,
     updatedAt: new Date().toISOString(),
   })
@@ -318,8 +333,14 @@ export async function restore(): Promise<void> {
     busy: false,
     conversationId: latest.id,
     saved: JSON.stringify(latest.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))),
+    model: latest.model ?? null,
+    ranWith: latest.ranWith ?? null,
   })
   currentKind = latest.kind
+}
+
+function setModel(model: string | null): void {
+  commit({ ...state, model })
 }
 
 function markCancelled(turnId: string): void {
@@ -340,6 +361,12 @@ function resetChat(): void {
     busy: false,
     conversationId: newConversationId(),
     saved: "",
+    // The pin follows the person, not the thread they just closed: somebody who
+    // deliberately moved to a slower model does not want the next question
+    // silently back on the fast one. What the CLI last ran does not follow —
+    // that is a fact about a conversation that no longer exists.
+    model: state.model,
+    ranWith: null,
   })
 }
 
@@ -451,7 +478,7 @@ export function AgentPanel(): JSX.Element {
 
     try {
       rememberKind(kind)
-      const turnId = await window.zyvro.agent.send(kind, text, workflows, chat.conversationId)
+      const turnId = await window.zyvro.agent.send(kind, text, workflows, chat.conversationId, chat.model)
       bindTurn(messageId, turnId)
     } catch (error: unknown) {
       failTurn(messageId, error instanceof Error ? error.message : String(error))
@@ -487,7 +514,11 @@ export function AgentPanel(): JSX.Element {
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2">
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Agent</span>
 
-        <div className="ml-auto flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
+        <div className="ml-auto">
+          <ModelPicker kind={kind} model={chat.model} ranWith={chat.ranWith} onChange={setModel} />
+        </div>
+
+        <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
           {(["claude", "codex"] as const).map((option) => (
             <button
               key={option}
