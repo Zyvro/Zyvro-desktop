@@ -33,6 +33,23 @@
       "@/*": [
         "../Zyvro-frontend/src/*"
       ],
+      // Le pendant, au niveau des types, du `dedupe` de electron.vite.config.ts.
+      // Deux copies de @types/react, même version, donnent deux `ReactNode`
+      // que TypeScript tient pour distincts : tout composant venant d'un
+      // paquet qui résout la copie du front devenait « not a valid JSX element
+      // type ». 123 erreurs avant ces quatre lignes, aucune après.
+      "react": [
+        "./node_modules/@types/react"
+      ],
+      "react/*": [
+        "./node_modules/@types/react/*"
+      ],
+      "react-dom": [
+        "./node_modules/@types/react-dom"
+      ],
+      "react-dom/*": [
+        "./node_modules/@types/react-dom/*"
+      ],
       "~/*": [
         "./src/renderer/*"
       ]
