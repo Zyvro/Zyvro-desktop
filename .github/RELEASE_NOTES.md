@@ -49,6 +49,28 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## Fixed in alpha.4
+
+**The agent could not find `claude` or `codex`.** Installed from the `.dmg` and
+launched from the Finder, the app reported the CLI you use every day as "not on
+your PATH" — true, and useless: it was on yours, and the app could not see it.
+
+macOS launches an app from the Finder through launchd, which reads no shell
+profile at all: no `.zshrc`, no `.zprofile`. The process starts with the system
+default PATH, and everything a package manager or version manager installed is
+missing from it. These two CLIs commonly live in `~/.local/bin`, which is
+nowhere in that list.
+
+The app now asks your login shell what its PATH is and adopts it, and when a
+tool is still missing it asks `npm` and `brew` where they put things rather than
+guessing. On Windows it also looks for the extension, because the thing called
+`claude` there is `claude.cmd`, which cannot be started without a command
+interpreter.
+
+This survived every test for one reason worth admitting: the app was always
+launched from a terminal during development, where it inherited the right PATH.
+The check that covers it now reproduces the Finder's environment instead.
+
 ## New since alpha.1
 
 **Source control.** A Git panel laid out the way editors lay it out: the message

@@ -1,4 +1,5 @@
-import { spawn, type ChildProcess } from "node:child_process"
+import { type ChildProcess } from "node:child_process"
+import { installed as cliInstalled, launchPiped } from "./cli"
 import { randomUUID } from "node:crypto"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -110,6 +111,14 @@ export class AgentRunner {
     return kind === "codex" ? "codex" : "claude"
   }
 
+  // installed is what the panel asks before offering the agent at all, and it
+  // asks cli.ts rather than the PATH directly: on Windows the thing called
+  // `claude` is `claude.cmd`, and a check that only looked for `claude` would
+  // report it missing on a machine where it works.
+  installed(kind: AgentKind): boolean {
+    return cliInstalled(this.available(kind))
+  }
+
   // send starts one turn and streams it back. Each turn is a fresh process:
   // `claude -p` and `codex exec` are one-shot by design, and threading a
   // session id through them is a later refinement, not a prototype concern.
@@ -158,11 +167,10 @@ export class AgentRunner {
 
     const text = kind === "codex" ? `${preamble(ctx)}\n\n---\n\n${prompt}` : prompt
 
-    const child = spawn(bin, args, {
-      cwd: ctx.projectDir,
-      env,
-      stdio: ["pipe", "pipe", "pipe"],
-    })
+    // launch rather than spawn: it resolves the real file, which on Windows
+    // carries an extension and may be a .cmd that Node refuses to start
+    // without a shell.
+    const child = launchPiped(bin, args, { cwd: ctx.projectDir, env })
     this.turns.set(id, { id, child, sentText: false })
 
     child.stdin.write(text)

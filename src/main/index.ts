@@ -3,6 +3,7 @@ import path from "node:path"
 import { registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { loadRecents } from "./recents"
 import { bundledBinary } from "./daemon"
+import { prepare as prepareCliPath } from "./cli"
 import fs from "node:fs"
 
 const isDev = !app.isPackaged
@@ -277,7 +278,13 @@ if (!app.requestSingleInstanceLock()) {
     if (folder) win.webContents.send("menu:open-path", folder)
   })
 
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    // Before anything is spawned. A window opened from the Finder starts with
+    // the system PATH and nothing else, so the local engine, the shells, the
+    // agent and the commit-message CLI would all be looking in the wrong places
+    // — and every one of them inherits this environment the moment it starts.
+    await prepareCliPath(["claude", "codex"])
+
     // The dock reads its icon separately from the window's, and in development
     // there is no bundle for it to read one from.
     if (isDev && process.platform === "darwin") {

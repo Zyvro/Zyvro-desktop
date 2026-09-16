@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process"
+import { installed, launch, launchPiped } from "./cli"
 import * as git from "./git"
 
 // "Generate commit message", with the agent that is already on this machine.
@@ -17,21 +17,28 @@ const MAX_DIFF_BYTES = 60_000
 
 export type Agent = "claude" | "codex"
 
-// which answers with the first CLI that actually runs. Asked by running it
-// rather than by looking at PATH: a shell alias, a version manager shim or a
-// binary without the execute bit all pass a PATH check and then fail.
+// availableAgent answers with the first CLI that actually runs.
+//
+// Running it rather than only finding the file: a version manager shim, a
+// wrapper script or a binary without the execute bit all sit on PATH and then
+// fail. Finding it first is still worth doing — it is what makes the Windows
+// extension and the repaired PATH apply.
 export async function availableAgent(): Promise<Agent | null> {
   for (const agent of ["claude", "codex"] as Agent[]) {
-    if (await runs(agent)) return agent
+    if (installed(agent) && (await runs(agent))) return agent
   }
   return null
 }
 
 function runs(bin: string): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn(bin, ["--version"], { stdio: "ignore" })
-    child.on("error", () => resolve(false))
-    child.on("close", (code) => resolve(code === 0))
+    try {
+      const child = launch(bin, ["--version"], { stdio: "ignore" })
+      child.on("error", () => resolve(false))
+      child.on("close", (code) => resolve(code === 0))
+    } catch {
+      resolve(false)
+    }
   })
 }
 
@@ -97,7 +104,13 @@ function ask(agent: Agent, prompt: string, cwd: string): Promise<string> {
     // Handing it the project's tools would let a commit message cost a minute
     // and touch files, which is not what pressing a small button should do.
     const args = agent === "claude" ? ["-p"] : ["exec", "--skip-git-repo-check", "-"]
-    const child = spawn(agent, args, { cwd, stdio: ["pipe", "pipe", "pipe"] })
+    let child
+    try {
+      child = launchPiped(agent, args, { cwd })
+    } catch (error) {
+      reject(error as Error)
+      return
+    }
 
     let out = ""
     let err = ""
