@@ -13,6 +13,7 @@ import * as store from "./store"
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
+import * as importing from "./importing"
 import * as commitMessage from "./commitmessage"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
@@ -595,6 +596,19 @@ export function registerIpc(onRecents?: () => void): void {
     })
     if (chosen.canceled || chosen.filePaths.length === 0) return null
     return git.clone(chosen.filePaths[0], String(url))
+  })
+
+  // ---------- importing from another project ----------
+  //
+  // A workflow is a JSON file in a folder, so the thing you want to copy is
+  // already sitting in whatever repository it belongs to. What makes it awkward
+  // by hand is knowing that, finding it, and getting the graph out.
+  //
+  // The folder is chosen through a real dialog: a renderer that could name a
+  // directory to read could name any directory.
+  ipcMain.handle("workflows:choose-source", async (event) => {
+    const { win } = requireWorkspace(event)
+    return importing.choose(win)
   })
 
   // Opening a link goes through the OS browser, never a new Electron window: a

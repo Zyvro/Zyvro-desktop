@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Loader2, Plus, Workflow as WorkflowIcon } from "lucide-react"
+import { useState } from "react"
+import { Download, Loader2, Plus, Workflow as WorkflowIcon } from "lucide-react"
 import { api, type Workflow } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { workflowsKey } from "~/lib/project"
 import { askName } from "~/state/prompt"
+import { ImportWorkflows } from "~/panels/ImportWorkflows"
 
 // The workflow list sits under the file tree because that is what the project
 // actually contains: files, and the graphs that act on them. Clicking one opens
@@ -17,6 +19,7 @@ export function WorkflowList() {
   const openGraph = useWorkspace((s) => s.openGraph)
   const activeTabId = useWorkspace((s) => s.activeTabId)
   const client = useQueryClient()
+  const [importing, setImporting] = useState(false)
 
   const workflows = useQuery({
     queryKey: workflowsKey,
@@ -41,6 +44,13 @@ export function WorkflowList() {
           Workflows
         </span>
         {workflows.isFetching && <Loader2 className="h-3 w-3 zy-spin text-muted-foreground" />}
+        <button
+          className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
+          title="Import from another project"
+          onClick={() => setImporting(true)}
+        >
+          <Download className="h-3.5 w-3.5" />
+        </button>
         <button
           className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground disabled:opacity-40"
           title="New workflow"
@@ -92,6 +102,8 @@ export function WorkflowList() {
           )
         })}
       </div>
+
+      {importing && <ImportWorkflows onClose={() => setImporting(false)} />}
     </div>
   )
 }

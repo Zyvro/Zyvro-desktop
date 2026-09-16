@@ -43,6 +43,7 @@ import type {
 import type { PublisherVerdict } from "../main/knownpublishers"
 import type { Conversation, StoredMessage, StoredTool } from "../main/conversations"
 import type { PlanItem, ToolShape } from "../main/tooltalk"
+import type { Importable, ImportableWorkflow } from "../main/importing"
 import type {
   Change,
   ChangeStatus,
@@ -79,6 +80,8 @@ export type {
   StoredTool,
   PlanItem,
   ToolShape,
+  Importable,
+  ImportableWorkflow,
 }
 
 const api = {
@@ -234,6 +237,10 @@ const api = {
     agent: (): Promise<"claude" | "codex" | null> => ipcRenderer.invoke("git:agent"),
     suggestMessage: (): Promise<string> => ipcRenderer.invoke("git:suggest-message"),
     clone: (url: string): Promise<string | null> => ipcRenderer.invoke("git:clone", url),
+  },
+
+  workflows: {
+    chooseSource: (): Promise<Importable | null> => ipcRenderer.invoke("workflows:choose-source"),
   },
 
   openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),
