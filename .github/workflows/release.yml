@@ -29,9 +29,14 @@ jobs:
         include:
           - os: macos-latest
             platform: mac
-            artifacts: "dist/*.dmg"
+            # zip plutôt que dmg : hdiutil échoue régulièrement sur les
+            # runners macOS d'Actions, et un zip se distribue aussi bien. Le
+            # dmg reste produit localement par npm run release.
+            target: zip
+            artifacts: "dist/*.zip"
           - os: windows-latest
             platform: win
+            target: nsis
             artifacts: "dist/*.exe"
 
     runs-on: ${{ matrix.os }}
@@ -67,6 +72,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+
+      # node-pty est compilé depuis les sources, et node-gyp ne trouve pas
+      # l'installation Visual Studio de l'image sans qu'on la lui désigne.
+      # Sans lui, le terminal retombe sur des tubes, où `claude` et `codex`
+      # cessent d'être interactifs : c'est toute la raison de construire
+      # Windows sur un runner Windows.
+      - name: Point node-gyp at the C++ toolchain
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vs) { Write-Error "No Visual Studio installation with the C++ workload"; exit 1 }
+          Write-Host "Visual Studio: $vs"
+          "GYP_MSVS_OVERRIDE_PATH=$vs" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "npm_config_msvs_version=2022" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Install the frontend's dependencies
         working-directory: Zyvro-frontend
@@ -107,7 +127,7 @@ jobs:
         # picking up a certificate that would not help anyway.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --${{ matrix.platform }} --publish never
+        run: npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} --publish never
 
       - name: Hash the artifacts
         working-directory: Zyvro-desktop
