@@ -7,6 +7,8 @@ import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
+import { currentAccount, signIn, signOut } from "./account"
+import * as store from "./store"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
 // the shells running in it and the agent turns in flight. Bundling them means
@@ -250,6 +252,53 @@ export function registerIpc(onRecents?: () => void, updates?: UpdateController):
     ws.agent.cancel(id)
     return true
   })
+
+  // The account lives in the main process. The renderer can ask who is signed
+  // in and ask for a publish, but is never handed the credential.
+  ipcMain.handle("account:current", async () => currentAccount())
+  ipcMain.handle("account:sign-in", async (_event, email: string, password: string) =>
+    signIn(String(email), String(password))
+  )
+  ipcMain.handle("account:sign-out", async () => {
+    await signOut()
+    return null
+  })
+
+  ipcMain.handle("store:nodes", async (_event, q: string) => store.listNodes(String(q ?? "")))
+  ipcMain.handle("store:workflows", async (_event, q: string) => store.listWorkflows(String(q ?? "")))
+  // Reading a pack installs nothing. It is what lets someone look at the Lua
+  // before deciding to trust it, which is the only review this store has.
+  ipcMain.handle("store:read-pack", async (_event, name: string, version?: string) =>
+    store.readPack(String(name), version ? String(version) : undefined)
+  )
+
+  ipcMain.handle("store:install-pack", async (event, name: string, version?: string) => {
+    const { ws } = requireWorkspace(event)
+    return store.installPack(requireRoot(ws), String(name), version ? String(version) : undefined)
+  })
+
+  ipcMain.handle("store:install-workflow", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    return store.installWorkflow(requireRoot(ws), String(name))
+  })
+
+  ipcMain.handle("store:installed-packs", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return store.listInstalledPacks(requireRoot(ws))
+  })
+
+  ipcMain.handle("store:publish-pack", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    return store.publishPack(requireRoot(ws), String(name))
+  })
+
+  ipcMain.handle(
+    "store:publish-workflow",
+    async (event, payload: { name: string; description: string; graph: unknown }) => {
+      requireWorkspace(event)
+      return store.publishWorkflow(payload)
+    }
+  )
 
   // Opening a link goes through the OS browser, never a new Electron window: a
   // window without our preload would still have Chromium privileges.

@@ -11,6 +11,7 @@ export type Tab =
   | { kind: "file"; id: string; path: string; title: string }
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
+  | { kind: "store"; id: "store"; title: string }
 
 export type PanelKey = "explorer" | "terminal" | "agent"
 
@@ -35,6 +36,7 @@ type WorkspaceState = {
   openFile: (path: string) => void
   openGraph: (workflowId: string, title: string) => void
   openProviders: () => void
+  openStore: () => void
   closeTab: (id: string) => void
   activateTab: (id: string) => void
   renameTab: (id: string, title: string) => void
@@ -111,6 +113,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "providers", id, title: "Providers" }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
+  openStore: () => {
+    const id = "store"
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "store", id, title: "Store" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 

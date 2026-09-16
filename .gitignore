@@ -13,3 +13,4 @@ dist/
 *.log
 .vscode/
 .idea/
+.zyvro-digest-check/

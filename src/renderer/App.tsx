@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Boxes, FolderTree, Settings2 } from "lucide-react"
+import { Boxes, FolderTree, Settings2, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { useCurrentProject, useNodeCatalogue } from "~/lib/project"
@@ -26,6 +26,7 @@ function ActivityBar() {
   const panels = useWorkspace((s) => s.panels)
   const setPanel = useWorkspace((s) => s.setPanel)
   const openProviders = useWorkspace((s) => s.openProviders)
+  const openStore = useWorkspace((s) => s.openStore)
   const activeTabId = useWorkspace((s) => s.activeTabId)
 
   const items = [
@@ -34,6 +35,12 @@ function ActivityBar() {
       label: "Explorer",
       active: panels.explorer,
       onClick: () => setPanel("explorer", !panels.explorer),
+    },
+    {
+      icon: Store,
+      label: "Store",
+      active: activeTabId === "store",
+      onClick: openStore,
     },
     {
       icon: Boxes,

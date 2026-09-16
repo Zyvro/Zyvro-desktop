@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node scripts/build-engine.mjs && electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-markdown.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/check-markdown.mjs && node scripts/check-store-digest.mjs",
     "start": "electron-vite preview",
     "pack:mac": "node scripts/build-engine.mjs darwin && electron-vite build && cross-env ZYVROD_BIN=zyvrod electron-builder --mac --dir",
     "pack:win": "node scripts/build-engine.mjs windows && electron-vite build && cross-env ZYVROD_BIN=zyvrod.exe electron-builder --win --dir",
@@ -16,7 +16,8 @@
     "engine": "node scripts/build-engine.mjs",
     "dist:mac": "node scripts/build-engine.mjs darwin && electron-vite build && cross-env ZYVROD_BIN=zyvrod electron-builder --mac",
     "dist:win": "node scripts/build-engine.mjs windows && electron-vite build && cross-env ZYVROD_BIN=zyvrod.exe electron-builder --win",
-    "check:markdown": "node scripts/check-markdown.mjs"
+    "check:markdown": "node scripts/check-markdown.mjs",
+    "check:digest": "node scripts/check-store-digest.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.0.5",

@@ -20,6 +20,37 @@ export type FileRead = { path: string; text: string; truncated: boolean } | { pa
 export type AgentKind = "claude" | "codex"
 export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
+export type Account = { id: string; email: string; name: string }
+export type StoreListing = {
+  name: string
+  version: string
+  description: string
+  author: string
+  capabilities: string[]
+  nodeTypes?: string[]
+  updatedAt: string
+}
+export type StorePack = StoreListing & {
+  manifest: Record<string, unknown>
+  sources: Record<string, string>
+}
+export type StoreWorkflow = {
+  name: string
+  description: string
+  author: string
+  graph: unknown
+  requires: { name: string; version: string }[]
+  updatedAt: string
+}
+export type InstallResult = { workflow?: string; packs: { name: string; version: string }[] }
+export type InstalledPack = {
+  name: string
+  version: string
+  description: string
+  author: string
+  capabilities: string[]
+  sources: Record<string, string>
+}
 export type EngineManifest = {
   version: string
   platform: string
@@ -84,6 +115,28 @@ const api = {
     onTool: (cb: (p: { id: string; tool: string }) => void): Unsubscribe => on("agent:tool", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),
+  },
+
+  account: {
+    current: (): Promise<Account | null> => ipcRenderer.invoke("account:current"),
+    signIn: (email: string, password: string): Promise<Account> =>
+      ipcRenderer.invoke("account:sign-in", email, password),
+    signOut: (): Promise<null> => ipcRenderer.invoke("account:sign-out"),
+  },
+
+  store: {
+    nodes: (q: string): Promise<StoreListing[]> => ipcRenderer.invoke("store:nodes", q),
+    workflows: (q: string): Promise<StoreWorkflow[]> => ipcRenderer.invoke("store:workflows", q),
+    readPack: (name: string, version?: string): Promise<StorePack> =>
+      ipcRenderer.invoke("store:read-pack", name, version),
+    installPack: (name: string, version?: string): Promise<InstallResult> =>
+      ipcRenderer.invoke("store:install-pack", name, version),
+    installWorkflow: (name: string): Promise<InstallResult> =>
+      ipcRenderer.invoke("store:install-workflow", name),
+    installedPacks: (): Promise<InstalledPack[]> => ipcRenderer.invoke("store:installed-packs"),
+    publishPack: (name: string): Promise<unknown> => ipcRenderer.invoke("store:publish-pack", name),
+    publishWorkflow: (payload: { name: string; description: string; graph: unknown }): Promise<unknown> =>
+      ipcRenderer.invoke("store:publish-workflow", payload),
   },
 
   engineUpdate: {

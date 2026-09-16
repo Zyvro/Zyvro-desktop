@@ -5,6 +5,7 @@ import { CodeEditor } from "./CodeEditor"
 import { GraphTab } from "./GraphTab"
 import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
+import { StorePanel } from "./StorePanel"
 
 // Every open tab stays mounted. A graph that unmounted when you glanced at a
 // file would lose its viewport, its selection and any run in progress, so tabs
@@ -49,6 +50,8 @@ function TabBody({ tab }: { tab: Tab }) {
       return <GraphTab workflowId={tab.workflowId} />
     case "providers":
       return <ProvidersTab />
+    case "store":
+      return <StorePanel />
     default:
       return <Welcome />
   }
