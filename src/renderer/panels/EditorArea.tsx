@@ -1,3 +1,4 @@
+import { useCallback } from "react"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Tab } from "~/state/workspace"
@@ -16,8 +17,20 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
   const closeTab = useWorkspace((s) => s.closeTab)
   const dirty = useWorkspace((s) => tab.id in s.drafts)
 
+  // A callback ref rather than an effect, per DOCTRINE-SANS-USEEFFECT: the
+  // identity changes with `active`, so React runs it exactly when this tab
+  // becomes the active one. Opening a file when the bar is already full would
+  // otherwise put its tab somewhere off to the right, out of sight.
+  const reveal = useCallback(
+    (el: HTMLDivElement | null) => {
+      if (el && active) el.scrollIntoView({ block: "nearest", inline: "nearest" })
+    },
+    [active]
+  )
+
   return (
     <div
+      ref={reveal}
       className={cn(
         "group flex h-9 max-w-[220px] shrink-0 items-center gap-2 border-r border-white/[0.06] pl-3 pr-2 text-[13px]",
         active
@@ -63,7 +76,12 @@ export function EditorArea() {
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="zy-scroll flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-white/[0.06] bg-white/[0.015]">
+      {/* overflow-y is pinned hidden on purpose. Setting overflow-x alone makes
+          the browser compute overflow-y as auto, and then the horizontal
+          scrollbar eats a few pixels inside a fixed height — so the row of tabs
+          became a few pixels too tall for its own box and scrolled vertically,
+          carrying the tabs out of view. */}
+      <div className="zy-tabs flex h-9 shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b border-white/[0.06] bg-white/[0.015]">
         {tabs.map((tab) => (
           <TabButton key={tab.id} tab={tab} active={tab.id === activeTabId} />
         ))}

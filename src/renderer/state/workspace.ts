@@ -58,6 +58,27 @@ function basename(p: string): string {
 // nextActive picks the tab to focus after closing one. Falling back to the
 // neighbour on the left is what every editor does, and it keeps the eye near
 // where it already was.
+// replacedByOpening decides whether opening a file should take the tab the
+// person was looking at with it.
+//
+// Clicking through a tree to find something leaves a row of tabs nobody asked
+// for. So a file tab that was only looked at — never edited — is replaced by
+// the next one rather than kept. Editing it is what makes it worth keeping,
+// which is the same rule the close button already uses to decide whether to
+// warn.
+//
+// Only a file gives way to a file. A graph, the providers page and the store
+// are somewhere the person navigated to on purpose, and closing one because
+// they glanced at a file afterwards would lose real work.
+function replacedByOpening(s: WorkspaceState, tab: Tab, openingID: string): boolean {
+  return (
+    tab.kind === "file" &&
+    tab.id === s.activeTabId &&
+    tab.id !== openingID &&
+    !(tab.id in s.drafts)
+  )
+}
+
 function nextActive(tabs: Tab[], closedIndex: number): string {
   if (tabs.length === 0) return WELCOME.id
   const index = Math.min(closedIndex, tabs.length - 1)
@@ -92,7 +113,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "file", id, path, title: basename(path) }
-    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+    set((s) => ({
+      tabs: [...s.tabs.filter((t) => t.kind !== "welcome" && !replacedByOpening(s, t, id)), tab],
+      activeTabId: id,
+    }))
   },
 
   openGraph: (workflowId, title) => {

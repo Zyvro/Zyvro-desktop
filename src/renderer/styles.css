@@ -39,6 +39,18 @@ textarea,
   -webkit-app-region: no-drag;
 }
 
+/* The tab strip scrolls without a visible bar. The shared one below is 10px
+   tall, which inside a 36px strip leaves 26px for 36px tabs: they were clipped,
+   and the strip scrolled vertically to show the rest. Hiding it gives the tabs
+   the whole height back. Nothing is lost — a trackpad still scrolls it, and the
+   active tab scrolls itself into view when it changes. */
+.zy-tabs {
+  scrollbar-width: none;
+}
+.zy-tabs::-webkit-scrollbar {
+  display: none;
+}
+
 /* Scrollbars: the default macOS overlay bars vanish on a dark panel. */
 .zy-scroll::-webkit-scrollbar {
   width: 10px;
