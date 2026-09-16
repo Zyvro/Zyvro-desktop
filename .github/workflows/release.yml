@@ -60,6 +60,9 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: Zyvro-engine/go.mod
+          # The engine is the only Go module here, and it is not in the
+          # directory the action looks in by default.
+          cache-dependency-path: Zyvro-engine/go.sum
 
       - uses: actions/setup-node@v4
         with:
@@ -89,6 +92,13 @@ jobs:
       - name: Verify the app and its tests
         working-directory: Zyvro-desktop
         run: npm run typecheck
+
+      # electron-builder packages what is already built; it does not build the
+      # renderer or the main process itself. Leaving this out produced an app
+      # whose entry point was missing, which only surfaced at packaging time.
+      - name: Build the renderer and the main process
+        working-directory: Zyvro-desktop
+        run: npx electron-vite build
 
       - name: Package
         working-directory: Zyvro-desktop
