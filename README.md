@@ -95,11 +95,29 @@ Workflows are files, so they version and review like the rest of the repository.
 
 ## Running it
 
-```sh
-npm install
-npm run dev              # builds the local engine, then starts the app
-npm run dev -- ~/code/thing   # open a folder straight away
+This repository does not stand alone. The renderer compiles the web app's graph
+editor straight from its source, and the local engine is built from the Go
+backend, so both have to sit beside it under the same parent folder:
+
 ```
+Zyvro/
+├── Zyvro-backend/     https://github.com/Zyvro/Zyvro-backend   (Go, needs a Go toolchain)
+├── Zyvro-frontend/    https://github.com/Zyvro/Zyvro-frontend  (the shared graph editor)
+└── Zyvro-desktop/     this repository
+```
+
+```sh
+git clone https://github.com/Zyvro/Zyvro-backend.git
+git clone https://github.com/Zyvro/Zyvro-frontend.git
+git clone https://github.com/Zyvro/Zyvro-desktop.git
+
+cd Zyvro-frontend && npm install     # the renderer imports its components
+cd ../Zyvro-desktop && npm install
+npm run dev                          # builds the local engine, then starts the app
+npm run dev -- ~/code/thing          # open a folder straight away
+```
+
+A packaged build needs none of this: the engine ships inside the app bundle.
 
 `npm install` also builds `node-pty`. On macOS it fails against the SDK `xcrun`
 selects by default, so `scripts/rebuild-native.mjs` retries against the Command
