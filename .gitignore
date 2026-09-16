@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output
+out/
+dist/
+
+# Scratch directory for the markdown check harness
+.zyvro-markdown-check/
+
+# Editor and OS noise
+.DS_Store
+*.log
+.vscode/
+.idea/
