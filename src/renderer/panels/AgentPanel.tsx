@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, MessageSquarePlus, Square, Wrench } from "lucide-react"
+import { ArrowUp, MessageSquarePlus, Square, Wrench, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -25,27 +25,43 @@ export type ChatMessage = {
   streaming: boolean
 }
 
-type ChatState = {
+// A thread is one conversation: its own transcript, its own CLI session, its
+// own model, and its own turn in flight.
+//
+// That last one is the point of tabs. A turn started in one tab keeps streaming
+// while you read another, so you can set a long job going and carry on. Which
+// means `busy` and `turnId` belong to a thread and not to the panel — a single
+// pair would have made every tab look busy whenever any of them was, and Stop
+// would have killed whichever turn happened to be last.
+type Thread = {
+  /**
+   * The thread's own id, which is what the CLI's session is filed under.
+   *
+   * Not the CLI's session id: that one is learned from the output of the first
+   * turn and lives in the main process. This is ours, it exists before any turn
+   * has run, and it is what makes "the conversation the user is looking at" a
+   * thing that can be named, saved and reopened.
+   */
+  id: string
+  title: string
   messages: ChatMessage[]
   /** The id main gave us for the turn in flight; Stop needs it. */
   turnId: string | null
   /** True from the moment the user sends, before the turn id is known. */
   busy: boolean
-  /**
-   * This thread's own id, which is what the CLI's session is filed under.
-   *
-   * Not the CLI's session id: that one is learned from the output of the first
-   * turn and lives in the main process. This is ours, it exists before any
-   * turn has run, and it is what makes "the conversation the user is looking
-   * at" a thing that can be named, saved and reopened.
-   */
-  conversationId: string
-  /** What the panel has already written down, so a save can be skipped. */
-  saved: string
   /** The model this thread is pinned to, or null for the CLI's own choice. */
   model: string | null
   /** What the CLI reported running last, so the picker can name the default. */
   ranWith: string | null
+  /** Which CLI this thread is talking to. */
+  kind: AgentKind
+  /** What has already been written down, so a save can be skipped. */
+  saved: string
+}
+
+type ChatState = {
+  threads: Thread[]
+  activeId: string
 }
 
 // Events for a turn can reach the renderer before `agent:send` resolves with
@@ -59,17 +75,27 @@ function newConversationId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 }
 
-let state: ChatState = {
-  messages: [],
-  turnId: null,
-  busy: false,
-  conversationId: newConversationId(),
-  saved: "",
-  model: null,
-  ranWith: null,
+function blankThread(model: string | null = null, kind: AgentKind = "claude"): Thread {
+  return {
+    id: newConversationId(),
+    title: "New chat",
+    messages: [],
+    turnId: null,
+    busy: false,
+    model,
+    ranWith: null,
+    kind,
+    saved: "",
+  }
 }
+
+const first = blankThread()
+let state: ChatState = { threads: [first], activeId: first.id }
 const subscribers = new Set<() => void>()
-const turnToMessage = new Map<string, string>()
+// A turn belongs to a thread, not to the panel: events arrive by turn id and
+// have to find their way back to the tab that started them, even when that tab
+// is not the one on screen.
+const turnToMessage = new Map<string, { threadId: string; messageId: string }>()
 const orphans = new Map<string, Orphan>()
 const cancelled = new Set<string>()
 
@@ -90,15 +116,30 @@ function commit(next: ChatState): void {
   for (const listener of [...subscribers]) listener()
 }
 
-function mapMessage(id: string, change: (message: ChatMessage) => ChatMessage): void {
+function threadById(id: string): Thread | undefined {
+  return state.threads.find((thread) => thread.id === id)
+}
+
+function activeThread(): Thread {
+  return threadById(state.activeId) ?? state.threads[0]
+}
+
+function mapThread(id: string, change: (thread: Thread) => Thread): void {
   let touched = false
-  const messages = state.messages.map((message) => {
-    if (message.id !== id) return message
+  const threads = state.threads.map((thread) => {
+    if (thread.id !== id) return thread
     touched = true
-    return change(message)
+    return change(thread)
   })
   if (!touched) return
-  commit({ ...state, messages })
+  commit({ ...state, threads })
+}
+
+function mapMessage(threadId: string, messageId: string, change: (message: ChatMessage) => ChatMessage): void {
+  mapThread(threadId, (thread) => ({
+    ...thread,
+    messages: thread.messages.map((message) => (message.id === messageId ? change(message) : message)),
+  }))
 }
 
 let attached = false
@@ -112,27 +153,30 @@ function ensureAttached(): void {
   attached = true
 
   window.zyvro.agent.onText(({ id, text }) => {
-    const messageId = turnToMessage.get(id)
-    if (messageId === undefined) {
+    const bound = turnToMessage.get(id)
+    if (bound === undefined) {
       orphanFor(id).text += text
       return
     }
-    mapMessage(messageId, (message) => ({ ...message, text: message.text + text }))
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, text: message.text + text }))
   })
 
   window.zyvro.agent.onTool(({ id, tool }) => {
-    const messageId = turnToMessage.get(id)
-    if (messageId === undefined) {
+    const bound = turnToMessage.get(id)
+    if (bound === undefined) {
       orphanFor(id).tools.push(tool)
       return
     }
-    mapMessage(messageId, (message) => ({ ...message, tools: [...message.tools, tool] }))
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, tools: [...message.tools, tool] }))
   })
 
+  // The model is reported for the thread that ran it, whichever tab is on
+  // screen: a background turn that fell back to a different model should say so
+  // in its own tab rather than in the one being read.
   window.zyvro.agent.onModel(({ conversationId, model }) => {
-    if (conversationId !== state.conversationId) return
-    if (state.ranWith === model) return
-    commit({ ...state, ranWith: model })
+    const thread = threadById(conversationId)
+    if (!thread || thread.ranWith === model) return
+    mapThread(conversationId, (t) => ({ ...t, ranWith: model }))
   })
 
   window.zyvro.agent.onError(({ id, message }) => {
@@ -142,12 +186,12 @@ function ensureAttached(): void {
       finishTurn(id)
       return
     }
-    const messageId = turnToMessage.get(id)
-    if (messageId === undefined) {
+    const bound = turnToMessage.get(id)
+    if (bound === undefined) {
       orphanFor(id).error = message
       return
     }
-    mapMessage(messageId, (existing) => ({ ...existing, error: message, streaming: false }))
+    mapMessage(bound.threadId, bound.messageId, (existing) => ({ ...existing, error: message, streaming: false }))
     endTurn(id)
   })
 
@@ -164,22 +208,25 @@ function orphanFor(id: string): Orphan {
 }
 
 function finishTurn(id: string): void {
-  const messageId = turnToMessage.get(id)
-  if (messageId === undefined) {
+  const bound = turnToMessage.get(id)
+  if (bound === undefined) {
     orphanFor(id).done = true
     return
   }
-  mapMessage(messageId, (message) => ({ ...message, streaming: false }))
+  mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, streaming: false }))
   endTurn(id)
 }
 
 function endTurn(id: string): void {
+  const bound = turnToMessage.get(id)
   turnToMessage.delete(id)
   orphans.delete(id)
   cancelled.delete(id)
-  if (state.turnId !== id) return
-  commit({ ...state, turnId: null, busy: false })
-  persist()
+  if (!bound) return
+  mapThread(bound.threadId, (thread) =>
+    thread.turnId === id || thread.busy ? { ...thread, turnId: null, busy: false } : thread
+  )
+  persist(bound.threadId)
 }
 
 // Reloading is driven by the project, not by a component mounting.
@@ -210,7 +257,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 /** Records the prompt and the assistant placeholder, and returns its id. */
-function beginTurn(prompt: string): string {
+function beginTurn(threadId: string, prompt: string): string {
   const assistantId = nextMessageId()
   const user: ChatMessage = {
     id: nextMessageId(),
@@ -226,13 +273,21 @@ function beginTurn(prompt: string): string {
     tools: [],
     streaming: true,
   }
-  commit({ ...state, messages: [...state.messages, user, assistant], turnId: null, busy: true })
+  mapThread(threadId, (thread) => ({
+    ...thread,
+    // The tab is named after what was first asked of it, which is what a
+    // person recognises in a row of tabs.
+    title: thread.messages.length === 0 ? titleFrom(prompt) : thread.title,
+    messages: [...thread.messages, user, assistant],
+    turnId: null,
+    busy: true,
+  }))
   return assistantId
 }
 
-function bindTurn(messageId: string, turnId: string): void {
-  turnToMessage.set(turnId, messageId)
-  commit({ ...state, turnId })
+function bindTurn(threadId: string, messageId: string, turnId: string): void {
+  turnToMessage.set(turnId, { threadId, messageId })
+  mapThread(threadId, (thread) => ({ ...thread, turnId }))
 
   const orphan = orphans.get(turnId)
   if (!orphan) return
@@ -241,7 +296,7 @@ function bindTurn(messageId: string, turnId: string): void {
     finishTurn(turnId)
     return
   }
-  mapMessage(messageId, (message) => ({
+  mapMessage(threadId, messageId, (message) => ({
     ...message,
     text: message.text + orphan.text,
     tools: orphan.tools.length > 0 ? [...message.tools, ...orphan.tools] : message.tools,
@@ -252,9 +307,9 @@ function bindTurn(messageId: string, turnId: string): void {
 }
 
 /** Fails a turn that never reached main at all, so nothing will stream for it. */
-function failTurn(messageId: string, message: string): void {
-  mapMessage(messageId, (existing) => ({ ...existing, error: message, streaming: false }))
-  commit({ ...state, turnId: null, busy: false })
+function failTurn(threadId: string, messageId: string, message: string): void {
+  mapMessage(threadId, messageId, (existing) => ({ ...existing, error: message, streaming: false }))
+  mapThread(threadId, (thread) => ({ ...thread, turnId: null, busy: false }))
 }
 
 // ---------------------------------------------------------------------------
@@ -268,27 +323,29 @@ function failTurn(messageId: string, message: string): void {
 //
 // Saved at the end of a turn rather than on every chunk — a save per streamed
 // character would be a file write per character.
-function persist(): void {
+function persist(threadId: string): void {
   if (typeof window === "undefined" || !window.zyvro) return
-  const messages = state.messages
+  const thread = threadById(threadId)
+  if (!thread) return
+
+  const messages = thread.messages
     .filter((m) => m.text !== "" || m.tools.length > 0 || m.error)
     .map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
   if (messages.length === 0) return
 
   const stamp = JSON.stringify(messages)
-  if (stamp === state.saved) return
-  commit({ ...state, saved: stamp })
+  if (stamp === thread.saved) return
+  mapThread(threadId, (t) => ({ ...t, saved: stamp }))
 
-  const first = state.messages.find((m) => m.role === "user")
   void window.zyvro.agent.remember({
-    id: state.conversationId,
-    kind: currentKind,
-    title: titleFrom(first?.text ?? ""),
+    id: thread.id,
+    kind: thread.kind,
+    title: thread.title,
     // Main overwrites this with what the CLI actually reported; sending what we
     // last knew keeps a conversation whose session has not changed intact.
     sessionId: null,
-    model: state.model,
-    ranWith: state.ranWith,
+    model: thread.model,
+    ranWith: thread.ranWith,
     messages,
     updatedAt: new Date().toISOString(),
   })
@@ -303,25 +360,21 @@ function titleFrom(prompt: string): string {
   return clean.length > 48 ? `${clean.slice(0, 47)}…` : clean || "New chat"
 }
 
-// currentKind is which CLI this thread is talking to. Held at module level
-// because persist() runs from an IPC callback, outside any component.
-let currentKind: AgentKind = "claude"
-export function rememberKind(kind: AgentKind): void {
-  currentKind = kind
-}
-
-// restore loads this project's most recent conversation back into the panel.
+// restore loads this project's conversations back into their tabs.
 //
-// One conversation for now, because the panel shows one. The store already
-// holds a list, so the tabs that come next are a change to this function and
-// to the header, not to anything below it.
+// All of them, in the order the store keeps — most recently touched first —
+// because a tab that vanished on restart would be a conversation the agent
+// still remembers and the person cannot reach.
 export async function restore(): Promise<void> {
   if (typeof window === "undefined" || !window.zyvro) return
   const all = await window.zyvro.agent.conversations()
-  const latest = all[0]
-  if (!latest || latest.messages.length === 0) return
-  commit({
-    messages: latest.messages.map((m) => ({
+  const usable = all.filter((c) => c.messages.length > 0)
+  if (usable.length === 0) return
+
+  const threads: Thread[] = usable.map((c) => ({
+    id: c.id,
+    title: c.title || "New chat",
+    messages: c.messages.map((m) => ({
       id: nextMessageId(),
       role: m.role,
       text: m.text,
@@ -331,43 +384,82 @@ export async function restore(): Promise<void> {
     })),
     turnId: null,
     busy: false,
-    conversationId: latest.id,
-    saved: JSON.stringify(latest.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))),
-    model: latest.model ?? null,
-    ranWith: latest.ranWith ?? null,
-  })
-  currentKind = latest.kind
+    model: c.model ?? null,
+    ranWith: c.ranWith ?? null,
+    kind: c.kind,
+    saved: JSON.stringify(
+      c.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
+    ),
+  }))
+  commit({ threads, activeId: threads[0].id })
 }
 
-function setModel(model: string | null): void {
-  commit({ ...state, model })
+function setModel(threadId: string, model: string | null): void {
+  mapThread(threadId, (thread) => ({ ...thread, model }))
+}
+
+function setKind(threadId: string, kind: AgentKind): void {
+  mapThread(threadId, (thread) => ({ ...thread, kind }))
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+
+// A new tab is a new conversation id, which is what makes it a new session: its
+// first turn finds nothing to resume and the CLI starts fresh.
+//
+// The model pin carries over from the tab you were on, because somebody who
+// deliberately moved to a slower model does not want the next question silently
+// back on the fast one. What the CLI last ran does not carry over — that is a
+// fact about a conversation, not about the person.
+function openThread(): void {
+  const current = activeThread()
+  const thread = blankThread(current?.model ?? null, current?.kind ?? "claude")
+  commit({ threads: [...state.threads, thread], activeId: thread.id })
+}
+
+function selectThread(id: string): void {
+  if (threadById(id)) commit({ ...state, activeId: id })
+}
+
+// Closing a tab stops its turn and forgets its session. Leaving the session
+// behind would keep a conversation alive on disk that nothing can reach, and
+// the CLI would go on holding it too.
+function closeThread(id: string): void {
+  const thread = threadById(id)
+  if (!thread) return
+  if (thread.turnId) {
+    markCancelled(thread.turnId)
+    void window.zyvro.agent.cancel(thread.turnId)
+  }
+  void window.zyvro.agent.forget(id)
+
+  const index = state.threads.findIndex((t) => t.id === id)
+  const threads = state.threads.filter((t) => t.id !== id)
+  if (threads.length === 0) {
+    const fresh = blankThread(thread.model, thread.kind)
+    commit({ threads: [fresh], activeId: fresh.id })
+    return
+  }
+  // The neighbour on the left, which is what every editor does and what keeps
+  // the eye near where it already was.
+  const next = threads[Math.min(index, threads.length - 1)]
+  commit({ threads, activeId: state.activeId === id ? next.id : state.activeId })
 }
 
 function markCancelled(turnId: string): void {
   cancelled.add(turnId)
 }
 
-// A new chat is a new conversation id, which is what makes it a new session:
-// the next turn finds nothing to resume and the CLI starts fresh. Clearing the
-// messages alone would empty the window and leave the agent still remembering
-// everything, which is the failure this whole change exists to remove.
+// Closing the project clears the panel: what is on screen belongs to a project,
+// and leaving it there would show one project's conversations over another's.
 function resetChat(): void {
   turnToMessage.clear()
   orphans.clear()
   cancelled.clear()
-  commit({
-    messages: [],
-    turnId: null,
-    busy: false,
-    conversationId: newConversationId(),
-    saved: "",
-    // The pin follows the person, not the thread they just closed: somebody who
-    // deliberately moved to a slower model does not want the next question
-    // silently back on the fast one. What the CLI last ran does not follow —
-    // that is a fact about a conversation that no longer exists.
-    model: state.model,
-    ranWith: null,
-  })
+  const fresh = blankThread(activeThread()?.model ?? null, activeThread()?.kind ?? "claude")
+  commit({ threads: [fresh], activeId: fresh.id })
 }
 
 // ---------------------------------------------------------------------------
@@ -422,7 +514,8 @@ export function AgentPanel(): JSX.Element {
   const chat = useSyncExternalStore(subscribe, getSnapshot)
   const queryClient = useQueryClient()
 
-  const [kind, setKind] = useState<AgentKind>("claude")
+  const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
+  const kind = thread.kind
   const [draft, setDraft] = useState("")
 
   const composer = useRef<HTMLTextAreaElement | null>(null)
@@ -450,13 +543,14 @@ export function AgentPanel(): JSX.Element {
 
   const send = async (prompt: string): Promise<void> => {
     const text = prompt.trim()
-    if (text === "" || chat.busy || project === null) return
+    if (text === "" || thread.busy || project === null) return
+    const threadId = thread.id
 
     setDraft("")
     const node = composer.current
     if (node) node.style.height = ""
 
-    const messageId = beginTurn(text)
+    const messageId = beginTurn(threadId, text)
 
     // The workflow list is context, not a precondition. If the local daemon is
     // not answering, the agent should still run — it just will not know the
@@ -477,16 +571,15 @@ export function AgentPanel(): JSX.Element {
     }
 
     try {
-      rememberKind(kind)
-      const turnId = await window.zyvro.agent.send(kind, text, workflows, chat.conversationId, chat.model)
-      bindTurn(messageId, turnId)
+      const turnId = await window.zyvro.agent.send(kind, text, workflows, threadId, thread.model)
+      bindTurn(threadId, messageId, turnId)
     } catch (error: unknown) {
-      failTurn(messageId, error instanceof Error ? error.message : String(error))
+      failTurn(threadId, messageId, error instanceof Error ? error.message : String(error))
     }
   }
 
   const stop = (): void => {
-    const turnId = chat.turnId
+    const turnId = thread.turnId
     if (turnId === null) return
     markCancelled(turnId)
     void window.zyvro.agent.cancel(turnId)
@@ -515,7 +608,12 @@ export function AgentPanel(): JSX.Element {
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Agent</span>
 
         <div className="ml-auto">
-          <ModelPicker kind={kind} model={chat.model} ranWith={chat.ranWith} onChange={setModel} />
+          <ModelPicker
+            kind={kind}
+            model={thread.model}
+            ranWith={thread.ranWith}
+            onChange={(model) => setModel(thread.id, model)}
+          />
         </div>
 
         <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
@@ -523,7 +621,7 @@ export function AgentPanel(): JSX.Element {
             <button
               key={option}
               type="button"
-              onClick={() => setKind(option)}
+              onClick={() => setKind(thread.id, option)}
               className={cn(
                 "rounded px-2 py-0.5 text-[11px] transition-colors",
                 kind === option
@@ -538,16 +636,52 @@ export function AgentPanel(): JSX.Element {
 
         <button
           type="button"
-          onClick={resetChat}
-          title="New chat"
+          onClick={openThread}
+          title="New conversation"
           className="rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
         </button>
       </div>
 
+      {/* One row of tabs, and only when there is more than one: a tab strip
+          above a single conversation is furniture. Each tab shows a dot while
+          its own turn runs, which is the whole point of having them — a long
+          job set going in one tab and read later. */}
+      {chat.threads.length > 1 && (
+        <div className="zy-tabs flex h-8 shrink-0 items-stretch gap-px overflow-x-auto overflow-y-hidden border-b border-white/[0.06] bg-white/[0.015] px-1">
+          {chat.threads.map((t) => (
+            <div
+              key={t.id}
+              className={cn(
+                "group flex min-w-0 max-w-[12rem] items-center gap-1 rounded-t px-2 text-[11px]",
+                t.id === chat.activeId ? "bg-white/[0.07] text-foreground" : "text-muted-foreground hover:bg-white/[0.04]"
+              )}
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 text-left"
+                title={t.title}
+                onClick={() => selectThread(t.id)}
+              >
+                {t.busy && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+                <span className="truncate">{t.title}</span>
+              </button>
+              <button
+                type="button"
+                title="Close this conversation"
+                className="shrink-0 rounded p-0.5 opacity-0 hover:bg-white/[0.1] group-hover:opacity-100"
+                onClick={() => closeThread(t.id)}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {chat.messages.length === 0 ? (
+        {thread.messages.length === 0 ? (
           <div className="space-y-3 text-xs text-muted-foreground">
             <p className="leading-relaxed">
               This runs the <span className="font-mono text-foreground">{kind}</span> CLI already signed
@@ -573,7 +707,7 @@ export function AgentPanel(): JSX.Element {
           </div>
         ) : (
           <div className="space-y-3">
-            {chat.messages.map((message) => (
+            {thread.messages.map((message) => (
               <Bubble key={message.id} message={message} kind={kind} />
             ))}
           </div>
@@ -596,7 +730,7 @@ export function AgentPanel(): JSX.Element {
             className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
 
-          {chat.busy ? (
+          {thread.busy ? (
             <button
               type="button"
               onClick={stop}
