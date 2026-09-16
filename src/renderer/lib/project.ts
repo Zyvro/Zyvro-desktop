@@ -75,6 +75,25 @@ export async function openProject(dir: string | null): Promise<OpenResult | null
   }
 }
 
+// createProject makes a new folder and opens it. It is the same operation as
+// opening, with one step in front, and it lives beside openProject for the same
+// reason that one does: the File menu has to reach it from outside React.
+//
+// Failure to create is reported through the same channel as failure to open,
+// because from where the person sits the two are one action that did not work.
+export async function createProject(): Promise<OpenResult | null> {
+  const store = useWorkspace.getState()
+  let target: string | null
+  try {
+    target = await window.zyvro.project.create()
+  } catch (err) {
+    store.setOpenError((err as Error).message)
+    return null
+  }
+  if (!target) return null
+  return openProject(target)
+}
+
 // useRecents backs the list on the welcome screen. The File menu reads the
 // same data from disk in the main process, so the two cannot disagree.
 export function useRecents() {
@@ -115,4 +134,8 @@ export function useCurrentProject() {
 
 export function useOpenProject() {
   return useMutation({ mutationFn: (dir: string | null) => openProject(dir) })
+}
+
+export function useCreateProject() {
+  return useMutation({ mutationFn: () => createProject() })
 }

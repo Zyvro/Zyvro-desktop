@@ -1,6 +1,6 @@
-import { Clock, FolderOpen, Loader2, Terminal as TerminalIcon, Workflow } from "lucide-react"
+import { Clock, FolderOpen, FolderPlus, Loader2, Terminal as TerminalIcon, Workflow } from "lucide-react"
 import { useWorkspace } from "~/state/workspace"
-import { forgetRecents, useOpenProject, useRecents } from "~/lib/project"
+import { forgetRecents, useCreateProject, useOpenProject, useRecents } from "~/lib/project"
 
 // Recent folders are dated relative to now because that is how anyone thinks
 // about them: "the one from yesterday", never a timestamp.
@@ -22,30 +22,51 @@ export function Welcome() {
   const opening = useWorkspace((s) => s.opening)
   const openError = useWorkspace((s) => s.openError)
   const open = useOpenProject()
+  const create = useCreateProject()
   const recents = useRecents()
+  const busy = opening || open.isPending || create.isPending
 
   return (
     <div className="zy-scroll flex h-full items-center justify-center overflow-y-auto px-8">
       <div className="w-full max-w-lg py-10">
         <h1 className="text-2xl font-semibold tracking-tight">Zyvro Studio</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Visual AI workflows next to the code they act on. Open a folder and its workflows load from{" "}
+          Visual AI workflows next to the code they act on. A project is an ordinary folder: its
+          workflows live in{" "}
           <code className="rounded bg-white/[0.06] px-1 py-0.5 text-[12px]">.zyvro</code>, ready to commit
-          alongside everything else in the repository.
+          alongside everything else in the repository. Start a new one, or open a folder you already
+          have.
         </p>
 
-        <button
-          className="mt-6 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-          disabled={opening || open.isPending}
-          onClick={() => open.mutate(null)}
-        >
-          {opening || open.isPending ? (
-            <Loader2 className="h-4 w-4 zy-spin" />
-          ) : (
-            <FolderOpen className="h-4 w-4" />
-          )}
-          {project ? "Open another project…" : "Open a project folder…"}
-        </button>
+        {/* Two ways in, because there are two situations: a folder that already
+            exists, and nothing at all yet. Only offering the first left someone
+            opening the app for the first time with nowhere to go. */}
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+            disabled={busy}
+            onClick={() => create.mutate()}
+          >
+            {create.isPending ? (
+              <Loader2 className="h-4 w-4 zy-spin" />
+            ) : (
+              <FolderPlus className="h-4 w-4" />
+            )}
+            Create a project…
+          </button>
+          <button
+            className="inline-flex items-center gap-2 rounded-lg border border-white/[0.12] px-4 py-2.5 text-sm font-medium text-foreground hover:bg-white/[0.06] disabled:opacity-60"
+            disabled={busy}
+            onClick={() => open.mutate(null)}
+          >
+            {opening || open.isPending ? (
+              <Loader2 className="h-4 w-4 zy-spin" />
+            ) : (
+              <FolderOpen className="h-4 w-4" />
+            )}
+            {project ? "Open another project…" : "Open a project folder…"}
+          </button>
+        </div>
 
         {openError && (
           <pre className="zy-selectable mt-4 whitespace-pre-wrap rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-[12px] leading-relaxed text-destructive">

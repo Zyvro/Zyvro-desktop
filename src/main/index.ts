@@ -8,6 +8,16 @@ import fs from "node:fs"
 
 const isDev = !app.isPackaged
 
+// scripts/dev-app-name.mjs renames the development Electron bundle so the menu
+// bar stops saying "Electron". That rename has a side effect worth blocking:
+// the user folder is derived from the app name, so development would quietly
+// move onto the packaged app's profile — its recents, its signed-in account.
+// Those are worth keeping apart, and a dev run that wiped the real one would be
+// a bad way to find that out.
+if (isDev) {
+  app.setPath("userData", path.join(app.getPath("appData"), "zyvro-desktop"))
+}
+
 // A packaged app takes its icon from the bundle, but a development run and the
 // Windows and Linux taskbars take it from here. Without this, the app runs
 // under the default Electron logo for the whole of development.
@@ -168,6 +178,11 @@ function buildMenu(): void {
           click: () => createWindow(),
         },
         { type: "separator" },
+        {
+          label: "New Project…",
+          accelerator: "CmdOrCtrl+N",
+          click: (_item, win) => send(win as BrowserWindow, "menu:new-project"),
+        },
         {
           label: "Open Folder…",
           accelerator: "CmdOrCtrl+O",

@@ -76,6 +76,7 @@ const api = {
 
   project: {
     choose: (): Promise<string | null> => ipcRenderer.invoke("project:choose"),
+    create: (): Promise<string | null> => ipcRenderer.invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => ipcRenderer.invoke("project:open", dir),
     current: (): Promise<OpenResult | null> => ipcRenderer.invoke("project:current"),
     close: (): Promise<boolean> => ipcRenderer.invoke("project:close"),
@@ -154,6 +155,7 @@ const api = {
 
   menu: {
     onOpenProject: (cb: () => void): Unsubscribe => on("menu:open-project", cb),
+    onNewProject: (cb: () => void): Unsubscribe => on("menu:new-project", cb),
     onOpenPath: (cb: (dir: string) => void): Unsubscribe => on("menu:open-path", cb),
     onCloseProject: (cb: () => void): Unsubscribe => on("menu:close-project", cb),
     onForgetRecents: (cb: () => void): Unsubscribe => on("menu:forget-recents", cb),

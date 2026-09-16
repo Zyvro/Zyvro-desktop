@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron"
 import path from "node:path"
 import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
 import type { UpdateController } from "./updateController"
@@ -91,6 +91,38 @@ export function registerIpc(onRecents?: () => void, updates?: UpdateController):
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
+  })
+
+  // Opening assumed the folder already existed, which left the app with no
+  // answer at all to "I want to start something new" — the one thing a person
+  // does on first launch. A Zyvro project is only a folder the engine has put a
+  // .zyvro directory inside, so creating one is: name it, make it, open it.
+  //
+  // A save dialog rather than an open dialog, because this is the one that lets
+  // someone type a name that does not exist yet. The open dialog's "New Folder"
+  // button is a macOS affordance buried inside a panel whose whole framing is
+  // "choose something that is already there".
+  ipcMain.handle("project:create", async (event) => {
+    const { win } = requireWorkspace(event)
+    const result = await dialog.showSaveDialog(win, {
+      title: "Create a project",
+      buttonLabel: "Create project",
+      nameFieldLabel: "Project name",
+      defaultPath: path.join(app.getPath("documents"), "zyvro-project"),
+      properties: ["createDirectory"],
+    })
+    if (result.canceled || !result.filePath) return null
+
+    const target = result.filePath
+    const existing = await fs.stat(target).catch(() => null)
+    if (existing && !existing.isDirectory()) {
+      throw new Error(`There is already a file at ${target}. Choose another name.`)
+    }
+    // An existing folder is not an error: a save panel only hands one back when
+    // the person typed its name on purpose, and opening it is what they asked
+    // for. mkdir is skipped rather than allowed to fail on it.
+    if (!existing) await fs.mkdir(target, { recursive: true })
+    return target
   })
 
   ipcMain.handle("project:open", async (event, dir: string): Promise<OpenResult> => {

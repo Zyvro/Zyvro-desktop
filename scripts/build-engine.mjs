@@ -9,7 +9,7 @@
 //     node scripts/build-engine.mjs darwin arm64     one specific target
 //     node scripts/build-engine.mjs --all            every target a release needs
 import { spawnSync } from "node:child_process"
-import { existsSync } from "node:fs"
+import { copyFileSync, existsSync, renameSync } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -105,7 +105,21 @@ if (args[0] === "--all") {
   const arch = normalizeArch(process.arch)
   const name = build({ os, arch }, marks)
   // Development resolves bin/zyvrod, so the host build keeps that name too.
-  spawnSync("cp", [path.join("bin", name), path.join("bin", os === "windows" ? "zyvrod.exe" : "zyvrod")], {
-    cwd: engine,
-  })
+  //
+  // Copied to a temporary name and renamed over, never written in place. `cp`
+  // onto the existing file keeps its inode, and macOS caches a binary's code
+  // signature against the inode: rewriting the bytes underneath leaves the
+  // kernel holding a hash that no longer matches, and it answers by SIGKILLing
+  // anything launched from it. The symptom is the daemon dying instantly with
+  // no output, surfacing in the app as "the local Zyvro engine exited with code
+  // null" — on opening a project, which looks nothing like a build problem.
+  // `codesign -v` says the file is fine, because it recomputes rather than
+  // asking the kernel what it remembers.
+  //
+  // A rename is also the only safe way to do this while another window still
+  // has the old binary running: that process keeps the old inode and lives.
+  const target = path.join(engine, "bin", os === "windows" ? "zyvrod.exe" : "zyvrod")
+  const staging = `${target}.new`
+  copyFileSync(path.join(engine, "bin", name), staging)
+  renameSync(staging, target)
 }

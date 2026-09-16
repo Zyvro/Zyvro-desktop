@@ -1,5 +1,5 @@
 import { useWorkspace } from "~/state/workspace"
-import { closeProject, createWorkflow, forgetRecents, openProject } from "./project"
+import { closeProject, createProject, createWorkflow, forgetRecents, openProject } from "./project"
 import { askName } from "~/state/prompt"
 
 // Menu commands arrive from the main process as IPC events, which is a
@@ -32,6 +32,9 @@ export function onCommand(command: Command, handler: () => void): () => void {
 
 window.zyvro.menu.onOpenProject(() => {
   void openProject(null)
+})
+window.zyvro.menu.onNewProject(() => {
+  void createProject()
 })
 window.zyvro.menu.onNewWorkflow(() => {
   if (!useWorkspace.getState().project) return
