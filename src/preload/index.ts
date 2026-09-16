@@ -37,18 +37,21 @@ import type {
   StoreWorkflow,
   StorePreview,
   StoreDependency,
+  InstallResult,
+  InstalledPack,
 } from "../main/store"
+import type { PublisherVerdict } from "../main/knownpublishers"
 
-export type { StoreListing, StoreSource, StorePack, StoreWorkflow, StorePreview, StoreDependency }
-
-export type InstallResult = { workflow?: string; packs: { name: string; version: string }[] }
-export type InstalledPack = {
-  name: string
-  version: string
-  description: string
-  author: string
-  capabilities: string[]
-  sources: StoreSource[]
+export type {
+  StoreListing,
+  StoreSource,
+  StorePack,
+  StoreWorkflow,
+  StorePreview,
+  StoreDependency,
+  InstallResult,
+  InstalledPack,
+  PublisherVerdict,
 }
 
 const api = {
@@ -116,7 +119,8 @@ const api = {
     installWorkflow: (name: string): Promise<InstallResult> =>
       ipcRenderer.invoke("store:install-workflow", name),
     installedPacks: (): Promise<InstalledPack[]> => ipcRenderer.invoke("store:installed-packs"),
-    publishPack: (name: string): Promise<unknown> => ipcRenderer.invoke("store:publish-pack", name),
+    publishPack: (name: string, password: string): Promise<unknown> =>
+      ipcRenderer.invoke("store:publish-pack", name, password),
     publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
       ipcRenderer.invoke("store:publish-workflow", payload),
   },

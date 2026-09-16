@@ -307,9 +307,12 @@ export function registerIpc(onRecents?: () => void): void {
     return store.listInstalledPacks(requireRoot(ws))
   })
 
-  ipcMain.handle("store:publish-pack", async (event, name: string) => {
+  // The password travels renderer → main and is used to unseal the signing key
+  // for the length of one request. It is never written down on this side: the
+  // key it opens is, sealed, and that is the only durable thing.
+  ipcMain.handle("store:publish-pack", async (event, name: string, password: string) => {
     const { ws } = requireWorkspace(event)
-    return store.publishPack(requireRoot(ws), String(name))
+    return store.publishPack(requireRoot(ws), String(name), String(password))
   })
 
   ipcMain.handle(

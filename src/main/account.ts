@@ -112,10 +112,7 @@ export async function signIn(email: string, password: string): Promise<Account> 
   // The password is derived before it is sent; see kdf.ts. What crosses the
   // wire is an auth hash, and an account made before that existed carries its
   // own migration in the same request.
-  const params = (await call("/api/auth/prelogin", {
-    method: "POST",
-    body: JSON.stringify({ email }),
-  })) as KdfParams
+  const params = await kdfParamsFor(email)
 
   const payload: Record<string, unknown> =
     params.kdf_version === 0
@@ -195,4 +192,18 @@ export async function authorized(pathname: string, init: RequestInit = {}): Prom
 
 export async function anonymous(pathname: string): Promise<unknown> {
   return call(pathname)
+}
+
+// kdfParamsFor asks the server how this account's password is derived.
+//
+// Exported because signing in is no longer the only thing that needs it: the
+// publisher's signing key is sealed with a key derived the same way, so
+// publishing derives too. Asked once here rather than written down twice —
+// parameters that disagreed would produce a key that opens nothing, and the
+// symptom would be a wrong-password error for the right password.
+export async function kdfParamsFor(email: string): Promise<KdfParams> {
+  return (await call("/api/auth/prelogin", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  })) as KdfParams
 }

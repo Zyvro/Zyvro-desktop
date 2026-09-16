@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
-import { anonymous, authorized, storeOrigin, StoreError } from "./account"
+import { anonymous, authorized, currentAccount, kdfParamsFor, storeOrigin, StoreError } from "./account"
+import { generateIdentity, signDigest, verifyDigest, type SealedKey } from "./signing"
+import { judge, remember, type PublisherVerdict } from "./knownpublishers"
 
 // The store hands this process Lua source from strangers and asks it to write
 // that source into the user's project. Everything here is written on the
@@ -66,6 +68,12 @@ export type StoreListing = {
   capabilities: string[]
   nodeTypes?: string[]
   digest?: string
+  // The publisher's signature over the digest, and the public half it was made
+  // with. Absent on a pack published before signing existed, which is an
+  // honest "unsigned" rather than a failure.
+  signature?: string
+  publisher_key?: string
+  publisher_name?: string
   updatedAt: string
 }
 
@@ -133,6 +141,38 @@ export type StorePreview = {
 export type InstallResult = {
   workflow?: string
   packs: { name: string; version: string }[]
+  // What this machine made of each pack's signature. Reported rather than
+  // hidden: "installed, and this is the first time you have seen this
+  // publisher" is a different thing to know than "installed".
+  publishers?: { pack: string; publisher: string; verdict: PublisherVerdict }[]
+}
+
+// vetPublisher is the check that makes signing worth anything.
+//
+// A signature proves a pack came from whoever holds a key. On its own that
+// proves little, because the key came from the same store as the pack. What
+// this adds is memory: the key a publisher used the first time is written down,
+// and a pack signed with a different one stops here.
+//
+// A change is refused rather than warned about, the way SSH refuses a changed
+// host key. It is the one case this whole scheme exists to catch, and a warning
+// somebody clicks through is not a catch. Accepting a rotation is a separate,
+// deliberate act — see forgetPublisher.
+async function vetPublisher(pack: StorePack): Promise<PublisherVerdict> {
+  const publisher = pack.publisher_name || pack.author || pack.name
+  const verdict = await judge(publisher, pack.publisher_key, Boolean(pack.signature))
+  if (verdict.kind === "changed") {
+    throw new StoreError(
+      `${publisher} signed this pack with a key you have not seen before. ` +
+        `You first installed from them on ${verdict.firstSeen.slice(0, 10)} with key ${verdict.knownFingerprint}, ` +
+        `and this one is ${verdict.offeredFingerprint}. That is either a key they replaced or somebody else using their name. ` +
+        `Refusing to install it until you say which.`
+    )
+  }
+  if (verdict.kind === "first-sight" && pack.publisher_key) {
+    await remember(publisher, pack.publisher_key)
+  }
+  return verdict
 }
 
 function query(params: Record<string, string | number | undefined>): string {
@@ -232,6 +272,17 @@ async function writePack(projectDir: string, pack: StorePack): Promise<void> {
         `The content of ${pack.name}@${pack.version} does not match the digest the store published for it. Refusing to install it.`
       )
     }
+    // A signature that does not check out is not an old pack, it is a wrong
+    // one, and it is refused like a wrong digest. An absent signature is
+    // neither: that decision belongs to the caller, which has the publisher's
+    // history to weigh it against.
+    if (pack.signature && pack.publisher_key) {
+      if (!verifyDigest(pack.digest.toLowerCase(), pack.signature, pack.publisher_key)) {
+        throw new StoreError(
+          `The signature on ${pack.name}@${pack.version} does not match its content and the key it names. Refusing to install it.`
+        )
+      }
+    }
   }
   const names = Object.keys(sources)
   if (names.length === 0) throw new StoreError(`The pack "${pack.name}" carries no nodes.`)
@@ -272,8 +323,12 @@ async function writePack(projectDir: string, pack: StorePack): Promise<void> {
 
 export async function installPack(projectDir: string, name: string, version?: string): Promise<InstallResult> {
   const pack = await readPack(name, version)
+  const verdict = await vetPublisher(pack)
   await writePack(projectDir, pack)
-  return { packs: [{ name: pack.name, version: pack.version }] }
+  return {
+    packs: [{ name: pack.name, version: pack.version }],
+    publishers: [{ pack: pack.name, publisher: pack.publisher_name || pack.author, verdict }],
+  }
 }
 
 // installWorkflow takes the whole closure in one exchange. A workflow whose
@@ -312,16 +367,26 @@ export async function installWorkflow(projectDir: string, name: string): Promise
   }
 
   // Every pack is validated before any of them is written, so a bad one in the
-  // middle of the closure cannot leave a half-installed set behind.
+  // middle of the closure cannot leave a half-installed set behind. The
+  // publisher check belongs in that same pass, for the same reason: a workflow
+  // that pulled three packs and stopped on the fourth because its publisher
+  // changed keys should install none of them.
+  const publishers: { pack: string; publisher: string; verdict: PublisherVerdict }[] = []
   for (const pack of packs) {
     assertName(pack.name)
     assertVersion(pack.version)
+    publishers.push({
+      pack: pack.name,
+      publisher: pack.publisher_name || pack.author,
+      verdict: await vetPublisher(pack),
+    })
   }
   for (const pack of packs) await writePack(projectDir, pack)
 
   return {
     workflow: body.template.name,
     packs: packs.map((p) => ({ name: p.name, version: p.version })),
+    publishers,
   }
 }
 
@@ -401,8 +466,23 @@ export async function readInstalledPack(projectDir: string, name: string): Promi
   }
 }
 
-export async function publishPack(projectDir: string, name: string): Promise<unknown> {
+// publishPack signs before it sends.
+//
+// The password is asked for here and nowhere else in the app. It is the cost of
+// the arrangement and the right cost: the signing key is sealed with a key
+// derived from it, so a key that could be used without it would be a key
+// anybody who reached this machine could use.
+//
+// The digest is computed the same way the store computes it. That the two
+// agree is not hoped for — it is pinned by check-store-digest.mjs, and it has
+// to be, because a digest that disagreed would produce a signature the server
+// refuses for a pack that is perfectly fine.
+export async function publishPack(projectDir: string, name: string, password: string): Promise<unknown> {
   const pack = await readInstalledPack(projectDir, name)
+  const sources = sourceMap(pack.sources, pack.name)
+  const digest = packDigest(pack.name, pack.version, sources)
+  const signature = await signAs(digest, password)
+
   return authorized("/api/store/nodes", {
     method: "POST",
     body: JSON.stringify({
@@ -412,8 +492,44 @@ export async function publishPack(projectDir: string, name: string): Promise<unk
       author: pack.author,
       capabilities: pack.capabilities,
       sources: pack.sources,
+      signature,
     }),
   })
+}
+
+// signAs signs with this account's key, creating it on the first publish.
+//
+// Generated here rather than server-side, and sent up already sealed: the
+// server keeps it so a second machine can publish under the same name, and it
+// cannot open what it keeps.
+async function signAs(digest: string, password: string): Promise<string> {
+  const account = await currentAccount()
+  if (!account) throw new StoreError("Sign in before publishing.")
+
+  const params = await kdfParamsFor(account.email)
+
+  const existing = (await authorized("/api/store/identity")) as {
+    identity?: { public_key: string; wrapped_private_key: string; kdf_version: number } | null
+  }
+  let sealed: SealedKey
+  if (existing?.identity) {
+    sealed = {
+      publicKey: existing.identity.public_key,
+      wrappedPrivateKey: existing.identity.wrapped_private_key,
+      kdfVersion: existing.identity.kdf_version,
+    }
+  } else {
+    sealed = await generateIdentity(password, params)
+    await authorized("/api/store/identity", {
+      method: "PUT",
+      body: JSON.stringify({
+        public_key: sealed.publicKey,
+        wrapped_private_key: sealed.wrappedPrivateKey,
+        kdf_version: sealed.kdfVersion,
+      }),
+    })
+  }
+  return signDigest(digest, sealed, password, params)
 }
 
 // storeName turns a workflow's title into a name the store will accept:

@@ -4,6 +4,7 @@ import { Box, Check, Loader2, Upload, Workflow as WorkflowIcon } from "lucide-re
 import { api, type Workflow } from "@/lib/api"
 import type { InstalledPack } from "../../preload"
 import { workflowsKey } from "~/lib/project"
+import { SigningPasswordDialog } from "~/panels/SigningPasswordDialog"
 
 // Publishing a workflow means publishing what it calls. The store derives a
 // template's dependencies from its graph and refuses one whose node type
@@ -45,6 +46,14 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
   const client = useQueryClient()
   const [missing, setMissing] = useState<MissingPacks | null>(null)
   const [done, setDone] = useState<string[]>([])
+  // Held for this sitting only, never written anywhere: publishing a workflow
+  // and the packs it calls is one act, and asking four times for the same
+  // password teaches people to pick a shorter one.
+  const [password, setPassword] = useState<string | null>(null)
+  // The packs waiting on that password. A list rather than one name because
+  // "publish its dependencies first" is a queue, and it must not stop to ask
+  // between each.
+  const [awaiting, setAwaiting] = useState<string[] | null>(null)
 
   const packs = useQuery({
     queryKey: ["store", "installed"],
@@ -54,10 +63,17 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
   const workflows = useQuery({ queryKey: workflowsKey, queryFn: () => api.listWorkflows() })
 
   const publishPack = useMutation({
-    mutationFn: (name: string) => window.zyvro.store.publishPack(name),
-    onSuccess: (_result, name) => {
+    mutationFn: ({ name, password }: { name: string; password: string }) =>
+      window.zyvro.store.publishPack(name, password),
+    onSuccess: (_result, { name }) => {
       setDone((current) => [...current, `pack:${name}`])
       void client.invalidateQueries({ queryKey: ["store", "nodes"] })
+    },
+    onError: (error) => {
+      // A password that does not open the key is the one error worth undoing
+      // the remembering for: keeping it would fail every later publish the same
+      // way with no way back to the prompt.
+      if ((error as Error).message.includes("does not open this signing key")) setPassword(null)
     },
   })
 
@@ -87,10 +103,16 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
     )
   }
 
-  const publishMissingFirst = async () => {
-    if (!missing) return
-    for (const name of missing.packs) await publishPack.mutateAsync(name)
+  // publishPacks is the only path that sends a pack, so the password is
+  // required by construction rather than by remembering to pass it.
+  const publishPacks = async (names: string[], secret: string) => {
+    for (const name of names) await publishPack.mutateAsync({ name, password: secret })
     setMissing(null)
+  }
+
+  const startPublishing = (names: string[]) => {
+    if (password) void publishPacks(names, password)
+    else setAwaiting(names)
   }
 
   return (
@@ -117,9 +139,9 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
                 </p>
               </div>
               <PublishButton
-                busy={publishPack.isPending && publishPack.variables === pack.name}
+                busy={publishPack.isPending && publishPack.variables?.name === pack.name}
                 done={done.includes(`pack:${pack.name}`)}
-                onClick={() => publishPack.mutate(pack.name)}
+                onClick={() => startPublishing([pack.name])}
               />
             </div>
           ))}
@@ -163,7 +185,7 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
               <button
                 className="mt-2 rounded-lg bg-primary px-2.5 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 disabled={publishPack.isPending}
-                onClick={() => void publishMissingFirst()}
+                onClick={() => startPublishing(missing.packs)}
               >
                 Publish {missing.packs.join(", ")} first
               </button>
@@ -181,6 +203,18 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
           </p>
         )}
       </section>
+
+      {awaiting && (
+        <SigningPasswordDialog
+          count={awaiting.length}
+          onCancel={() => setAwaiting(null)}
+          onSubmit={(secret) => {
+            setPassword(secret)
+            setAwaiting(null)
+            void publishPacks(awaiting, secret)
+          }}
+        />
+      )}
     </div>
   )
 }

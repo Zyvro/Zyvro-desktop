@@ -72,6 +72,16 @@ if (packs.packs?.[0]) {
   // wrapper as a pack was one of the three bugs.
   const pinned = await get(`/api/store/nodes/${encodeURIComponent(packs.packs[0].name)}/${encodeURIComponent(packs.packs[0].version)}`)
   check("a pinned version answers wrapped in `pack`", Boolean(pinned.pack))
+  check("a pack carries the `digest` its content is checked against", typeof pinned.pack?.digest === "string")
+  // Both fields are omitted on a pack published before signing existed, and
+  // that is an honest "unsigned". What must never happen is one without the
+  // other: a signature with no key to check it against is refused as tampered,
+  // and a key with no signature quietly verifies nothing.
+  const signed = Boolean(pinned.pack?.signature)
+  check(
+    signed ? "a signed pack carries the key that signed it" : "an unsigned pack carries neither half",
+    signed ? typeof pinned.pack.publisher_key === "string" : !pinned.pack?.publisher_key
+  )
 } else {
   console.log("  (no published pack to check the node routes against)")
 }

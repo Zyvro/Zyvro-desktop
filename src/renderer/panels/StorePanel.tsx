@@ -8,11 +8,13 @@ import {
   LogIn,
   Search,
   ShieldAlert,
+  ShieldCheck,
+  ShieldQuestion,
   Upload,
   Workflow as WorkflowIcon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { StoreListing, StorePreview, StoreWorkflow } from "../../preload"
+import type { InstallResult, PublisherVerdict, StoreListing, StorePreview, StoreWorkflow } from "../../preload"
 import { useWorkspace } from "~/state/workspace"
 import { useAccount } from "~/lib/account"
 import { SignInDialog } from "~/panels/SignInDialog"
@@ -93,6 +95,42 @@ function Capabilities({ capabilities }: { capabilities: string[] }) {
   )
 }
 
+// What this machine made of who signed a pack, said plainly after the install.
+//
+// Reported rather than hidden, and worded as three different pieces of news,
+// because they are three different pieces of news: nobody signed this; somebody
+// signed it and you have never met them; somebody signed it with the same key
+// as last time. The fourth case — a key that changed — never reaches here: it
+// refuses the install outright and arrives as an error, which is the whole
+// point of writing keys down.
+function PublisherNote({ publisher, verdict }: { publisher: string; verdict: PublisherVerdict }) {
+  if (verdict.kind === "unsigned") {
+    return (
+      <p className="flex items-start gap-1.5 text-[11px] text-amber-300/90">
+        <ShieldQuestion className="mt-px h-3.5 w-3.5 shrink-0" />
+        Not signed. Nothing here ties it to {publisher || "its author"}, and a later version could
+        come from anyone.
+      </p>
+    )
+  }
+  if (verdict.kind === "first-sight") {
+    return (
+      <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+        <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0 text-sky-300" />
+        First time you have installed from {publisher}. Their key{" "}
+        <span className="font-mono">{verdict.fingerprint}</span> is remembered, and you will be told
+        if it ever changes.
+      </p>
+    )
+  }
+  return (
+    <p className="flex items-start gap-1.5 text-[11px] text-muted-foreground">
+      <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0 text-emerald-300" />
+      Signed by {publisher} with the same key as last time.
+    </p>
+  )
+}
+
 export function StorePanel() {
   const project = useWorkspace((s) => s.project)
   // Workflows first: it is what somebody opening a store is looking for. A
@@ -101,6 +139,9 @@ export function StorePanel() {
   const [search, setSearch] = useState("")
   const [reading, setReading] = useState<string | null>(null)
   const [signingIn, setSigningIn] = useState(false)
+  // Keyed by the item that was installed, so the note sits on the card the
+  // person just pressed rather than floating at the top of the list.
+  const [publishers, setPublishers] = useState<Record<string, InstallResult["publishers"]>>({})
   const account = useAccount()
   const client = useQueryClient()
 
@@ -121,7 +162,8 @@ export function StorePanel() {
       what.kind === "nodes"
         ? window.zyvro.store.installPack(what.name)
         : window.zyvro.store.installWorkflow(what.name),
-    onSuccess: () => {
+    onSuccess: (result, what) => {
+      setPublishers((current) => ({ ...current, [what.name]: result.publishers }))
       // A freshly installed pack changes what the palette can offer and what
       // the project holds, so both have to be re-read.
       void client.invalidateQueries({ queryKey: ["local"] })
@@ -280,6 +322,18 @@ export function StorePanel() {
                     </button>
                   </div>
                 </div>
+
+                {(publishers[item.name]?.length ?? 0) > 0 && (
+                  <div className="space-y-1 border-t border-white/[0.06] px-4 py-2.5">
+                    {publishers[item.name]?.map((entry) => (
+                      <PublisherNote
+                        key={entry.pack}
+                        publisher={entry.publisher}
+                        verdict={entry.verdict}
+                      />
+                    ))}
+                  </div>
+                )}
 
                 {reading === item.name && !isWorkflow && (
                   <div className="mt-3 border-t border-white/[0.06] pt-3">
