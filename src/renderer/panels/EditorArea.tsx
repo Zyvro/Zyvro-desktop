@@ -87,7 +87,12 @@ export function EditorArea() {
           scrollbar eats a few pixels inside a fixed height — so the row of tabs
           became a few pixels too tall for its own box and scrolled vertically,
           carrying the tabs out of view. */}
-      <div className="zy-tabs flex h-9 shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b border-white/[0.06] bg-white/[0.015]">
+      {/* No tab row when there is nothing in it: an empty strip above an empty
+          area is a piece of furniture standing where the work goes. */}
+      <div
+        className="zy-tabs flex h-9 shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b border-white/[0.06] bg-white/[0.015]"
+        hidden={tabs.length === 0}
+      >
         {tabs.map((tab) => (
           <TabButton key={tab.id} tab={tab} active={tab.id === activeTabId} />
         ))}

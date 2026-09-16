@@ -19,6 +19,29 @@ export type Tab =
 
 export type PanelKey = "explorer" | "terminal" | "agent" | "git"
 
+// Two ways of working, and they are genuinely two — not a set of panels that
+// happen to be toggled differently.
+//
+// In Dev you are writing the code: tabs, a shell underneath, the agent beside
+// you as a second opinion. In AI you are asking for it: the agent is the work
+// surface and takes the whole middle, there is no shell, and nothing is open
+// because nothing has been opened yet. Opening a file is what says "now I want
+// to read this myself", and that is the moment the agent steps aside to the
+// right rather than the moment you go looking for a layout button.
+export type Mode = "ai" | "dev"
+
+const MODE_KEY = "zyvro.mode"
+
+function savedMode(): Mode {
+  try {
+    return localStorage.getItem(MODE_KEY) === "ai" ? "ai" : "dev"
+  } catch {
+    // A window with no storage is a window that starts in Dev, which is the
+    // layout that hides nothing.
+    return "dev"
+  }
+}
+
 // The sidebar holds one view at a time, the way every editor built on this
 // layout does: clicking Source Control puts the file tree away rather than
 // stacking underneath it. Two scrolling trees sharing one narrow column means
@@ -48,6 +71,7 @@ type WorkspaceState = {
   drafts: Record<string, string>
 
   panels: Record<PanelKey, boolean>
+  mode: Mode
 
   setProject: (project: OpenResult | null) => void
   setOpening: (opening: boolean) => void
@@ -68,6 +92,7 @@ type WorkspaceState = {
 
   togglePanel: (key: PanelKey) => void
   setPanel: (key: PanelKey, open: boolean) => void
+  setMode: (mode: Mode) => void
 }
 
 const WELCOME: Tab = { kind: "welcome", id: "welcome", title: "Welcome" }
@@ -112,7 +137,7 @@ function replacedByOpening(s: WorkspaceState, tab: Tab, openingID: string): bool
 }
 
 function nextActive(tabs: Tab[], closedIndex: number): string {
-  if (tabs.length === 0) return WELCOME.id
+  if (tabs.length === 0) return ""
   const index = Math.min(closedIndex, tabs.length - 1)
   return tabs[index].id
 }
@@ -127,11 +152,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   drafts: {},
 
   panels: { explorer: true, terminal: true, agent: true, git: false },
+  mode: savedMode(),
 
+  // Opening a project clears the editor area rather than leaving Welcome in it.
+  // Welcome exists to answer "there is no project"; once there is one it is a
+  // page about nothing, sitting where the first file should go, and it has to
+  // be closed by hand before the window looks like an editor.
   setProject: (project) =>
     set(
       project
-        ? { project, openError: "", opening: false }
+        ? { project, openError: "", opening: false, tabs: [], activeTabId: "", drafts: {} }
         : { project: null, tabs: [WELCOME], activeTabId: WELCOME.id, drafts: {} }
     ),
   setOpening: (opening) => set({ opening }),
@@ -218,7 +248,13 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const tabs = s.tabs.filter((t) => t.id !== id)
       const drafts = { ...s.drafts }
       delete drafts[id]
-      if (tabs.length === 0) return { tabs: [WELCOME], activeTabId: WELCOME.id, drafts }
+      // Closing the last tab leaves the area empty when there is a project to
+      // be empty about; without one, Welcome is the only thing to show.
+      if (tabs.length === 0) {
+        return s.project
+          ? { tabs: [], activeTabId: "", drafts }
+          : { tabs: [WELCOME], activeTabId: WELCOME.id, drafts }
+      }
       return { tabs, drafts, activeTabId: s.activeTabId === id ? nextActive(tabs, index) : s.activeTabId }
     }),
 
@@ -240,6 +276,15 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   // compete for the same column.
   togglePanel: (key) => set((s) => withSidebar(s.panels, key, !s.panels[key])),
   setPanel: (key, open) => set((s) => withSidebar(s.panels, key, open)),
+
+  setMode: (mode) => {
+    try {
+      localStorage.setItem(MODE_KEY, mode)
+    } catch {
+      // Not being able to remember the choice is not a reason to refuse it.
+    }
+    set({ mode })
+  },
 }))
 
 // openRoute is the landing point for the Next.js router shim. The shared

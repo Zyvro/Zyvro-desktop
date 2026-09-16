@@ -353,7 +353,7 @@ export function AgentPanel(): JSX.Element {
   const disabled = project === null
 
   return (
-    <div className="flex h-full min-h-0 flex-col border-l border-white/[0.06] bg-background">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2">
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Agent</span>
 

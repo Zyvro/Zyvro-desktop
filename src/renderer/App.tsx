@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { Boxes, FolderTree, GitBranch, Settings2, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { sidebarView, useWorkspace } from "~/state/workspace"
+import { sidebarView, useWorkspace, type Mode, type PanelKey } from "~/state/workspace"
 import { useCurrentProject, useNodeCatalogue } from "~/lib/project"
 import { TitleBar } from "~/panels/TitleBar"
 import { Explorer } from "~/panels/Explorer"
@@ -84,6 +84,27 @@ function ActivityBar() {
   )
 }
 
+// The layout each mode asks for, worked out in one place rather than by three
+// components each checking the mode for themselves.
+//
+// The rule that matters is the last one: in AI mode the agent is the work
+// surface until something is open, and opening a file is what makes the person
+// a reader rather than an asker. So the agent moves aside then — not because a
+// layout button was pressed, but because the work changed.
+function layoutFor(mode: Mode, panels: Record<PanelKey, boolean>, hasTabs: boolean) {
+  if (mode === "dev") {
+    return { editor: true, terminal: panels.terminal, agentBeside: panels.agent, agentCentre: false }
+  }
+  return {
+    editor: hasTabs,
+    // No shell in AI mode. It is the difference between the two, not a panel
+    // that happens to be closed.
+    terminal: false,
+    agentBeside: hasTabs,
+    agentCentre: !hasTabs,
+  }
+}
+
 export default function App() {
   // The query runs for its adoption side effect as much as its data: it is what
   // reattaches the shared API client to the daemon after a renderer reload.
@@ -93,7 +114,10 @@ export default function App() {
   useNodeCatalogue()
 
   const panels = useWorkspace((s) => s.panels)
+  const mode = useWorkspace((s) => s.mode)
+  const hasTabs = useWorkspace((s) => s.tabs.length > 0)
   const view = sidebarView(panels)
+  const layout = layoutFor(mode, panels, hasTabs)
   const [sidebar, setSidebar] = useState(260)
   const [agent, setAgent] = useState(360)
   const [terminal, setTerminal] = useState(220)
@@ -128,8 +152,8 @@ export default function App() {
         )}
 
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <EditorArea />
-          {panels.terminal && (
+          {layout.agentCentre ? <AgentPanel /> : <EditorArea />}
+          {layout.terminal && (
             <>
               <Splitter
                 orientation="horizontal"
@@ -142,7 +166,7 @@ export default function App() {
           )}
         </main>
 
-        {panels.agent && (
+        {layout.agentBeside && (
           <>
             <Splitter
               orientation="vertical"
@@ -152,6 +176,10 @@ export default function App() {
               className="flex min-h-0 shrink-0 flex-col border-l border-white/[0.06] bg-background"
               style={{ width: agent }}
             >
+              {/* La bordure est ici et non dans AgentPanel : au centre, en mode
+                  IA, le panneau n'a pas de voisin à gauche à séparer — l'aside
+                  du dossier trace déjà ce trait, et deux traits font un double
+                  filet. */}
               <AgentPanel />
             </aside>
           </>
