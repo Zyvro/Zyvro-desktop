@@ -25,7 +25,15 @@ mkdirSync(dir, { recursive: true })
 // Le module principal ne sert ici qu'à dire où l'on parle ; electron et le
 // réseau sont remplacés pour que le test regarde la requête au lieu de
 // l'envoyer.
-writeFileSync(path.join(dir, "electron.js"), `module.exports = { app: { getPath: () => "${dir}" } }\n`)
+// JSON.stringify et pas des guillemets : sous Windows ce chemin contient des
+// antislashs, et collé tel quel dans une chaîne JS il devient une suite
+// d'échappements. Le dossier rendu par getPath n'était alors pas celui où le
+// test dépose la session, et le partage répondait « Sign in to publish » — sur
+// Windows seulement, donc invisible depuis un Mac.
+writeFileSync(
+  path.join(dir, "electron.js"),
+  `module.exports = { app: { getPath: () => ${JSON.stringify(dir)} } }\n`
+)
 writeFileSync(
   path.join(dir, "h.ts"),
   `export { webOrigin, storeOrigin } from "${path.join(ROOT, "src/main/account").replace(/\\/g, "/")}"\n` +
