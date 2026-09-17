@@ -49,6 +49,99 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.6
+
+**A browser, inside the IDE, that the agent drives.** A page with its own
+session, in a panel beside the code — so an agent checking its work never
+touches the browser where you are signed in to everything. It opens a URL,
+reads what is on the page, clicks, types, waits for text to appear, scrolls,
+runs an expression, reads the console and the failed requests, and takes a
+screenshot. Several pages at once, each named, each with its favicon in the
+sidebar.
+
+Right-click and **Inspect**, and Chromium's own developer tools open *under the
+page*, on the element you pointed at: Elements with the live DOM, Console,
+Network, Application with its cookies and its storage. Not an imitation and not
+a second window to lose behind the others — the app is Chromium, so these are
+its own tools.
+
+**The agent can write, and you say how much.** Four levels, next to the
+message box: read-only, ask before each change, the whole workspace, or
+everything. *Ask* shows a card naming the tool and what it would do, with
+Allow and Deny — the agent waits for you instead of stalling. The choice is
+remembered per project, so a folder you set to one level opens at that level
+next time, and the default is the whole workspace: an agent that cannot write
+in the project you opened for it is an agent you have to argue with.
+
+**Any agent you start in the terminal gets this project's tools.** Type
+`claude` or `codex` in the shell and it comes up already knowing this project's
+workflows, because the shell hands it the MCP servers on the way in. The port
+and the token change at every start; nobody should have to go looking for them.
+
+**Search and replace, across the project or inside one file.** ⇧⌘F searches
+every file in the folder — plain text, whole word, or a regular expression with
+`$1` in the replacement — narrowed by the usual globs. Replace one occurrence,
+all of them in one file, or all of them everywhere; the button says how many and
+in how many files before you touch it. ⌘F stays in the file you are reading. What
+gets replaced is what you were shown: each passage is checked against the file
+again, and one that moved since the search is skipped rather than overwritten.
+Arrow-up in the search box brings back what you searched before.
+
+**Photograph a panel, and hand it to someone.** Click the camera, then the panel
+you mean: the app knows where its own panels are, so the image stops at their
+edges instead of a rectangle you dragged by hand, and the selection frame is not
+in the picture. Then it asks what to do with it — keep it here, or upload it to
+your Zyvro account and copy a public link.
+
+**Suggestions in the editor, off until you turn them on.** Grey text at the
+cursor, from a model of your choosing, and completing code is treated as its own
+job rather than a flavour of text generation: it has its own list of providers,
+because a chat model answers a sentence where the editor wants three characters.
+A model on your own machine is usually the right one.
+
+**Video nodes.** Text to video, on Veo through the Gemini API or on FLUX 3 Video
+at Black Forest Labs, with an image on the input to open the shot. Resolution and
+duration are settings on the node rather than a hidden default, because video is
+the one thing here billed by the second and the price per second climbs with the
+resolution. What one backend cannot do it refuses by name — Veo has no QHD step —
+rather than quietly rendering something smaller than you asked for at the price
+you asked for.
+
+**Runtime inputs are named where you can see them.** The editor says which nodes
+a run can fill by name, so a workflow you drive from the API or from an MCP tool
+tells you what it expects instead of failing on a key nobody wrote down.
+
+## Fixed in alpha.6
+
+**The developer tools opened empty.** Elements, Console, Network — the right
+panel, all eight tabs, and nothing in any of them. Electron does not bridge its
+inspector to a `<webview>`, so the tools were connected to nothing at all. They
+are drawn in a native view now, which is the documented path and the one that
+works.
+
+**A screenshot photographed its own overlay.** The selection frame and "Click a
+panel · Esc to cancel" were in the image: the overlay was dismissed and the
+capture taken in the same tick, before the screen had been redrawn.
+
+**And then it left a hole where the devtools were.** `capturePage` renders a
+window's HTML, and a native view is drawn on top of it rather than inside — so
+photographing the browser panel with the tools open produced a picture that
+looked normal and was empty exactly where you wanted to look. The capture now
+composes the native views back in.
+
+**Errors arrived with their plumbing.** "Error invoking remote method
+'shots:share': Error: Sign in to publish to the store." The sentence was written
+to be read; the wrapper in front of it named a channel nobody needs to know, and
+made a clear instruction look like a crash.
+
+**A cached run could replay the wrong result.** A workflow driven by node id
+rather than by input name folded the old value into its fingerprint, so a second
+run with a different input was answered from the cache.
+
+**Smaller things.** The shell greeted you in French in an English app. The agent's
+message box overflowed its panel and left no room to type. Store thumbnails were
+drawn by a copy of the web app's component instead of the component.
+
 ## New in alpha.5
 
 **Models that never leave your machine.** Ollama on this computer, LM Studio,
@@ -169,6 +262,8 @@ credential of your own.
 
 - Image nodes need a Google AI Studio or Black Forest Labs key once the free
   daily allowance is spent
+- Video nodes need one of those two keys from the start: there is no free
+  allowance for video, and both backends bill by the second
 - The app has no self-updater, and the engine now ships inside it rather than
   updating separately: a new engine means a new app
 - Nothing in the store is reviewed. Packs are signed now, but a signature says
