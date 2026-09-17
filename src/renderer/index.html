@@ -14,10 +14,20 @@
          It stays narrow where it matters: an image is not a script, and
          script-src is still 'self' alone. connect-src is not widened, so the
          renderer still cannot talk to the store — the main process does that
-         and hands the results across. -->
+         and hands the results across.
+
+         media-src says the same thing for video, and it has to be said: a
+         directive that is absent falls back to default-src, which is 'self'
+         alone. A generated clip is served by the same loopback daemon as a
+         generated image, on the same route — so the player appeared, stayed
+         empty, and reported "source not supported", while the identical URL in
+         an <img> loaded. Downloading it worked too, because that goes through
+         fetch, which connect-src allows. Three things agreeing that the file
+         was fine, and the one directive that refused it saying nothing anyone
+         would see. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:*; worker-src 'self' blob:;"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; media-src 'self' data: blob: https: http://127.0.0.1:* http://localhost:*; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://localhost:*; worker-src 'self' blob:;"
     />
   </head>
   <body class="dark">
