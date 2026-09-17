@@ -738,10 +738,15 @@ export function AgentPanel(): JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2">
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Agent</span>
+      {/* Rien ne doit sortir de cette barre. Le panneau se redimensionne, et le
+          nom du modèle est choisi par la CLI — « claude-opus-5[1m] (default) »
+          est plus long que « claude-haiku-4-5 ». Sans de quoi rétrécir, c'est
+          le bouton de droite qui passait dehors : le seul qui ouvre une
+          nouvelle conversation, et il disparaissait sans bruit. */}
+      <div className="flex h-9 shrink-0 items-center gap-2 overflow-hidden border-b border-white/[0.06] px-2">
+        <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">Agent</span>
 
-        <div className="ml-auto">
+        <div className="ml-auto min-w-0 max-w-[11rem]">
           <ModelPicker
             kind={kind}
             model={thread.model}
@@ -750,7 +755,7 @@ export function AgentPanel(): JSX.Element {
           />
         </div>
 
-        <div className="flex items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
+        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
           {(["claude", "codex"] as const).map((option) => (
             <button
               key={option}
@@ -772,7 +777,7 @@ export function AgentPanel(): JSX.Element {
           type="button"
           onClick={openThread}
           title="New conversation"
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
         </button>

@@ -63,7 +63,11 @@ export function ModelPicker({
               ? `${kind} chose ${ranWith}; nothing is pinned`
               : `Whatever ${kind} picks`
         }
-        className="flex max-w-[11rem] items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:bg-white/[0.06] hover:text-foreground data-[state=open]:bg-white/[0.06]"
+        // Le bouton ne se borne plus lui-même : il prend ce que son conteneur
+        // lui laisse. Le plafond (11rem) et la possibilité de rétrécir vivent
+        // côte à côte dans la barre qui l'accueille, sinon les deux règles se
+        // contredisent et c'est le voisin de droite qui sort de l'écran.
+        className="flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:bg-white/[0.06] hover:text-foreground data-[state=open]:bg-white/[0.06]"
       >
         <span className="truncate">{label}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
