@@ -8,6 +8,8 @@
 // real origin and attaches the token. The shared code stays untouched, which is
 // the point: one graph editor, two shells.
 
+import { setMediaOriginResolver } from "@/lib/api"
+
 const PLACEHOLDER = "http://127.0.0.1:0"
 
 let origin = ""
@@ -42,6 +44,12 @@ export class DaemonNotReady extends Error {
 }
 
 export function installDaemonFetch(): void {
+  // The same swap for images. An <img> is loaded by the browser, not by fetch,
+  // so the interceptor below never sees it — which is why the daemon serves
+  // /content without a token, and why the shared mediaUrl has to be told where
+  // the engine is instead of being duplicated here.
+  setMediaOriginResolver(resolveMediaUrl)
+
   const original = window.fetch.bind(window)
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -66,13 +74,10 @@ export function installDaemonFetch(): void {
   }
 }
 
-// mediaSrc resolves a daemon-relative media path for an <img>. The fetch
-// interceptor cannot help here: the browser loads an image itself, and cannot
-// send an Authorization header while doing so, which is why the daemon serves
-// /content without one.
-export function mediaSrc(path: string): string {
-  if (!path) return ""
-  if (/^(https?:|data:|blob:)/.test(path)) return path
-  if (path.startsWith(PLACEHOLDER)) return origin + path.slice(PLACEHOLDER.length)
-  return `${origin}${path.startsWith("/") ? "" : "/"}${path}`
+// resolveMediaUrl maps a placeholder media URL onto the live daemon. The origin
+// is read at call time rather than captured, because a project can be opened,
+// closed and reopened on a different port within one run of the app.
+function resolveMediaUrl(url: string): string {
+  if (!url.startsWith(PLACEHOLDER) || !origin) return url
+  return origin + url.slice(PLACEHOLDER.length)
 }
