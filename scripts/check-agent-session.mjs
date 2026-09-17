@@ -28,14 +28,23 @@ import { createRequire } from "node:module"
 const ROOT = path.resolve(import.meta.dirname, "..")
 const dir = path.join(ROOT, "node_modules", ".zyvro-agent-check")
 mkdirSync(dir, { recursive: true })
-writeFileSync(path.join(dir, "h.ts"), `export { argsFor, sessionIn, modelIn, aliasesFrom, promptWith } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n`)
+writeFileSync(
+  path.join(dir, "h.ts"),
+  `export { argsFor, sessionIn, modelIn, aliasesFrom, promptWith } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
+    // Le serveur de l'application sert l'outil par lequel la CLI demande une
+    // permission : sans lui qui écoute, il n'y a personne à qui poser la
+    // question, et les drapeaux le disent.
+    `export { startShotsServer } from "${path.join(ROOT, "src/main/shots").replace(/\\/g, "/")}"\n`
+)
 await build({
   entryPoints: [path.join(dir, "h.ts")],
   outfile: path.join(dir, "h.cjs"),
   bundle: true, format: "cjs", platform: "node", external: ["electron"],
   absWorkingDir: ROOT, logLevel: "silent",
 })
-const { argsFor, sessionIn, modelIn, aliasesFrom, promptWith } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
+const { argsFor, sessionIn, modelIn, aliasesFrom, promptWith, startShotsServer } = createRequire(import.meta.url)(
+  path.join(dir, "h.cjs")
+)
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -44,6 +53,8 @@ const check = (name, ok, detail = "") => {
 }
 
 const ctx = { projectDir: "/tmp/projet", workflows: [] }
+// Le serveur de l'application écoute : c'est lui qui porterait la question.
+const appServer = await startShotsServer(() => [], undefined, async () => ({ allow: true }))
 const ID = "cf0e09bb-dd85-4350-95d4-2f5ba499ec44"
 
 // ---- claude ------------------------------------------------------------
@@ -76,6 +87,59 @@ check(
 )
 // Le piège : un identifiant mis avant --json serait lu comme le prompt.
 check("aucune option ne suit l'identifiant", codexResumed.slice(codexResumed.indexOf(ID)).length === 1)
+
+// ---- ce que l'agent a le droit de faire ---------------------------------
+//
+// Un tour en mode impression ne peut poser aucune question tout seul. Sans ces
+// drapeaux, la CLI demande la permission d'écrire, personne ne peut répondre,
+// et l'agent rend « you haven't granted it yet » pour un fichier du dossier
+// qu'on vient de lui ouvrir. Vu sur une vraie session, signalé par Jeremy.
+//
+// Aucun de ces drapeaux n'échoue bruyamment quand il manque : leur absence rend
+// l'agent impuissant, ou, dans l'autre sens, sans limite.
+{
+  const claudeArgs = (permission) => argsFor("claude", { ...ctx, permission }, null).join(" ")
+  const codexArgs = (permission) => argsFor("codex", { ...ctx, permission }, null).join(" ")
+
+  // Le défaut : tout le projet, sans rien demander. C'est ce qu'on attend d'un
+  // agent qui travaille dans le dossier qu'on vient de lui ouvrir — le shell
+  // intégré, à côté, n'a jamais rien demandé non plus.
+  check("**par défaut, claude ne demande rien**", claudeArgs(undefined).includes("--permission-mode bypassPermissions"), claudeArgs(undefined))
+  check("**et codex écrit dans le dossier du projet**", codexArgs(undefined).includes("--sandbox workspace-write"), codexArgs(undefined))
+  check("sans bac à sable désactivé pour autant", !codexArgs(undefined).includes("--dangerously-bypass"))
+
+  // « Ask » : la question remonte dans le panneau par l'outil MCP de
+  // l'application. Sans `--permission-prompts host`, elle mourrait dans un tour
+  // qui ne peut répondre à personne.
+  const asking = claudeArgs("ask")
+  // `manual` est le mode qui demande : c'est lui qui décide, pas le routage.
+  // Vérifié contre le binaire — sans lui, une écriture passe sans rien
+  // demander, et « Ask » ne demandait rien du tout.
+  check("**en mode Ask, la CLI demande vraiment**", asking.includes("--permission-mode manual"), asking)
+  check("**et la question part vers le panneau**", asking.includes("--permission-prompts host"), asking)
+  check(
+    "et elle nomme l'outil qui la porte",
+    asking.includes("--permission-prompt-tool mcp__zyvro-app__zyvro_permission"),
+    asking
+  )
+
+  // « Read only » : rien ne s'écrit, et ce qui demanderait est refusé tout de
+  // suite plutôt que laissé en attente.
+  const reading = claudeArgs("read")
+  check("**en lecture seule, les outils d'écriture sont interdits**", reading.includes("--disallowedTools Write,Edit,MultiEdit,NotebookEdit,Bash"), reading)
+  check("et personne n'est censé répondre", reading.includes("--permission-prompts none"))
+  check("dans le mode qui demande, donc tout le reste est refusé", reading.includes("--permission-mode manual"))
+  check("codex y est en lecture seule aussi", codexArgs("read").includes("--sandbox read-only"))
+
+  // YOLO : aucune limite, et c'est le seul niveau où le bac à sable de codex
+  // tombe.
+  check("**YOLO ne demande rien à personne**", claudeArgs("yolo").includes("--dangerously-skip-permissions"))
+  check("et codex y perd son bac à sable", codexArgs("yolo").includes("--dangerously-bypass-approvals-and-sandbox"))
+  check(
+    "ce qui n'arrive à aucun autre niveau",
+    !["read", "ask", "project"].some((p) => codexArgs(p).includes("--dangerously-bypass")),
+  )
+}
 
 // ---- de quel champ vient l'identifiant ---------------------------------
 check("claude l'appelle session_id", sessionIn({ type: "system", session_id: ID }) === ID)

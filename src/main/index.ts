@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Menu, nativeImage, session, shell } from "electron"
 import path from "node:path"
-import { browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
+import { askHost, browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { startShotsServer } from "./shots"
 import { BROWSER_PARTITION, noteRequest } from "./browser"
 import { loadRecents } from "./recents"
@@ -332,7 +332,7 @@ if (!app.requestSingleInstanceLock()) {
     // configuration MCP d'un tour d'agent est écrite au moment du tour, et elle
     // ne peut nommer que ce qui écoute déjà. Il rend toutes les fenêtres
     // ouvertes, pas seulement la principale — l'app en a une par projet.
-    void startShotsServer(() => BrowserWindow.getAllWindows(), browserHost).catch((err) => {
+    void startShotsServer(() => BrowserWindow.getAllWindows(), browserHost, askHost).catch((err) => {
       console.error("[shots] le serveur de capture n'a pas démarré:", err)
     })
 

@@ -5,8 +5,10 @@ import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, WorkflowRef } from "../../preload"
+import { DEFAULT_PERMISSION, type Permission } from "../../shared/permission"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
+import { PermissionPicker } from "~/panels/PermissionPicker"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import type { StoredTool } from "../../preload"
 
@@ -57,6 +59,8 @@ type Thread = {
   ranWith: string | null
   /** Which CLI this thread is talking to. */
   kind: AgentKind
+  /** Ce que cet agent a le droit de faire : regarder, travailler, tout. */
+  permission: Permission
   /** What has already been written down, so a save can be skipped. */
   saved: string
   /**
@@ -69,8 +73,14 @@ type Thread = {
   images: { id: string; name: string }[]
 }
 
+// Une demande de permission en attente : ce que la CLI veut faire, et les deux
+// boutons qui décident. Elle vit au niveau du panneau et non d'une conversation
+// parce que c'est la CLI qui la pose, au milieu d'un tour, sans dire lequel.
+type Ask = { id: string; tool: string; input: Record<string, unknown> }
+
 type ChatState = {
   threads: Thread[]
+  asks: Ask[]
   activeId: string
 }
 
@@ -95,13 +105,14 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     model,
     ranWith: null,
     kind,
+    permission: DEFAULT_PERMISSION,
     saved: "",
     images: [],
   }
 }
 
 const first = blankThread()
-let state: ChatState = { threads: [first], activeId: first.id }
+let state: ChatState = { threads: [first], activeId: first.id, asks: [] }
 const subscribers = new Set<() => void>()
 // A turn belongs to a thread, not to the panel: events arrive by turn id and
 // have to find their way back to the tab that started them, even when that tab
@@ -162,6 +173,12 @@ function ensureAttached(): void {
   if (attached) return
   if (typeof window === "undefined" || !window.zyvro) return
   attached = true
+
+  // Une demande de permission : la CLI veut faire quelque chose et attend une
+  // réponse. Elle s'ajoute à la file du panneau, et la conversation l'affiche.
+  window.zyvro.agent.onPermission((ask) => {
+    commit({ ...state, asks: [...state.asks, ask] })
+  })
 
   window.zyvro.agent.onText(({ id, text }) => {
     const bound = turnToMessage.get(id)
@@ -443,12 +460,67 @@ export async function restore(): Promise<void> {
     model: c.model ?? null,
     ranWith: c.ranWith ?? null,
     kind: c.kind,
+    // Ce que l'agent a le droit de faire n'est pas écrit dans la conversation :
+    // c'est un choix du moment, pas un souvenir. Une conversation rouverte
+    // demain repart du défaut plutôt que d'hériter d'un « YOLO » d'hier.
+    permission: DEFAULT_PERMISSION,
     images: [],
     saved: JSON.stringify(
       c.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
     ),
   }))
-  commit({ threads, activeId: threads[0].id })
+  commit({ threads, activeId: threads[0].id, asks: state.asks })
+}
+
+// AskCard : ce que l'agent veut faire, et les deux boutons.
+//
+// Elle montre l'outil et son argument principal — la commande, le chemin —
+// parce que « claude veut utiliser Bash » ne dit rien qu'on puisse approuver.
+// Ce qu'on approuve, c'est `rm -rf build`, ou `npm test`.
+function AskCard({ ask }: { ask: Ask }): JSX.Element {
+  return (
+    <div className="mb-1.5 rounded-lg border border-amber-400/30 bg-amber-400/[0.06] p-2.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[12px] font-medium text-amber-200">{ask.tool}</span>
+        <span className="text-[10px] uppercase tracking-wider text-amber-200/70">wants permission</span>
+      </div>
+      {summarise(ask.input) && (
+        <pre className="zy-scroll mt-1.5 max-h-24 overflow-auto whitespace-pre-wrap break-all rounded bg-black/30 p-1.5 font-mono text-[11px] leading-relaxed text-foreground/80">
+          {summarise(ask.input)}
+        </pre>
+      )}
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => answerAsk(ask.id, true)}
+          className="rounded-md bg-amber-400/90 px-2.5 py-1 text-[12px] font-medium text-black hover:bg-amber-300"
+        >
+          Allow
+        </button>
+        <button
+          type="button"
+          onClick={() => answerAsk(ask.id, false)}
+          className="rounded-md border border-white/[0.12] px-2.5 py-1 text-[12px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+        >
+          Deny
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// summarise : ce qu'il y a d'intéressant dans l'argument d'un outil.
+//
+// Une commande, un chemin, une requête — la valeur qu'on lirait en premier. Le
+// reste du JSON en dessous n'aide pas à décider, et le cacher rend la question
+// lisible d'un coup d'œil.
+function summarise(input: Record<string, unknown>): string {
+  for (const key of ["command", "file_path", "path", "url", "pattern", "query", "prompt"]) {
+    const value = input[key]
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 600)
+  }
+  const text = JSON.stringify(input)
+  return text === "{}" ? "" : text.slice(0, 600)
 }
 
 // restoreTool reads a stored call back, in either of the two shapes the file
@@ -490,6 +562,18 @@ function setKind(threadId: string, kind: AgentKind): void {
   mapThread(threadId, (thread) => ({ ...thread, kind }))
 }
 
+function setPermission(threadId: string, permission: Permission): void {
+  mapThread(threadId, (thread) => ({ ...thread, permission }))
+}
+
+// answerAsk : la réponse part, la demande quitte l'écran. Les deux ensemble,
+// sinon on peut cliquer deux fois sur « Allow » et la seconde réponse n'a plus
+// personne à qui parler.
+function answerAsk(id: string, allow: boolean): void {
+  commit({ ...state, asks: state.asks.filter((ask) => ask.id !== id) })
+  void window.zyvro.agent.answerPermission(id, allow)
+}
+
 // ---------------------------------------------------------------------------
 // Tabs
 // ---------------------------------------------------------------------------
@@ -504,7 +588,7 @@ function setKind(threadId: string, kind: AgentKind): void {
 function openThread(): void {
   const current = activeThread()
   const thread = blankThread(current?.model ?? null, current?.kind ?? "claude")
-  commit({ threads: [...state.threads, thread], activeId: thread.id })
+  commit({ threads: [...state.threads, thread], activeId: thread.id, asks: state.asks })
 }
 
 function selectThread(id: string): void {
@@ -527,13 +611,13 @@ function closeThread(id: string): void {
   const threads = state.threads.filter((t) => t.id !== id)
   if (threads.length === 0) {
     const fresh = blankThread(thread.model, thread.kind)
-    commit({ threads: [fresh], activeId: fresh.id })
+    commit({ threads: [fresh], activeId: fresh.id, asks: state.asks })
     return
   }
   // The neighbour on the left, which is what every editor does and what keeps
   // the eye near where it already was.
   const next = threads[Math.min(index, threads.length - 1)]
-  commit({ threads, activeId: state.activeId === id ? next.id : state.activeId })
+  commit({ threads, activeId: state.activeId === id ? next.id : state.activeId, asks: state.asks })
 }
 
 function markCancelled(turnId: string): void {
@@ -547,7 +631,7 @@ function resetChat(): void {
   orphans.clear()
   cancelled.clear()
   const fresh = blankThread(activeThread()?.model ?? null, activeThread()?.kind ?? "claude")
-  commit({ threads: [fresh], activeId: fresh.id })
+  commit({ threads: [fresh], activeId: fresh.id, asks: state.asks })
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +688,7 @@ export function AgentPanel(): JSX.Element {
 
   const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
   const kind = thread.kind
+  const asks = chat.asks
   const [draft, setDraft] = useState("")
 
   const composer = useRef<HTMLTextAreaElement | null>(null)
@@ -666,7 +751,15 @@ export function AgentPanel(): JSX.Element {
     }
 
     try {
-      const turnId = await window.zyvro.agent.send(kind, text, workflows, threadId, thread.model, images)
+      const turnId = await window.zyvro.agent.send(
+        kind,
+        text,
+        workflows,
+        threadId,
+        thread.model,
+        images,
+        thread.permission
+      )
       bindTurn(threadId, messageId, turnId)
     } catch (error: unknown) {
       failTurn(threadId, messageId, error instanceof Error ? error.message : String(error))
@@ -894,6 +987,12 @@ export function AgentPanel(): JSX.Element {
           </div>
         )}
 
+        {/* Ce que l'agent demande la permission de faire, juste au-dessus de la
+            barre de saisie : il attend, et c'est ici qu'on regarde. */}
+        {asks.map((ask) => (
+          <AskCard key={ask.id} ask={ask} />
+        ))}
+
         {attachError && (
           <p className="mb-1.5 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
             {attachError}
@@ -906,6 +1005,16 @@ export function AgentPanel(): JSX.Element {
             dropping && "border-primary/60 bg-primary/[0.08]"
           )}
         >
+          {/* Ce que l'agent a le droit de faire, à côté de la question qu'on
+              lui pose : c'est là qu'on hésite, et un réglage rangé dans une
+              page de préférences est un réglage qu'on découvre en lisant
+              « permission refusée » au milieu d'une réponse. */}
+          <PermissionPicker
+            value={thread.permission}
+            kind={kind}
+            disabled={disabled}
+            onChange={(permission) => setPermission(thread.id, permission)}
+          />
           <button
             type="button"
             title="Attach an image"

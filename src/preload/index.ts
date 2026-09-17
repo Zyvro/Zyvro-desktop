@@ -18,6 +18,13 @@ export type DaemonInfo = { ready: true; port: number; token: string; project: st
 export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
 export type FileRead = { path: string; text: string; truncated: boolean } | { path: string; binary: true }
 export type AgentKind = "claude" | "codex"
+
+// Ce que l'agent a le droit de faire : le type traverse le pont, sa valeur vit
+// dans le module partagé. Le rendu l'importe de là et pas d'ici — ce fichier
+// importe `electron`, et le prendre pour une constante ferait entrer electron
+// dans le paquet du rendu.
+import type { Permission } from "../shared/permission"
+export type { Permission }
 export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
 export type Account = { id: string; email: string; name: string }
@@ -159,9 +166,16 @@ const api = {
       workflows: WorkflowRef[],
       conversationId: string,
       model: string | null,
-      images: string[]
+      images: string[],
+      permission: Permission
     ): Promise<string> =>
-      ipcRenderer.invoke("agent:send", kind, prompt, { workflows }, conversationId, model, images),
+      ipcRenderer.invoke("agent:send", kind, prompt, { workflows, permission }, conversationId, model, images),
+    // Une demande de permission venue de la CLI, et la réponse de la personne.
+    onPermission: (
+      cb: (payload: { id: string; tool: string; input: Record<string, unknown> }) => void
+    ): Unsubscribe => on("agent:permission", cb),
+    answerPermission: (id: string, allow: boolean): Promise<boolean> =>
+      ipcRenderer.invoke("agent:permission-answer", id, allow),
     attach: (
       conversationId: string,
       name: string,

@@ -5,6 +5,8 @@ import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
+import { shotsEndpoint } from "./shots"
+import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
@@ -12,6 +14,11 @@ import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } f
 // Zyvro never sees a token; it sees stdout.
 
 export type AgentKind = "claude" | "codex"
+
+// Ce que l'agent a le droit de faire vit dans un module que les trois côtés
+// partagent : le principal le traduit en drapeaux, le pont le fait traverser,
+// le rendu l'affiche dans la barre du chat.
+export { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
 
 export type AgentContext = {
   projectDir: string
@@ -22,6 +29,8 @@ export type AgentContext = {
   // that describes.
   daemonOrigin?: string
   daemonToken?: string
+  /** Ce que l'agent a le droit de faire. Par défaut : écrire dans le projet. */
+  permission?: Permission
 }
 
 // preamble tells the CLI what this project's workflows are. Without it the
@@ -98,6 +107,17 @@ export function argsFor(
       "--output-format",
       "stream-json",
       "--verbose",
+      // Ce que l'agent a le droit de faire, dit à claude.
+      //
+      // Un tour en mode impression ne peut poser aucune question : sans ça, la
+      // CLI demande la permission d'écrire, personne ne peut répondre, et
+      // l'agent rend « you haven't granted it yet » pour un fichier du dossier
+      // qu'on vient de lui ouvrir.
+      // La question ne peut remonter que si le serveur MCP de l'application
+      // tourne : c'est lui qui sert l'outil de permission. Sans lui, mieux vaut
+      // refuser tout de suite que laisser l'agent attendre une réponse qui
+      // n'arrivera pas.
+      ...claudePermission(ctx.permission ?? DEFAULT_PERMISSION, Boolean(shotsEndpoint())),
       "--append-system-prompt",
       preamble(ctx),
       ...(pinned ? ["--model", pinned] : []),
@@ -120,12 +140,69 @@ export function argsFor(
     ...(resume ? ["resume"] : []),
     "--json",
     "--skip-git-repo-check",
+    // Le pendant côté codex, dans son vocabulaire à lui : un bac à sable.
+    ...codexPermission(ctx.permission ?? DEFAULT_PERMISSION),
     ...(pinned ? ["--model", pinned] : []),
     // -i takes one path per occurrence. Several paths after a single -i would
     // be swallowed as one argument by some shells and as the prompt by codex.
     ...images.flatMap((file) => ["-i", file]),
     ...(resume ? [resume] : []),
   ]
+}
+
+// claudePermission et codexPermission : le même choix, dit à chacun.
+//
+// Sortis en fonctions et exportés pour qu'un test les épingle : ce sont des
+// drapeaux dont l'absence ne fait rien échouer bruyamment, elle rend seulement
+// l'agent impuissant ou, dans l'autre sens, sans limite.
+export function claudePermission(permission: Permission, canAsk = true): string[] {
+  switch (permission) {
+    case "read":
+      // Nommer les outils d'écriture plutôt que de compter sur un mode : un
+      // refus clair, tout de suite. Et personne pour répondre au reste : ce qui
+      // demanderait est refusé, sans attendre.
+      return [
+        "--disallowedTools",
+        "Write,Edit,MultiEdit,NotebookEdit,Bash",
+        "--permission-mode",
+        "manual",
+        "--permission-prompts",
+        "none",
+      ]
+    case "yolo":
+      return ["--dangerously-skip-permissions"]
+    case "project":
+      // Rien ne demande. Les outils de fichiers de claude restent confinés à
+      // son dossier de travail — celui du projet — donc « tout » veut dire
+      // « tout ce qu'il peut atteindre », et c'est le projet.
+      return ["--permission-mode", "bypassPermissions"]
+    default:
+      // Tout demande, et la question arrive dans le panneau.
+      //
+      // `manual` est le mode qui demande : c'est lui qui décide, pas le
+      // routage. Vérifié contre le binaire — sans lui, une écriture passe sans
+      // rien demander, et « Ask » ne demandait rien du tout.
+      return ["--permission-mode", "manual", ...(canAsk ? askFlags() : ["--permission-prompts", "none"])]
+  }
+}
+
+function askFlags(): string[] {
+  return ["--permission-prompts", "host", "--permission-prompt-tool", PERMISSION_TOOL]
+}
+
+// codex ne sait pas demander en cours de tour : `codex exec` n'a pas de crochet
+// d'approbation qu'on puisse brancher sur l'interface. Son bac à sable est donc
+// la réponse — il décide d'avance de ce qui est possible, au lieu de demander.
+export function codexPermission(permission: Permission): string[] {
+  switch (permission) {
+    case "read":
+      return ["--sandbox", "read-only"]
+    case "yolo":
+      return ["--dangerously-bypass-approvals-and-sandbox"]
+    default:
+      // Le dossier du projet, et nulle part ailleurs.
+      return ["--sandbox", "workspace-write"]
+  }
 }
 
 // directoriesOf is the set of folders a batch of images sits in, without

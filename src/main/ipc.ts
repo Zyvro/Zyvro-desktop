@@ -1,8 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, webContents } from "electron"
 import path from "node:path"
+import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
+import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
 import { helpOf } from "./cli"
 import fs from "node:fs/promises"
@@ -10,7 +12,7 @@ import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
-import { captureRegion, saveShot, shareShot, type BrowserHost } from "./shots"
+import { captureRegion, saveShot, shareShot, type AskHost, type BrowserHost } from "./shots"
 import {
   guestForWindow,
   hideDevTools,
@@ -84,6 +86,41 @@ export const browserHost: BrowserHost = {
 
 function viewNamed(view: string): Guest | null {
   return openViews().find((g) => g.view === view) ?? null
+}
+
+// askHost : la question de permission, posée à la personne.
+//
+// Elle arrive par le serveur MCP de l'application, sans conversation attachée :
+// c'est la CLI qui la pose, au milieu d'un tour. Elle part donc vers la fenêtre
+// au premier plan — celle que la personne regarde en la posant — et la réponse
+// revient par un canal, avec l'identifiant de la demande.
+//
+// Elle attend, longtemps : quelqu'un doit avoir le temps de lire. Mais pas
+// indéfiniment — un tour laissé en plan tiendrait un processus CLI ouvert, et
+// la personne n'aurait plus rien à cliquer.
+const pendingAsks = new Map<string, (answer: { allow: boolean; message?: string }) => void>()
+const ASK_PATIENCE_MS = 10 * 60 * 1000
+
+export const askHost: AskHost = async (request) => {
+  const [win] = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isFocused())
+  const target = win ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  if (!target) return { allow: false, message: "Zyvro Studio is not open" }
+
+  const id = randomUUID()
+  target.webContents.send("agent:permission", { id, tool: request.tool, input: request.input })
+
+  return await new Promise((resolve) => {
+    const settle = (answer: { allow: boolean; message?: string }) => {
+      clearTimeout(timer)
+      pendingAsks.delete(id)
+      resolve(answer)
+    }
+    pendingAsks.set(id, settle)
+    const timer = setTimeout(
+      () => settle({ allow: false, message: "nobody answered — ask again, or change what the agent may do" }),
+      ASK_PATIENCE_MS
+    )
+  })
 }
 
 const workspaces = new WeakMap<BrowserWindow, Workspace>()
@@ -365,6 +402,15 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  // La réponse de la personne à une demande de permission.
+  ipcMain.handle("agent:permission-answer", async (event, id: string, allow: boolean) => {
+    requireWorkspace(event)
+    const settle = pendingAsks.get(String(id))
+    if (!settle) return false
+    settle({ allow: allow === true, message: allow === true ? undefined : "you said no" })
+    return true
+  })
+
   ipcMain.handle("terminal:create", async (event, cols: number, rows: number) => {
     const { ws } = requireWorkspace(event)
     // Le démon du projet part avec le shell : un agent lancé à la main dedans
@@ -415,6 +461,15 @@ export function registerIpc(onRecents?: () => void): void {
           workflows: Array.isArray(ctx?.workflows) ? ctx.workflows : [],
           daemonOrigin: ws.daemon.current?.origin,
           daemonToken: ws.daemon.current?.token,
+          // Ce que l'agent a le droit de faire vient du panneau : c'est un
+          // choix par conversation, et la personne le voit à côté de son texte.
+          // La liste des niveaux vient du module partagé : l'écrire ici une
+          // seconde fois, c'est ce qui vient d'arriver — « ask » n'y était pas,
+          // et le panneau demandait un mode que le principal remplaçait par le
+          // sien sans rien dire.
+          permission: PERMISSIONS.includes(ctx?.permission as Permission)
+            ? (ctx.permission as Permission)
+            : DEFAULT_PERMISSION,
         },
         String(conversationId),
         typeof model === "string" && model.trim() ? model.trim() : null,

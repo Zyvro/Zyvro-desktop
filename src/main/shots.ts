@@ -56,6 +56,7 @@ import {
 } from "./browser"
 
 export const SHOTS_SERVER = "zyvro-app"
+export const TOOL_PERMISSION = "zyvro_permission"
 export const TOOL_SCREENSHOT = "zyvro_screenshot"
 export const TOOL_LIST_WINDOWS = "zyvro_list_windows"
 
@@ -412,6 +413,40 @@ export const BROWSER_TOOLS = [
 // d'ouvrir l'onglet. Absent, les outils du navigateur ne sont pas annoncés :
 // un serveur qui annonce un outil qu'il ne peut pas rendre fait perdre un tour
 // à chaque agent qui l'essaie.
+// ---- la permission demandée --------------------------------------------
+//
+// La CLI de claude, en mode impression, ne peut poser aucune question : elle
+// demande la permission d'écrire, personne ne répond, et l'agent rend « you
+// haven't granted it yet » pour un fichier du dossier qu'on vient de lui
+// ouvrir. Elle sait pourtant router ses questions vers un outil MCP.
+//
+// Cet outil est celui-là. Il ne décide de rien : il fait remonter la demande
+// dans le panneau, avec deux boutons, et rend ce que la personne a répondu.
+export const permissionTool = {
+  name: TOOL_PERMISSION,
+  description:
+    "Ask the person for permission to use a tool. Zyvro Studio shows the request in its agent panel and returns their answer. " +
+    "This is the permission prompt tool — it is called by the CLI, not by you.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      tool_name: { type: "string", description: "The tool that needs permission." },
+      input: { type: "object", description: "What it would be called with." },
+      tool_use_id: { type: "string" },
+    },
+    required: ["tool_name", "input"],
+  },
+  annotations: { title: "Ask permission", readOnlyHint: true, openWorldHint: false },
+}
+
+// AskHost : comment la question atteint la personne. Le serveur ne sait pas
+// dessiner, et le panneau ne sait pas écouter un socket.
+export type AskHost = (request: {
+  tool: string
+  input: Record<string, unknown>
+  id: string
+}) => Promise<{ allow: boolean; message?: string }>
+
 export type BrowserHost = {
   /** Ouvre (ou révèle) un onglet navigateur et rend la vue quand elle répond.
    *  `view` nomme laquelle : un identifiant, « new », ou rien pour celle qui est
@@ -620,6 +655,22 @@ export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<Sh
   return { content: [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }] }
 }
 
+// askPermission : la question, la réponse, et la forme que la CLI attend.
+//
+// Le contrat est le sien : un seul contenu texte, du JSON dedans, `allow` avec
+// l'entrée éventuellement corrigée ou `deny` avec une raison. Une réponse d'une
+// autre forme est lue comme un refus, sans rien dire — d'où le test qui la
+// vérifie mot pour mot.
+export async function askPermission(ask: AskHost, args: Record<string, unknown>): Promise<ShotResult> {
+  const tool = String(args.tool_name ?? "a tool")
+  const input = (args.input ?? {}) as Record<string, unknown>
+  const answer = await ask({ tool, input, id: String(args.tool_use_id ?? "") })
+  const payload = answer.allow
+    ? { behavior: "allow", updatedInput: input }
+    : { behavior: "deny", message: answer.message || `${tool} was not allowed` }
+  return { content: [{ type: "text", text: JSON.stringify(payload) }] }
+}
+
 // captureRegion prend la photo et s'arrête là.
 //
 // Elle ne décide plus quoi en faire : la capture ouvre une fenêtre qui demande
@@ -690,13 +741,14 @@ export function shotsEndpoint(): Handle | null {
 
 export async function startShotsServer(
   windows: () => BrowserWindow[],
-  browser?: BrowserHost
+  browser?: BrowserHost,
+  ask?: AskHost
 ): Promise<Handle> {
   if (running) return running
   const token = randomBytes(24).toString("hex")
 
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res, token, windows, browser)
+    void handle(req, res, token, windows, browser, ask)
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const address = server.address()
@@ -718,7 +770,8 @@ async function handle(
   res: ServerResponse,
   token: string,
   windows: () => BrowserWindow[],
-  browser?: BrowserHost
+  browser?: BrowserHost,
+  ask?: AskHost
 ): Promise<void> {
   if (req.headers.authorization !== `Bearer ${token}`) {
     res.writeHead(401).end(JSON.stringify({ error: "unauthorized" }))
@@ -752,7 +805,9 @@ async function handle(
         res.writeHead(202).end()
         return
       case "tools/list":
-        reply({ tools: [listWindowsTool, screenshotTool, ...(browser ? BROWSER_TOOLS : [])] })
+        reply({
+          tools: [listWindowsTool, screenshotTool, ...(browser ? BROWSER_TOOLS : []), ...(ask ? [permissionTool] : [])],
+        })
         return
       case "tools/call": {
         switch (msg.params?.name) {
@@ -776,6 +831,12 @@ async function handle(
           case TOOL_SCREENSHOT:
             reply(await takeShot(windows(), msg.params?.arguments ?? {}))
             return
+          case TOOL_PERMISSION: {
+            if (!ask) throw new Error("this window cannot ask anyone")
+            const args = (msg.params?.arguments ?? {}) as Record<string, unknown>
+            reply(await askPermission(ask, args))
+            return
+          }
           default:
             if (browser && BROWSER_TOOLS.some((t) => t.name === msg.params?.name)) {
               reply(

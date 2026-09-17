@@ -565,10 +565,12 @@ function fakeContents(id, page = {}) {
   const guest = browser.registerGuest(contents, 3)
   const win = { id: 3, isDestroyed: () => false, isFocused: () => true, webContents: { capturePage: async () => ({ toPNG: () => Buffer.from([0]) }) } }
 
-  const handle = await browser.startShotsServer(() => [win], {
-    open: async () => guest,
-    projectDir: () => null,
-  })
+  const handle = await browser.startShotsServer(
+    () => [win],
+    { open: async () => guest, projectDir: () => null },
+    // L'outil par lequel la CLI demande une permission : ici, on répond oui.
+    async () => ({ allow: true })
+  )
   const call = (name, args = {}) =>
     fetch(handle.origin, {
       method: "POST",
@@ -590,6 +592,14 @@ function fakeContents(id, page = {}) {
     names.join(", ")
   )
   check("et la capture d'écran de l'app est toujours là", names.includes("zyvro_screenshot"))
+  check("l'outil de permission est servi quand quelqu'un peut répondre", names.includes("zyvro_permission"))
+
+  // Le contrat est celui de la CLI : un seul contenu texte, du JSON dedans.
+  // Une réponse d'une autre forme est lue comme un refus, sans rien dire.
+  const granted = await call("zyvro_permission", { tool_name: "Bash", input: { command: "npm test" } })
+  const payload = JSON.parse(granted.result.content[0].text)
+  check("**une permission accordée se dit dans la forme attendue**", payload.behavior === "allow", JSON.stringify(payload))
+  check("et rend l'entrée telle quelle", payload.updatedInput.command === "npm test")
 
   const evil = await call("zyvro_browser_open", { url: "file:///etc/passwd" })
   check("**une adresse refusée revient en erreur d'outil**", evil.result.isError === true)
