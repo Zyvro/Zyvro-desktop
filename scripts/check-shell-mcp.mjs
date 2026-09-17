@@ -86,6 +86,14 @@ const shell = mcp.shellMcp(ctx)
   )
   check("et le PATH de la machine est toujours derrière", shell.env.PATH.includes(process.env.PATH))
   check("le bandeau dit quoi taper", shell.banner.includes("zyvro-mcp claude") && shell.banner.includes("zyvro-mcp codex"), shell.banner)
+  // En anglais, comme le reste de ce que la personne lit : les commentaires de
+  // ce dépôt sont en français, l'interface ne l'est pas. Le bandeau était le
+  // seul endroit où les deux s'étaient mélangés.
+  check(
+    "**et il le dit dans la langue de l'application**",
+    !/[éèêàçù]/.test(shell.banner),
+    shell.banner
+  )
 }
 
 // ---- le fichier ----------------------------------------------------------
@@ -164,6 +172,7 @@ if (process.platform !== "win32") {
   {
     const out = run()
     check("**seul, il dit tout ce qu'il y a**", out.includes("http://127.0.0.1:4123/mcp") && out.includes(shell.env.ZYVRO_MCP_CONFIG), out)
+    check("en anglais lui aussi", !/[éèêàçù]/.test(out), out)
     check("y compris le serveur de capture", out.includes(handle.origin), out)
   }
 }

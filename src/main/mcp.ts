@@ -161,6 +161,9 @@ export function shellMcp(ctx: McpTarget): ShellMcp | null {
 
 // banner : ce que le shell dit de lui-même en s'ouvrant.
 //
+// En anglais, comme le reste de l'interface : les commentaires de ce dépôt sont
+// en français, ce que la personne lit ne l'est pas.
+//
 // Gris et deux lignes : c'est un rappel, pas une annonce. Il nomme les serveurs
 // branchés et la commande qui les utilise, parce qu'une variable
 // d'environnement que personne ne sait chercher n'aide personne.
@@ -168,11 +171,11 @@ function banner(servers: Record<string, ServerEntry>, config: string): string {
   const names = Object.keys(servers).join(" · ")
   const dim = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
   return (
-    dim(`MCP ${names} — ${HELPER} claude · ${HELPER} codex · ${HELPER} pour les détails`) +
+    dim(`MCP ${names} — ${HELPER} claude · ${HELPER} codex · ${HELPER} for the details`) +
     // Le chemin en entier, pas le nom de la variable : c'est ce qu'on colle
     // dans la configuration d'un autre client, et le jeton reste dans le
     // fichier, lisible par son seul propriétaire.
-    dim(`    tout autre client : ${config}`)
+    dim(`    any other client: ${config}`)
   )
 }
 
@@ -197,9 +200,9 @@ function writeHelper(dir: string, ctx: McpTarget): void {
     ),
     `  echo "  config    ${"$" + MCP_CONFIG_ENV}"`,
     `  echo ""`,
-    `  echo "  ${HELPER} claude [...]   claude, les deux serveurs branchés"`,
-    `  echo "  ${HELPER} codex  [...]   codex, les deux serveurs branchés"`,
-    `  echo "  tout autre client : donnez-lui ${"$" + MCP_CONFIG_ENV}"`,
+    `  echo "  ${HELPER} claude [...]   claude, with both servers wired in"`,
+    `  echo "  ${HELPER} codex  [...]   codex, with both servers wired in"`,
+    `  echo "  any other client: point it at ${"$" + MCP_CONFIG_ENV}"`,
     "}",
     'case "${1:-}" in',
     // --strict-mcp-config : seulement les serveurs de ce projet. Sans lui, ceux
@@ -208,7 +211,7 @@ function writeHelper(dir: string, ctx: McpTarget): void {
     `  claude) shift; exec claude --mcp-config "${"$" + MCP_CONFIG_ENV}" --strict-mcp-config "$@" ;;`,
     `  codex) shift; exec codex ${codex} "$@" ;;`,
     "  ''|-h|--help|info) info ;;",
-    `  *) echo "${HELPER}: je ne sais pas brancher \\"$1\\"" >&2; info; exit 2 ;;`,
+    `  *) echo "${HELPER}: I do not know how to wire \\"$1\\"" >&2; info; exit 2 ;;`,
     "esac",
     "",
   ]
