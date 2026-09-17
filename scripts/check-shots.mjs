@@ -38,7 +38,7 @@ writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${path.join(ROOT, "src/main/shots").replace(/\\/g, "/")}"\n` +
     `export { claudeMcpConfig } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
-    `export { findZones, zoneAt } from "${path.join(ROOT, "src/renderer/panels/ShotPicker").replace(/\\/g, "/")}"\n`
+    `export { findZones, zoneAt, takeShot } from "${path.join(ROOT, "src/renderer/panels/ShotPicker").replace(/\\/g, "/")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -252,6 +252,32 @@ const call = async (body, token = handle.token) =>
   const file = shots.saveShot(png, { dir: out, label: "Explorer", open: (f) => (opened = f) })
   check("la région est écrite dans le dossier demandé", readFileSync(file).length > 0)
   check("**et l'image est ouverte**", opened === file, String(opened))
+}
+
+// ---- l'ordre des gestes -------------------------------------------------
+//
+// Le bug vu sur une vraie capture : le cadre de sélection et « Click a panel »
+// étaient sur l'image. Cacher le calque ne le fait pas disparaître de l'écran —
+// React groupe ses rendus, et la photo est prise de ce qui est réellement
+// affiché. Donc : cacher, attendre le redessin, photographier. Dans cet ordre.
+{
+  const order = []
+  const shot = await shots.takeShot(
+    { name: "Explorer", rect: { x: 1, y: 2, width: 3, height: 4 } },
+    {
+      hide: () => order.push("hide"),
+      painted: async () => {
+        order.push("painted")
+      },
+      shoot: async (rect, name) => {
+        order.push("shoot")
+        return { rect, name }
+      },
+    }
+  )
+  check("**on cache le calque avant de photographier**", order[0] === "hide", order.join(" → "))
+  check("**et on attend que l'écran se redessine**", order[1] === "painted" && order[2] === "shoot", order.join(" → "))
+  check("la zone visée est celle qu'on photographie", shot.name === "Explorer" && shot.rect.width === 3)
 }
 
 // ---- le sélecteur de zone ----------------------------------------------

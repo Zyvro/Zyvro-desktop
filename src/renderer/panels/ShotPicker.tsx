@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { flushSync } from "react-dom"
 import { Camera, Download, Link as LinkIcon } from "lucide-react"
 import { CTA_PRIMARY, CTA_SECONDARY } from "@/components/ui/cta"
 import { cn } from "@/lib/utils"
@@ -113,16 +114,54 @@ function onClick(e: MouseEvent) {
   e.preventDefault()
   e.stopPropagation()
   const zone = zoneAt(picking.zones, e.clientX, e.clientY)
-  stop()
   if (zone) void capture(zone)
+  else stop()
+}
+
+// takeShot est l'ordre des trois gestes, et c'est l'ordre qui était le bug :
+// le cadre de sélection et « Click a panel » se retrouvaient sur l'image.
+//
+// Cacher le calque ne suffit pas à le faire disparaître de l'écran. React
+// regroupe ses rendus, et la fenêtre ne se redessine qu'à l'image suivante ;
+// la photo, elle, est prise du compositeur, c'est-à-dire de ce qui est
+// réellement affiché à cet instant. Il faut donc : cacher, attendre que
+// l'écran se soit redessiné, puis seulement photographier.
+//
+// Sorti en fonction pour que cet ordre soit vérifiable sans écran.
+export async function takeShot<T>(
+  zone: Zone,
+  deps: {
+    hide: () => void
+    painted: () => Promise<void>
+    shoot: (rect: Zone["rect"], name: string) => Promise<T>
+  }
+): Promise<T> {
+  deps.hide()
+  await deps.painted()
+  return deps.shoot(zone.rect, zone.name)
+}
+
+// painted : deux images, pas une. La première applique le changement de DOM,
+// la seconde est celle où la fenêtre est réellement redessinée sans le calque.
+function painted(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
 }
 
 async function capture(zone: Zone) {
   try {
-    const shot = await window.zyvro.shots.capture(zone.rect, zone.name)
+    const shot = await takeShot(zone, {
+      // flushSync : le calque quitte le DOM maintenant, pas au prochain lot.
+      // Ce clic vient d'un écouteur natif, que React ne vide pas tout seul.
+      hide: () => flushSync(() => stop()),
+      painted,
+      shoot: (rect, name) => window.zyvro.shots.capture(rect, name),
+    })
     taken = { zone: zone.name, preview: shot.preview, bytes: shot.bytes, busy: "", error: "" }
     emit()
   } catch (err) {
+    stop()
     say(err instanceof Error ? err.message : "Could not capture")
   }
 }
