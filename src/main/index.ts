@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, nativeImage, shell } from "electron"
 import path from "node:path"
 import { registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
+import { startShotsServer } from "./shots"
 import { loadRecents } from "./recents"
 import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath } from "./cli"
@@ -292,6 +293,15 @@ if (!app.requestSingleInstanceLock()) {
       if (icon) app.dock?.setIcon(icon)
     }
     void forgetDownloadedEngines()
+
+    // Le serveur de capture, démarré avant la première fenêtre : la
+    // configuration MCP d'un tour d'agent est écrite au moment du tour, et elle
+    // ne peut nommer que ce qui écoute déjà. Il rend toutes les fenêtres
+    // ouvertes, pas seulement la principale — l'app en a une par projet.
+    void startShotsServer(() => BrowserWindow.getAllWindows()).catch((err) => {
+      console.error("[shots] le serveur de capture n'a pas démarré:", err)
+    })
+
     registerIpc(buildMenu)
     buildMenu()
     createWindow()
