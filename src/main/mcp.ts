@@ -1,0 +1,234 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import path from "node:path"
+import { SHOTS_SERVER, shotsEndpoint } from "./shots"
+
+// Ce que le projet ouvert offre en MCP, à un seul endroit.
+//
+// Il y a deux serveurs et trois façons de les nommer : le fichier `mcp.json`
+// que lisent claude et la plupart des clients, les `-c mcp_servers.…` de codex,
+// et les variables d'environnement d'un agent lancé à la main dans le shell. Si
+// chacune tenait sa propre liste, ajouter un serveur en brancherait deux sur
+// trois, et le troisième ne dirait rien : l'agent aurait simplement moins
+// d'outils, sans que rien n'échoue.
+//
+// Les deux serveurs :
+//
+//   zyvro      le démon du projet — les workflows, leur exécution, leurs
+//              sorties. C'est un autre processus, il ne sait rien de la fenêtre.
+//   zyvro-app  l'application elle-même — la capture d'écran d'une fenêtre. Un
+//              démon ne peut pas photographier une fenêtre Electron.
+
+// Le serveur porte ici le nom que la documentation du produit hébergé emploie :
+// un agent qui a déjà utilisé Zyvro en MCP retrouve exactement ce qu'il attend.
+export const MCP_SERVER = "zyvro"
+
+// Les noms des variables sont l'interface : codex lit le jeton dedans plutôt
+// que sur sa ligne de commande, et un agent lancé au shell les lit pour se
+// brancher tout seul. Les renommer casse les deux.
+export const MCP_URL_ENV = "ZYVRO_MCP_URL"
+export const MCP_TOKEN_ENV = "ZYVRO_MCP_TOKEN"
+export const SHOTS_URL_ENV = "ZYVRO_SHOTS_URL"
+export const SHOTS_TOKEN_ENV = "ZYVRO_SHOTS_TOKEN"
+export const MCP_CONFIG_ENV = "ZYVRO_MCP_CONFIG"
+
+// McpTarget est le strict nécessaire pour joindre le démon. AgentContext en est
+// un, mais tout ce qui ouvre un shell n'a pas de conversation ni de workflows.
+export type McpTarget = { daemonOrigin?: string; daemonToken?: string }
+
+export function mcpAvailable(ctx: McpTarget): boolean {
+  return Boolean(ctx.daemonOrigin && ctx.daemonToken)
+}
+
+export function mcpUrl(ctx: McpTarget): string {
+  return `${ctx.daemonOrigin}/mcp`
+}
+
+type ServerEntry = { type: "http"; url: string; headers: { Authorization: string } }
+
+// mcpServers est la liste. Tout le reste de ce fichier en dérive.
+export function mcpServers(ctx: McpTarget): Record<string, ServerEntry> {
+  if (!mcpAvailable(ctx)) return {}
+  const shots = shotsEndpoint()
+  return {
+    [MCP_SERVER]: {
+      type: "http",
+      url: mcpUrl(ctx),
+      headers: { Authorization: `Bearer ${ctx.daemonToken}` },
+    },
+    ...(shots
+      ? {
+          [SHOTS_SERVER]: {
+            type: "http",
+            url: shots.origin,
+            headers: { Authorization: `Bearer ${shots.token}` },
+          },
+        }
+      : {}),
+  }
+}
+
+// writeMcpConfig écrit la définition dans un fichier plutôt que sur la ligne de
+// commande : elle porte le jeton du démon, et argv est lisible par tous les
+// processus de la machine. Propriétaire seul, et effacé quand on a fini.
+//
+// Hors du projet, délibérément : `.zyvro/` est fait pour être commité, et un
+// jeton n'a rien à faire dans un dépôt.
+export function writeMcpConfig(ctx: McpTarget): { path: string; dispose: () => void } {
+  const written = mcpDirectory(ctx)
+  return { path: written.file, dispose: written.dispose }
+}
+
+function mcpDirectory(ctx: McpTarget): { dir: string; file: string; dispose: () => void } {
+  const dir = mkdtempSync(path.join(tmpdir(), "zyvro-mcp-"))
+  const file = path.join(dir, "mcp.json")
+  writeFileSync(file, JSON.stringify({ mcpServers: mcpServers(ctx) }, null, 2), { mode: 0o600 })
+  return { dir, file, dispose: () => rmSync(dir, { recursive: true, force: true }) }
+}
+
+// codexMcpArgs : codex ne lit pas de fichier de configuration, il prend des
+// `-c` — et le jeton passe par l'environnement, pas par la ligne de commande.
+export function codexMcpArgs(ctx: McpTarget): string[] {
+  const args: string[] = []
+  for (const [name, server] of Object.entries(mcpServers(ctx))) {
+    args.push(
+      "-c",
+      `mcp_servers.${name}.url="${server.url}"`,
+      "-c",
+      `mcp_servers.${name}.bearer_token_env_var="${name === MCP_SERVER ? MCP_TOKEN_ENV : SHOTS_TOKEN_ENV}"`
+    )
+  }
+  return args
+}
+
+// mcpTokenEnv : les jetons que codex va chercher dans son environnement.
+export function mcpTokenEnv(ctx: McpTarget): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {}
+  const servers = mcpServers(ctx)
+  if (servers[MCP_SERVER]) env[MCP_TOKEN_ENV] = ctx.daemonToken
+  const shots = shotsEndpoint()
+  if (servers[SHOTS_SERVER] && shots) env[SHOTS_TOKEN_ENV] = shots.token
+  return env
+}
+
+// ---------------------------------------------------------------------------
+// Le shell
+//
+// Le panneau d'agent branche `claude` et `codex` lui-même. Mais on ouvre aussi
+// des shells, et ce qu'on y lance — un autre agent, un client MCP, un `curl` de
+// vérification — n'a aucun moyen de deviner sur quel port le démon de ce projet
+// écoute ni quel jeton l'ouvre. Ces deux choses changent à chaque démarrage.
+//
+// Alors chaque shell que l'application ouvre les porte : les adresses et les
+// jetons dans son environnement, un `mcp.json` prêt à être donné à n'importe
+// quel client, et un `zyvro-mcp` sur le PATH qui lance un agent déjà branché.
+//
+// Le fichier et le script vivent dans un dossier temporaire à eux, en
+// propriétaire seul, effacés quand le shell se termine : la durée de vie du
+// jeton est celle de la session qui peut s'en servir.
+
+const HELPER = "zyvro-mcp"
+
+export type ShellMcp = {
+  env: Record<string, string | undefined>
+  // Deux lignes écrites dans le terminal avant la première invite. Sans elles,
+  // tout ceci est branché et personne ne le sait.
+  banner: string
+  dispose: () => void
+}
+
+export function shellMcp(ctx: McpTarget): ShellMcp | null {
+  if (!mcpAvailable(ctx)) return null
+  const servers = mcpServers(ctx)
+  const written = mcpDirectory(ctx)
+
+  const env: Record<string, string | undefined> = {
+    ...mcpTokenEnv(ctx),
+    [MCP_URL_ENV]: servers[MCP_SERVER]?.url,
+    [SHOTS_URL_ENV]: servers[SHOTS_SERVER]?.url,
+    [MCP_CONFIG_ENV]: written.file,
+    PATH: `${written.dir}${path.delimiter}${process.env.PATH ?? ""}`,
+  }
+
+  writeHelper(written.dir, ctx)
+
+  return {
+    env,
+    banner: banner(servers, written.file),
+    dispose: written.dispose,
+  }
+}
+
+// banner : ce que le shell dit de lui-même en s'ouvrant.
+//
+// Gris et deux lignes : c'est un rappel, pas une annonce. Il nomme les serveurs
+// branchés et la commande qui les utilise, parce qu'une variable
+// d'environnement que personne ne sait chercher n'aide personne.
+function banner(servers: Record<string, ServerEntry>, config: string): string {
+  const names = Object.keys(servers).join(" · ")
+  const dim = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
+  return (
+    dim(`MCP ${names} — ${HELPER} claude · ${HELPER} codex · ${HELPER} pour les détails`) +
+    // Le chemin en entier, pas le nom de la variable : c'est ce qu'on colle
+    // dans la configuration d'un autre client, et le jeton reste dans le
+    // fichier, lisible par son seul propriétaire.
+    dim(`    tout autre client : ${config}`)
+  )
+}
+
+// quote protège une valeur pour /bin/sh. Les adresses sont des URL et les
+// arguments de codex portent des guillemets ; sans ça, un `-c mcp_servers…`
+// arriverait coupé en deux et le serveur ne serait pas déclaré.
+function quote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function writeHelper(dir: string, ctx: McpTarget): void {
+  const codex = codexMcpArgs(ctx).map(quote).join(" ")
+  const lines = [
+    "#!/bin/sh",
+    "# zyvro-mcp — lance un agent déjà branché sur les serveurs MCP du projet.",
+    "# Écrit par Zyvro Studio pour ce shell ; il disparaît avec lui.",
+    'info() {',
+    `  echo "Zyvro MCP"`,
+    ...Object.entries(mcpServers(ctx)).map(
+      ([name, server]) =>
+        `  echo "  ${name.padEnd(9)} ${server.url}"`
+    ),
+    `  echo "  config    ${"$" + MCP_CONFIG_ENV}"`,
+    `  echo ""`,
+    `  echo "  ${HELPER} claude [...]   claude, les deux serveurs branchés"`,
+    `  echo "  ${HELPER} codex  [...]   codex, les deux serveurs branchés"`,
+    `  echo "  tout autre client : donnez-lui ${"$" + MCP_CONFIG_ENV}"`,
+    "}",
+    'case "${1:-}" in',
+    // --strict-mcp-config : seulement les serveurs de ce projet. Sans lui, ceux
+    // que la personne a déclarés ailleurs se rajoutent, et l'agent n'a pas les
+    // mêmes outils d'une machine à l'autre.
+    `  claude) shift; exec claude --mcp-config "${"$" + MCP_CONFIG_ENV}" --strict-mcp-config "$@" ;;`,
+    `  codex) shift; exec codex ${codex} "$@" ;;`,
+    "  ''|-h|--help|info) info ;;",
+    `  *) echo "${HELPER}: je ne sais pas brancher \\"$1\\"" >&2; info; exit 2 ;;`,
+    "esac",
+    "",
+  ]
+  writeFileSync(path.join(dir, HELPER), lines.join("\n"), { mode: 0o700 })
+
+  // Windows n'exécute pas un script sh. Le `.cmd` ne fait que dire ce qu'il y
+  // a : les variables sont là, et un agent s'y branche avec le fichier de
+  // configuration. Rediriger les arguments d'un `.cmd` vers un binaire est un
+  // exercice que je n'ai pas pu vérifier sur cette machine, et un lanceur qui
+  // perd silencieusement ses arguments serait pire que pas de lanceur.
+  if (process.platform === "win32") {
+    const cmd = [
+      "@echo off",
+      "echo Zyvro MCP",
+      ...Object.entries(mcpServers(ctx)).map(([name, server]) => `echo   ${name} ${server.url}`),
+      `echo   config %${MCP_CONFIG_ENV}%`,
+      "echo.",
+      `echo   claude --mcp-config "%${MCP_CONFIG_ENV}%" --strict-mcp-config`,
+      "",
+    ]
+    writeFileSync(path.join(dir, `${HELPER}.cmd`), cmd.join("\r\n"))
+  }
+}

@@ -280,7 +280,12 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle("terminal:create", async (event, cols: number, rows: number) => {
     const { ws } = requireWorkspace(event)
-    return ws.terminals.create(event.sender, requireRoot(ws), cols || 80, rows || 24)
+    // Le démon du projet part avec le shell : un agent lancé à la main dedans
+    // doit pouvoir joindre les mêmes serveurs MCP que celui du panneau.
+    return ws.terminals.create(event.sender, requireRoot(ws), cols || 80, rows || 24, {
+      daemonOrigin: ws.daemon.current?.origin,
+      daemonToken: ws.daemon.current?.token,
+    })
   })
 
   ipcMain.handle("terminal:write", async (event, id: string, data: string) => {

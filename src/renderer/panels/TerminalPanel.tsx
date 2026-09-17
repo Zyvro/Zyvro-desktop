@@ -204,6 +204,10 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       }
       ptyId = session.id
       patchStatus(key, { ptyId: session.id, pty: session.pty })
+      // Ce que ce shell a de branché, écrit avant tout le reste : la sortie du
+      // shell attend dans `early`, donc le bandeau reste au-dessus de la
+      // première invite au lieu de tomber au milieu.
+      if (session.banner) term.write(session.banner)
       for (const payload of early) {
         if (payload.id === session.id) term.write(payload.data)
       }

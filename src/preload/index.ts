@@ -115,7 +115,7 @@ const api = {
   },
 
   terminal: {
-    create: (cols: number, rows: number): Promise<{ id: string; pty: boolean }> =>
+    create: (cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
       ipcRenderer.invoke("terminal:create", cols, rows),
     write: (id: string, data: string): Promise<boolean> => ipcRenderer.invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number): Promise<boolean> =>

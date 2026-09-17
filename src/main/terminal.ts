@@ -2,6 +2,7 @@ import { spawn as spawnPipe, type ChildProcess } from "node:child_process"
 import os from "node:os"
 import { randomUUID } from "node:crypto"
 import type { WebContents } from "electron"
+import { shellMcp, type McpTarget } from "./mcp"
 
 // The integrated shell is not a convenience feature. `claude` and `codex` both
 // change behaviour when stdout is not a terminal, and the whole point of the
@@ -61,10 +62,15 @@ function defaultShell(): { file: string; args: string[] } {
   return { file: shell, args: ["-l"] }
 }
 
-function makePty(cwd: string, cols: number, rows: number): PtyLike {
+function makePty(
+  cwd: string,
+  cols: number,
+  rows: number,
+  extra: Record<string, string | undefined> = {}
+): PtyLike {
   const mod = loadPty()
   const { file, args } = defaultShell()
-  const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor" }
+  const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", ...extra }
 
   if (mod) {
     const proc = mod.spawn(file, args, { name: "xterm-256color", cols, rows, cwd, env })
@@ -106,7 +112,7 @@ function makePty(cwd: string, cols: number, rows: number): PtyLike {
   }
 }
 
-type Session = { id: string; pty: PtyLike }
+type Session = { id: string; pty: PtyLike; dispose?: () => void }
 
 // Terminals owns every shell the window opened. It holds the WebContents so it
 // can push output, and drops every session when the window goes away: an
@@ -114,22 +120,47 @@ type Session = { id: string; pty: PtyLike }
 export class Terminals {
   private sessions = new Map<string, Session>()
 
-  create(target: WebContents, cwd: string, cols = 80, rows = 24): { id: string; pty: boolean } {
+  // mcp est le contexte du démon de ce projet, quand il y en a un. Chaque shell
+  // ouvert par l'application porte de quoi joindre ses serveurs MCP : ce qu'on
+  // lance dedans — un autre agent, un client, un curl — ne peut pas deviner un
+  // port et un jeton qui changent à chaque démarrage.
+  create(
+    target: WebContents,
+    cwd: string,
+    cols = 80,
+    rows = 24,
+    mcp: McpTarget | null = null
+  ): { id: string; pty: boolean; banner?: string } {
     const id = randomUUID()
-    const pty = makePty(cwd || os.homedir(), cols, rows)
-    this.sessions.set(id, { id, pty })
+    const wired = mcp ? shellMcp(mcp) : null
+    const pty = makePty(cwd || os.homedir(), cols, rows, wired?.env)
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose })
 
     pty.onData((data) => {
       if (target.isDestroyed()) return
       target.send("terminal:data", { id, data })
     })
     pty.onExit((code) => {
-      this.sessions.delete(id)
+      this.drop(id)
       if (target.isDestroyed()) return
       target.send("terminal:exit", { id, code })
     })
 
-    return { id, pty: ptyAvailable() }
+    // Le bandeau revient avec la réponse plutôt qu'en flot de sortie : le rendu
+    // l'écrit lui-même avant de vider ce qu'il a mis de côté, et il est donc
+    // toujours au-dessus de la première invite, pas au milieu.
+    return { id, pty: ptyAvailable(), banner: wired?.banner }
+  }
+
+  // drop oublie une session et efface ce qui n'avait de sens que pour elle : le
+  // fichier de configuration MCP porte un jeton, et sa durée de vie est celle
+  // du shell qui pouvait s'en servir.
+  private drop(id: string): Session | null {
+    const session = this.sessions.get(id)
+    if (!session) return null
+    this.sessions.delete(id)
+    session.dispose?.()
+    return session
   }
 
   write(id: string, data: string): void {
@@ -141,10 +172,7 @@ export class Terminals {
   }
 
   dispose(id: string): void {
-    const session = this.sessions.get(id)
-    if (!session) return
-    this.sessions.delete(id)
-    session.pty.kill()
+    this.drop(id)?.pty.kill()
   }
 
   disposeAll(): void {

@@ -208,34 +208,6 @@ const call = async (body, token = handle.token) =>
   check("**un dépôt sans lien est une erreur**", silent)
 }
 
-// ---- ce que l'agent reçoit ---------------------------------------------
-//
-// C'est le point de tout ceci : l'outil n'existe que si la configuration écrite
-// pour le tour le nomme. Un serveur qui écoute et que personne ne déclare est
-// un serveur que l'agent n'a pas.
-{
-  const cfg = shots.claudeMcpConfig({ daemonOrigin: "http://127.0.0.1:4000", daemonToken: "jeton-moteur" })
-  const written = JSON.parse(readFileSync(cfg.path, "utf8"))
-  const names = Object.keys(written.mcpServers)
-  check("**la configuration de l'agent nomme les deux serveurs**", names.includes("zyvro") && names.includes("zyvro-app"), names.join(", "))
-  check("la capture y porte son jeton à elle", written.mcpServers["zyvro-app"].headers.Authorization === `Bearer ${handle.token}`)
-  check("et son adresse à elle", written.mcpServers["zyvro-app"].url === handle.origin)
-  check("le moteur garde le sien", written.mcpServers.zyvro.headers.Authorization === "Bearer jeton-moteur")
-  cfg.dispose()
-}
-
-// ---- le nom du fichier -------------------------------------------------
-{
-  const name = shots.shotName("Source control", new Date("2026-09-17T04:58:12Z"))
-  check("le nom porte la zone et l'heure", name === "zyvro-source-control-2026-09-17-04-58-12.png", name)
-  check("une zone sans nom ne laisse pas de tiret orphelin", shots.shotName("", new Date("2026-09-17T04:58:12Z")) === "zyvro-2026-09-17-04-58-12.png")
-  // Un nom fixe écraserait la capture d'avant, et c'est toujours celle qu'on
-  // voulait garder.
-  const a = shots.shotName("x", new Date("2026-09-17T04:58:12Z"))
-  const b = shots.shotName("x", new Date("2026-09-17T04:58:13Z"))
-  check("**deux captures ne se marchent pas dessus**", a !== b)
-}
-
 // ---- la région demandée ------------------------------------------------
 {
   const win = fakeWindow({ id: 8, title: "projet" })

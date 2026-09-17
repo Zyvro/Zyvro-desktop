@@ -2,11 +2,9 @@ import { type ChildProcess } from "node:child_process"
 import { installed as cliInstalled, launchPiped } from "./cli"
 import { describeTool, outputIn, planIn } from "./tooltalk"
 import { randomUUID } from "node:crypto"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
 import path from "node:path"
 import type { WebContents } from "electron"
-import { SHOTS_SERVER, shotsEndpoint } from "./shots"
+import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
@@ -25,11 +23,6 @@ export type AgentContext = {
   daemonOrigin?: string
   daemonToken?: string
 }
-
-// The MCP server is named "zyvro" here so the tools carry the same names the
-// hosted product documents. An agent that has used Zyvro over MCP before finds
-// exactly what it expects.
-const MCP_SERVER = "zyvro"
 
 // preamble tells the CLI what this project's workflows are. Without it the
 // agent is a generic coding assistant that has never heard of Zyvro; with it,
@@ -65,49 +58,11 @@ function preamble(ctx: AgentContext): string {
   return lines.join("\n")
 }
 
-function mcpAvailable(ctx: AgentContext): boolean {
-  return Boolean(ctx.daemonOrigin && ctx.daemonToken)
-}
-
-function mcpUrl(ctx: AgentContext): string {
-  return `${ctx.daemonOrigin}/mcp`
-}
-
-// claudeMcpConfig writes the server definition to a file rather than passing it
-// on the command line, because it carries the daemon token and argv is readable
-// by every process on the machine. The file is created with owner-only
-// permissions and deleted when the turn ends.
+// claudeMcpConfig est le fichier que l'agent reçoit pour ce tour. La liste des
+// serveurs vit dans mcp.ts, avec celle du shell : deux listes finiraient par
+// différer, et la différence serait un outil manquant que rien ne signale.
 export function claudeMcpConfig(ctx: AgentContext): { path: string; dispose: () => void } {
-  const dir = mkdtempSync(path.join(tmpdir(), "zyvro-mcp-"))
-  const file = path.join(dir, "mcp.json")
-  // Deux serveurs : les workflows viennent du moteur, la capture d'écran vient
-  // d'ici. Le moteur est un autre processus et ne peut pas photographier une
-  // fenêtre Electron ; la fenêtre, elle, ne sait rien des workflows. Chacun
-  // sert ce qu'il possède.
-  const shots = shotsEndpoint()
-  writeFileSync(
-    file,
-    JSON.stringify({
-      mcpServers: {
-        [MCP_SERVER]: {
-          type: "http",
-          url: mcpUrl(ctx),
-          headers: { Authorization: `Bearer ${ctx.daemonToken}` },
-        },
-        ...(shots
-          ? {
-              [SHOTS_SERVER]: {
-                type: "http",
-                url: shots.origin,
-                headers: { Authorization: `Bearer ${shots.token}` },
-              },
-            }
-          : {}),
-      },
-    }),
-    { mode: 0o600 }
-  )
-  return { path: file, dispose: () => rmSync(dir, { recursive: true, force: true }) }
+  return writeMcpConfig(ctx)
 }
 
 // argsFor builds the command line for one turn.
@@ -330,28 +285,18 @@ export class AgentRunner {
           // La capture est pré-accordée comme le reste : elle ne peut voir que
           // la fenêtre de l'application, et un tour en mode impression ne peut
           // demander la permission à personne.
-          [`mcp__${MCP_SERVER}`, shotsEndpoint() ? `mcp__${SHOTS_SERVER}` : ""].filter(Boolean).join(",")
+          // Les serveurs réellement déclarés dans le fichier, et eux seuls :
+          // pré-accorder un outil absent ne coûte rien, mais en oublier un
+          // rendrait « permission refusée » pour un outil qu'on vient d'offrir.
+          Object.keys(mcpServers(ctx))
+            .map((name) => `mcp__${name}`)
+            .join(",")
         )
       } else {
         // Codex reads the token from the environment rather than from a flag,
         // which keeps it out of the process table.
-        env.ZYVRO_MCP_TOKEN = ctx.daemonToken
-        args.push(
-          "-c",
-          `mcp_servers.${MCP_SERVER}.url="${mcpUrl(ctx)}"`,
-          "-c",
-          `mcp_servers.${MCP_SERVER}.bearer_token_env_var="ZYVRO_MCP_TOKEN"`
-        )
-        const shots = shotsEndpoint()
-        if (shots) {
-          env.ZYVRO_SHOTS_TOKEN = shots.token
-          args.push(
-            "-c",
-            `mcp_servers.${SHOTS_SERVER}.url="${shots.origin}"`,
-            "-c",
-            `mcp_servers.${SHOTS_SERVER}.bearer_token_env_var="ZYVRO_SHOTS_TOKEN"`
-          )
-        }
+        Object.assign(env, mcpTokenEnv(ctx))
+        args.push(...codexMcpArgs(ctx))
       }
     }
 
