@@ -12,6 +12,7 @@ export type Tab =
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "store"; id: "store"; title: string }
+  | { kind: "browser"; id: "browser"; title: string }
   // A diff is its own kind rather than a file tab with a flag: it has two sides,
   // it is read-only, and closing it must not look like closing the file.
   | { kind: "diff"; id: string; path: string; staged: boolean; title: string }
@@ -83,6 +84,7 @@ type WorkspaceState = {
   openGitOutput: () => void
   openProviders: () => void
   openStore: () => void
+  openBrowser: () => void
   closeTab: (id: string) => void
   activateTab: (id: string) => void
   renameTab: (id: string, title: string) => void
@@ -238,6 +240,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "store", id, title: "Store" }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
+  // Un seul onglet navigateur par fenêtre, révélé plutôt que dupliqué : deux
+  // vues seraient deux pages, et un agent qui en pilote une ne saurait pas
+  // laquelle la personne regarde.
+  openBrowser: () => {
+    const id = "browser"
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "browser", id, title: "Browser" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, shell, webContents } from "electron"
 import path from "node:path"
 import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
@@ -10,7 +10,8 @@ import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
-import { captureRegion, saveShot, shareShot } from "./shots"
+import { captureRegion, saveShot, shareShot, type BrowserHost } from "./shots"
+import { guestForWindow, noteVisit, registerGuest, waitForGuest } from "./browser"
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
@@ -42,6 +43,25 @@ export class Workspace {
 async function realpathOfParent(target: string): Promise<string> {
   const parent = await fs.realpath(path.dirname(target))
   return path.join(parent, path.basename(target))
+}
+
+// browserHost est ce que le serveur MCP ne peut pas savoir tout seul : où est
+// le projet de cette fenêtre (pour sa liste d'origines) et comment demander au
+// rendu d'ouvrir l'onglet. Il vit ici parce que c'est ici que les fenêtres et
+// les projets se connaissent.
+export const browserHost: BrowserHost = {
+  open: async (win) => {
+    const already = guestForWindow(win.id)
+    if (already) {
+      // Révélé plutôt que dupliqué : deux onglets navigateur dans une fenêtre
+      // seraient deux pages, et l'agent ne saurait pas laquelle il pilote.
+      win.webContents.send("browser:open")
+      return already
+    }
+    win.webContents.send("browser:open")
+    return waitForGuest(win.id)
+  },
+  projectDir: (win) => workspaces.get(win)?.root ?? null,
 }
 
 const workspaces = new WeakMap<BrowserWindow, Workspace>()
@@ -275,6 +295,28 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("files:delete", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
     await files.deleteEntry(requireRoot(ws), relative)
+    return true
+  })
+
+  // ---------- le navigateur de test ----------
+  //
+  // Le rendu monte la <webview> et annonce ici l'identifiant de son contenu :
+  // c'est la seule façon pour le processus principal de tenir la vue, et c'est
+  // le rendu qui la possède. Rien n'est accepté d'une autre fenêtre — l'identité
+  // vient de l'expéditeur, comme partout ailleurs.
+  ipcMain.handle("browser:attach", async (event, contentsId: number) => {
+    const { win } = requireWorkspace(event)
+    const guest = webContents.fromId(Number(contentsId))
+    if (!guest || guest.getType() !== "webview") throw new Error("that is not a browser view")
+    registerGuest(guest, win.id)
+    return true
+  })
+
+  // Ce que la personne a ouvert elle-même : un accord explicite, pour cette
+  // origine et pour cette session. C'est l'une des trois portes de la politique.
+  ipcMain.handle("browser:visited", async (event, contentsId: number, url: string) => {
+    requireWorkspace(event)
+    noteVisit(Number(contentsId), String(url))
     return true
   })
 

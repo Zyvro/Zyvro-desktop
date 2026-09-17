@@ -9,6 +9,7 @@ import { GitOutput } from "./GitOutput"
 import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
 import { StorePanel } from "./StorePanel"
+import { BrowserTab } from "./BrowserTab"
 
 // Every open tab stays mounted. A graph that unmounted when you glanced at a
 // file would lose its viewport, its selection and any run in progress, so tabs
@@ -71,6 +72,8 @@ function TabBody({ tab }: { tab: Tab }) {
       return <ProvidersTab />
     case "store":
       return <StorePanel />
+    case "browser":
+      return <BrowserTab />
     default:
       return <Welcome />
   }

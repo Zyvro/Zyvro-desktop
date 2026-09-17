@@ -22,6 +22,22 @@ import { randomBytes } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import type { BrowserWindow, Rectangle } from "electron"
+import {
+  TOOL_BROWSER_CLICK,
+  TOOL_BROWSER_LOGS,
+  TOOL_BROWSER_OPEN,
+  TOOL_BROWSER_READ,
+  TOOL_BROWSER_SHOT,
+  TOOL_BROWSER_TYPE,
+  allowed,
+  clickRef,
+  pickGuest,
+  readPage,
+  shootPage,
+  typeInto,
+  waitForLoad,
+  type Guest,
+} from "./browser"
 
 export const SHOTS_SERVER = "zyvro-app"
 export const TOOL_SCREENSHOT = "zyvro_screenshot"
@@ -128,6 +144,172 @@ export const screenshotTool = {
 
 export type ShotResult = { content: Array<{ type: string; text?: string; data?: string; mimeType?: string }> }
 
+// ---- le navigateur de test ---------------------------------------------
+//
+// Six outils, et pas un de plus : ouvrir, lire, cliquer, écrire, photographier,
+// relire les journaux. C'est la boucle entière de « vérifie que ma page
+// marche », et chaque outil de plus est un outil que le modèle doit choisir.
+//
+// La lecture rend du texte plutôt qu'une image : une capture coûte des milliers
+// de jetons et ne dit pas ce qui est cliquable. Elle nomme les éléments (`e1`,
+// `e2`…), et c'est par ces noms qu'on clique — donc une page qui a changé rend
+// des noms qui ne désignent plus rien, ce qui est exactement ce qu'il faut
+// qu'il arrive.
+
+export const browserOpenTool = {
+  name: TOOL_BROWSER_OPEN,
+  description:
+    "Open a page in Zyvro Studio's own test browser — a tab inside the IDE, with its own session, so it never touches the user's browser or their logins. " +
+    "Goes to localhost, to origins the user opened themselves in that tab, and to those listed in the project's .zyvro/browser.json.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "http or https address to open." },
+      wait_seconds: { type: "number", description: "How long to wait for the page to finish loading. Default 15." },
+    },
+    required: ["url"],
+  },
+  annotations: { title: "Open a page", readOnlyHint: false, openWorldHint: true },
+}
+
+export const browserReadTool = {
+  name: TOOL_BROWSER_READ,
+  description:
+    "Read the page open in the test browser: its address, title, visible text, and the elements you can click or type into, each with a ref like e12. " +
+    "Read again after anything that changes the page — the refs belong to the page as it was.",
+  inputSchema: { type: "object", properties: {} },
+  annotations: { title: "Read the page", readOnlyHint: true, openWorldHint: false },
+}
+
+export const browserClickTool = {
+  name: TOOL_BROWSER_CLICK,
+  description: "Click an element in the test browser by the ref zyvro_browser_read gave it. Sends a real mouse click, so focus and hover handlers run.",
+  inputSchema: {
+    type: "object",
+    properties: { ref: { type: "string", description: "An element ref from zyvro_browser_read, such as e7." } },
+    required: ["ref"],
+  },
+  annotations: { title: "Click", readOnlyHint: false, openWorldHint: false },
+}
+
+export const browserTypeTool = {
+  name: TOOL_BROWSER_TYPE,
+  description: "Type into a field in the test browser. The field's current contents are replaced. Set submit to press Enter afterwards.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      ref: { type: "string", description: "An element ref from zyvro_browser_read." },
+      text: { type: "string" },
+      submit: { type: "boolean", description: "Press Enter after typing. Default false." },
+    },
+    required: ["ref", "text"],
+  },
+  annotations: { title: "Type", readOnlyHint: false, openWorldHint: false },
+}
+
+export const browserShotTool = {
+  name: TOOL_BROWSER_SHOT,
+  description: "Screenshot the page in the test browser. Returns the image, or writes it to a file when a path is given.",
+  inputSchema: {
+    type: "object",
+    properties: { path: { type: "string", description: "Write the PNG here instead of returning it." } },
+  },
+  annotations: { title: "Screenshot the page", readOnlyHint: true, openWorldHint: false },
+}
+
+export const browserLogsTool = {
+  name: TOOL_BROWSER_LOGS,
+  description:
+    "The console messages and the failed requests of the page in the test browser, since it was last loaded. " +
+    "This is what a broken page says about itself, and it is usually the answer.",
+  inputSchema: { type: "object", properties: {} },
+  annotations: { title: "Console and failed requests", readOnlyHint: true, openWorldHint: false },
+}
+
+export const BROWSER_TOOLS = [
+  browserOpenTool,
+  browserReadTool,
+  browserClickTool,
+  browserTypeTool,
+  browserShotTool,
+  browserLogsTool,
+]
+
+// BrowserHost est ce que le serveur ne peut pas savoir tout seul : où est le
+// projet ouvert (pour sa liste d'origines) et comment demander au rendu
+// d'ouvrir l'onglet. Absent, les outils du navigateur ne sont pas annoncés :
+// un serveur qui annonce un outil qu'il ne peut pas rendre fait perdre un tour
+// à chaque agent qui l'essaie.
+export type BrowserHost = {
+  /** Ouvre (ou révèle) l'onglet navigateur et rend la vue quand elle répond. */
+  open: (win: BrowserWindow) => Promise<Guest>
+  /** Le dossier du projet de cette fenêtre, pour `.zyvro/browser.json`. */
+  projectDir: (win: BrowserWindow) => string | null
+}
+
+function text(value: string): ShotResult {
+  return { content: [{ type: "text", text: value }] }
+}
+
+async function browserCall(
+  name: string,
+  args: Record<string, unknown>,
+  all: BrowserWindow[],
+  host: BrowserHost
+): Promise<ShotResult> {
+  const win = pickWindow(all)
+  if (!win) throw new Error("Zyvro Studio is not open")
+
+  // L'ouverture est le seul outil qui peut créer la vue ; les cinq autres
+  // parlent de la page ouverte, et dire « ouvrez-en une » est plus utile que
+  // d'en ouvrir une vide.
+  if (name === TOOL_BROWSER_OPEN) {
+    const url = String(args.url ?? "")
+    const verdict = allowed(url, { visited: pickGuest(all)?.visited ?? new Set(), projectDir: host.projectDir(win) })
+    if (!verdict.ok) throw new Error(verdict.why)
+
+    const guest = await host.open(win)
+    await guest.contents.loadURL(verdict.url)
+    await waitForLoad(guest.contents, typeof args.wait_seconds === "number" ? args.wait_seconds : 15)
+    const page = await readPage(guest)
+    return text(`${page.title || "(no title)"} — ${page.url}\n${page.elements.length} elements to click or type into. Read it for the text.`)
+  }
+
+  const guest = pickGuest(all)
+  if (!guest) throw new Error(`no page open in the test browser — call ${TOOL_BROWSER_OPEN} first`)
+
+  switch (name) {
+    case TOOL_BROWSER_READ:
+      return text(JSON.stringify(await readPage(guest), null, 1))
+    case TOOL_BROWSER_CLICK: {
+      const at = await clickRef(guest, String(args.ref ?? ""))
+      await waitForLoad(guest.contents, 10)
+      return text(`clicked ${args.ref} at ${at.x},${at.y} — the page may have changed, read it again`)
+    }
+    case TOOL_BROWSER_TYPE:
+      await typeInto(guest, String(args.ref ?? ""), String(args.text ?? ""), args.submit === true)
+      if (args.submit === true) await waitForLoad(guest.contents, 10)
+      return text(`typed into ${args.ref}${args.submit === true ? " and pressed Enter" : ""}`)
+    case TOOL_BROWSER_SHOT: {
+      const shot = await shootPage(guest, typeof args.path === "string" ? args.path : undefined)
+      if (shot.file) return text(`Wrote the page to ${shot.file}`)
+      return { content: [{ type: "image", data: shot.png.toString("base64"), mimeType: "image/png" }] }
+    }
+    case TOOL_BROWSER_LOGS:
+      return text(
+        JSON.stringify(
+          {
+            console: guest.console,
+            failed: guest.requests.filter((r) => r.error || r.status >= 400),
+          },
+          null,
+          1
+        )
+      )
+  }
+  throw new Error(`no such tool: ${name}`)
+}
+
 // takeShot capture et rend ce que le protocole attend.
 export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<ShotResult> {
   const win = pickWindow(all, args.window)
@@ -227,12 +409,15 @@ export function shotsEndpoint(): Handle | null {
   return running
 }
 
-export async function startShotsServer(windows: () => BrowserWindow[]): Promise<Handle> {
+export async function startShotsServer(
+  windows: () => BrowserWindow[],
+  browser?: BrowserHost
+): Promise<Handle> {
   if (running) return running
   const token = randomBytes(24).toString("hex")
 
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res, token, windows)
+    void handle(req, res, token, windows, browser)
   })
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const address = server.address()
@@ -253,7 +438,8 @@ async function handle(
   req: IncomingMessage,
   res: ServerResponse,
   token: string,
-  windows: () => BrowserWindow[]
+  windows: () => BrowserWindow[],
+  browser?: BrowserHost
 ): Promise<void> {
   if (req.headers.authorization !== `Bearer ${token}`) {
     res.writeHead(401).end(JSON.stringify({ error: "unauthorized" }))
@@ -261,7 +447,7 @@ async function handle(
   }
   let body = ""
   for await (const chunk of req) body += chunk
-  let msg: { id?: unknown; method?: string; params?: { name?: string; arguments?: ShotArgs } }
+  let msg: { id?: unknown; method?: string; params?: { name?: string; arguments?: ShotArgs & Record<string, unknown> } }
   try {
     msg = JSON.parse(body || "{}")
   } catch {
@@ -287,7 +473,7 @@ async function handle(
         res.writeHead(202).end()
         return
       case "tools/list":
-        reply({ tools: [listWindowsTool, screenshotTool] })
+        reply({ tools: [listWindowsTool, screenshotTool, ...(browser ? BROWSER_TOOLS : [])] })
         return
       case "tools/call": {
         switch (msg.params?.name) {
@@ -298,6 +484,17 @@ async function handle(
             reply(await takeShot(windows(), msg.params?.arguments ?? {}))
             return
           default:
+            if (browser && BROWSER_TOOLS.some((t) => t.name === msg.params?.name)) {
+              reply(
+                await browserCall(
+                  String(msg.params?.name),
+                  (msg.params?.arguments ?? {}) as Record<string, unknown>,
+                  windows(),
+                  browser
+                )
+              )
+              return
+            }
             throw new Error(`no such tool: ${msg.params?.name}`)
         }
       }

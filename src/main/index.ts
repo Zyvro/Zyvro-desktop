@@ -1,7 +1,8 @@
-import { app, BrowserWindow, Menu, nativeImage, shell } from "electron"
+import { app, BrowserWindow, Menu, nativeImage, session, shell } from "electron"
 import path from "node:path"
-import { registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
+import { browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { startShotsServer } from "./shots"
+import { BROWSER_PARTITION, noteRequest } from "./browser"
 import { loadRecents } from "./recents"
 import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath } from "./cli"
@@ -72,9 +73,29 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
-      webviewTag: false,
+      // Le navigateur de test est une <webview> : un WebContents à part, avec
+      // sa propre session, que l'agent pilote sans toucher au navigateur de la
+      // personne. `will-attach-webview` ci-dessous fixe ce qu'elle a le droit
+      // d'être — l'attribut ne dit pas « le rendu peut tout », il dit « le rendu
+      // peut en demander une ».
+      webviewTag: true,
       spellcheck: false,
     },
+  })
+
+  // Ce qu'une <webview> a le droit d'être, décidé ici et pas dans le HTML qui
+  // la demande : les préférences arrivent du rendu, et un rendu compromis
+  // demanderait Node dans la page qu'il affiche. On les remplace.
+  win.webContents.on("will-attach-webview", (_event, webPreferences, params) => {
+    delete webPreferences.preload
+    webPreferences.nodeIntegration = false
+    webPreferences.contextIsolation = true
+    webPreferences.sandbox = true
+    webPreferences.webSecurity = true
+    // Une seule session, la sienne : ni celle de l'application, ni celle du
+    // navigateur de la personne.
+    params.partition = BROWSER_PARTITION
+    params.allowpopups = "false"
   })
 
   // Showing only once the first frame is painted avoids the white flash that
@@ -229,6 +250,14 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+Shift+A",
           click: (_item, win) => send(win as BrowserWindow, "menu:toggle-agent"),
         },
+        {
+          // La même commande que celle qu'un agent déclenche : l'onglet
+          // navigateur n'appartient pas à l'agent, c'est l'onglet de la
+          // personne, qu'un agent peut aussi ouvrir.
+          label: "Test Browser",
+          accelerator: "CmdOrCtrl+Shift+B",
+          click: (_item, win) => send(win as BrowserWindow, "browser:open"),
+        },
         { type: "separator" },
         { role: "reload" },
         { role: "toggleDevTools" },
@@ -298,8 +327,25 @@ if (!app.requestSingleInstanceLock()) {
     // configuration MCP d'un tour d'agent est écrite au moment du tour, et elle
     // ne peut nommer que ce qui écoute déjà. Il rend toutes les fenêtres
     // ouvertes, pas seulement la principale — l'app en a une par projet.
-    void startShotsServer(() => BrowserWindow.getAllWindows()).catch((err) => {
+    void startShotsServer(() => BrowserWindow.getAllWindows(), browserHost).catch((err) => {
       console.error("[shots] le serveur de capture n'a pas démarré:", err)
+    })
+
+    // Ce qui rate dans la page du navigateur de test. Seulement ce qui rate :
+    // une page ordinaire fait des centaines de requêtes réussies, et elles
+    // chasseraient du journal la seule qui explique la panne.
+    const browsing = session.fromPartition(BROWSER_PARTITION)
+    // Aucune permission accordée dans le navigateur de test : ni caméra, ni
+    // micro, ni position, ni notifications. Un agent qui clique dans une page
+    // n'est pas quelqu'un qui peut dire oui à sa place.
+    browsing.setPermissionRequestHandler((_contents, _permission, callback) => callback(false))
+    browsing.webRequest.onCompleted((details) => {
+      if (!details.webContentsId || details.statusCode < 400) return
+      noteRequest(details.webContentsId, { url: details.url, status: details.statusCode })
+    })
+    browsing.webRequest.onErrorOccurred((details) => {
+      if (!details.webContentsId) return
+      noteRequest(details.webContentsId, { url: details.url, status: 0, error: details.error })
     })
 
     registerIpc(buildMenu)

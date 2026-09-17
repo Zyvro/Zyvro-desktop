@@ -65,3 +65,10 @@ window.zyvro.menu.onToggleTerminal(() => {
 window.zyvro.menu.onToggleAgent(() => {
   useWorkspace.getState().togglePanel("agent")
 })
+
+// Un agent a demandé une page. Ce n'est pas un élément de menu, mais c'est la
+// même mécanique — un événement du processus principal qui touche le magasin —
+// et l'onglet doit exister avant que la vue puisse s'annoncer.
+window.zyvro.browser.onOpen(() => {
+  useWorkspace.getState().openBrowser()
+})

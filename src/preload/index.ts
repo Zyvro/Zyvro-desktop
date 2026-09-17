@@ -125,6 +125,16 @@ const api = {
     onExit: (cb: (p: { id: string; code: number }) => void): Unsubscribe => on("terminal:exit", cb),
   },
 
+  // Le navigateur de test. Le rendu monte la vue et annonce son contenu ; le
+  // processus principal lui demande d'ouvrir l'onglet quand un agent le
+  // réclame.
+  browser: {
+    attach: (contentsId: number): Promise<boolean> => ipcRenderer.invoke("browser:attach", contentsId),
+    visited: (contentsId: number, url: string): Promise<boolean> =>
+      ipcRenderer.invoke("browser:visited", contentsId, url),
+    onOpen: (cb: () => void): Unsubscribe => on("browser:open", cb),
+  },
+
   agent: {
     send: (
       kind: AgentKind,
