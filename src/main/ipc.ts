@@ -11,7 +11,17 @@ import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type BrowserHost } from "./shots"
-import { guestForWindow, noteVisit, openViews, registerGuest, waitForGuest, type Guest } from "./browser"
+import {
+  attachDevTools,
+  guestForWindow,
+  hideDevTools,
+  noteVisit,
+  openViews,
+  registerGuest,
+  showDevTools,
+  waitForGuest,
+  type Guest,
+} from "./browser"
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
@@ -325,6 +335,29 @@ export function registerIpc(onRecents?: () => void): void {
 
   // Ce que la personne a ouvert elle-même : un accord explicite, pour cette
   // origine et pour cette session. C'est l'une des trois portes de la politique.
+  // La vue d'accueil des outils : le rendu la monte sous la page et l'annonce
+  // ici. Elle est séparée de la page parce qu'elle n'existe qu'au moment où
+  // quelqu'un demande les outils.
+  ipcMain.handle("browser:devtools-host", async (event, pageId: number, hostId: number) => {
+    requireWorkspace(event)
+    const host = webContents.fromId(Number(hostId))
+    if (!host || host.getType() !== "webview") throw new Error("that is not a devtools view")
+    attachDevTools(Number(pageId), host)
+    return true
+  })
+
+  // Ouvrir et fermer, pour le bouton de la barre du navigateur : le clic droit
+  // n'est pas le seul chemin, et un panneau qu'on ne sait pas refermer est un
+  // panneau qui reste ouvert.
+  ipcMain.handle("browser:devtools", async (event, contentsId: number, open: boolean) => {
+    requireWorkspace(event)
+    const guest = openViews().find((g) => g.id === Number(contentsId))
+    if (!guest) throw new Error("no such browser view")
+    if (open) await showDevTools(guest)
+    else hideDevTools(guest)
+    return true
+  })
+
   ipcMain.handle("browser:visited", async (event, contentsId: number, url: string) => {
     requireWorkspace(event)
     noteVisit(Number(contentsId), String(url))

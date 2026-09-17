@@ -177,7 +177,7 @@ export const browserOpenTool = {
   name: TOOL_BROWSER_OPEN,
   description:
     "Open a page in Zyvro Studio's own test browser — a tab inside the IDE, with its own session, so it never touches the user's browser or their logins. " +
-    "Goes to localhost, to origins the user opened themselves in that tab, and to those listed in the project's .zyvro/browser.json. " +
+    "Any http or https address, unless the project narrows it with a .zyvro/browser.json allow list. " +
     "Pass go instead of url to move through this tab's history.",
   inputSchema: {
     type: "object",

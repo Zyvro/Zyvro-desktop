@@ -30,7 +30,25 @@ const ROOT = path.resolve(import.meta.dirname, "..")
 const dir = path.join(ROOT, "node_modules", ".zyvro-browser-check")
 mkdirSync(dir, { recursive: true })
 
-writeFileSync(path.join(dir, "electron.js"), `module.exports = { app: {}, BrowserWindow: {} }\n`)
+// Le faux electron : le module n'est plus seulement des types ici — le menu
+// contextuel construit un vrai menu. On retient ce qu'on lui demande de
+// construire, ce qui est justement ce qu'on veut vérifier.
+writeFileSync(
+  path.join(dir, "electron.js"),
+  `let built = null
+   module.exports = {
+     app: {},
+     BrowserWindow: { fromId: () => null },
+     clipboard: { text: "", writeText(t) { this.text = t } },
+     Menu: {
+       built: () => built,
+       buildFromTemplate(template) {
+         built = template
+         return { popup() {} }
+       },
+     },
+   }\n`
+)
 writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${path.join(ROOT, "src/main/browser").replace(/\\/g, "/")}"\n` +
@@ -95,6 +113,25 @@ function fakeContents(id, page = {}) {
         this.forward++
       },
     },
+    devTools: null,
+    inspected: null,
+    isDevToolsOpened() {
+      return this.devTools !== null
+    },
+    openDevTools(opts) {
+      this.devTools = opts?.mode ?? "docked"
+    },
+    setDevToolsTitle() {},
+    docked: null,
+    setDevToolsWebContents(host) {
+      this.docked = host
+    },
+    closeDevTools() {
+      this.devTools = null
+    },
+    inspectElement(x, y) {
+      this.inspected = { x, y }
+    },
     getURL: () => page.url || "http://localhost:3000/",
     getTitle: () => page.title || "Ma page",
     reloaded: 0,
@@ -135,32 +172,21 @@ function fakeContents(id, page = {}) {
 }
 
 // ---- la politique --------------------------------------------------------
+//
+// Le web est ouvert, et c'est un changement d'avis assumé : le même agent a un
+// shell, donc `curl`. Fermer le navigateur n'empêchait rien — ça empêchait
+// l'agent de faire son travail. Ce qui reste refusé vise la machine, pas le web.
 {
   const empty = { visited: new Set(), projectDir: null }
   check("la boucle locale est la porte de tous les jours", browser.allowed("http://localhost:3000/x", empty).ok)
   check("et son adresse numérique aussi", browser.allowed("http://127.0.0.1:5173", empty).ok)
   check("n'importe quel port", browser.allowed("http://localhost:61234", empty).ok)
-
-  const refused = browser.allowed("https://exemple.test/page", empty)
-  check("**un site quelconque est refusé**", refused.ok === false)
-  check(
-    "et le refus dit comment l'autoriser",
-    !refused.ok && refused.why.includes("exemple.test") && refused.why.includes(".zyvro/browser.json"),
-    refused.why
-  )
+  check("**et le web, puisque c'est un navigateur**", browser.allowed("https://google.com/", empty).ok)
 
   // file: donnerait la machine à l'agent, pas une page à vérifier.
   for (const bad of ["file:///etc/passwd", "data:text/html,<b>x", "javascript:alert(1)", "pas une adresse"]) {
     check(`**${bad.slice(0, 22)} est refusé**`, browser.allowed(bad, empty).ok === false)
   }
-
-  // Ce que la personne a ouvert elle-même, et seulement cette origine.
-  const visited = { visited: new Set(["https://exemple.test"]), projectDir: null }
-  check("ce que la personne a ouvert, l'agent peut le rouvrir", browser.allowed("https://exemple.test/autre", visited).ok)
-  check(
-    "**et cet accord ne vaut que pour cette origine**",
-    browser.allowed("https://ailleurs.test/", visited).ok === false
-  )
 }
 
 // ---- la liste du projet --------------------------------------------------
@@ -169,27 +195,35 @@ function fakeContents(id, page = {}) {
   rmSync(project, { recursive: true, force: true })
   mkdirSync(path.join(project, ".zyvro"), { recursive: true })
 
-  check("sans fichier, rien de plus", browser.projectAllowList(project).length === 0)
+  const here = (over = {}) => ({ visited: new Set(), projectDir: project, ...over })
+
+  check("sans fichier, aucune restriction", browser.projectAllowList(project).length === 0)
+  check("et le web reste ouvert", browser.allowed("https://exemple.test/", here()).ok)
 
   writeFileSync(path.join(project, ".zyvro", "browser.json"), "{ ceci n'est pas du json")
-  check("**un fichier illisible n'ouvre aucune porte**", browser.projectAllowList(project).length === 0)
+  check("**un fichier illisible ne restreint rien**", browser.projectAllowList(project).length === 0)
+  check("le web reste ouvert", browser.allowed("https://exemple.test/", here()).ok)
+
+  // Une liste *réduit* : c'est le geste d'un projet qui veut se tenir à
+  // quelques adresses, et il doit être explicite pour prendre effet.
+  writeFileSync(path.join(project, ".zyvro", "browser.json"), JSON.stringify({ allow: ["https://exemple.test"] }))
+  check("une origine listée est ouverte", browser.allowed("https://exemple.test/x", here()).ok)
+  check("**et ce qui n'y est pas ne l'est plus**", browser.allowed("https://ailleurs.test/x", here()).ok === false)
+  check("la boucle locale passe toujours", browser.allowed("http://localhost:3000/", here()).ok)
   check(
-    "et le site reste refusé",
-    browser.allowed("https://exemple.test/", { visited: new Set(), projectDir: project }).ok === false
+    "ce que la personne a ouvert elle-même passe aussi",
+    browser.allowed("https://ailleurs.test/x", here({ visited: new Set(["https://ailleurs.test"]) })).ok
+  )
+  const refused = browser.allowed("https://ailleurs.test/x", here())
+  check(
+    "et le refus dit comment l'ouvrir",
+    !refused.ok && refused.why.includes(".zyvro/browser.json") && refused.why.includes("remove the file"),
+    refused.why
   )
 
-  writeFileSync(path.join(project, ".zyvro", "browser.json"), JSON.stringify({ allow: ["https://exemple.test"] }))
-  check("une origine listée est ouverte", browser.allowed("https://exemple.test/x", { visited: new Set(), projectDir: project }).ok)
-  check(
-    "une autre ne l'est pas pour autant",
-    browser.allowed("https://ailleurs.test/x", { visited: new Set(), projectDir: project }).ok === false
-  )
   // Relu à chaque demande : éditer le fichier doit suffire.
   writeFileSync(path.join(project, ".zyvro", "browser.json"), JSON.stringify({ allow: [] }))
-  check(
-    "**le fichier est relu à chaque demande**",
-    browser.allowed("https://exemple.test/x", { visited: new Set(), projectDir: project }).ok === false
-  )
+  check("**le fichier est relu à chaque demande**", browser.allowed("https://ailleurs.test/x", here()).ok)
   rmSync(project, { recursive: true, force: true })
 }
 
@@ -424,6 +458,74 @@ function fakeContents(id, page = {}) {
   check("et dit laquelle est servie", listed.find((v) => v.serving)?.view === "browser:2")
 }
 
+// ---- le clic droit -------------------------------------------------------
+//
+// Une page qu'on regarde sans pouvoir l'inspecter n'est pas un navigateur de
+// développement. Ce qui casse ici : un élément qui apparaît au mauvais moment —
+// « Coller » sur une page sans champ, « Copier le lien » là où il n'y a pas de
+// lien — parce que c'est la forme des paramètres qui le décide.
+{
+  browser.forgetGuests()
+  const contents = fakeContents(50)
+  const guest = browser.registerGuest(contents, 30, "browser:1")
+  const params = (over = {}) => ({
+    x: 10,
+    y: 20,
+    linkURL: "",
+    srcURL: "",
+    mediaType: "none",
+    selectionText: "",
+    isEditable: false,
+    ...over,
+  })
+
+  // Le menu est branché sur la vue : sans cet écouteur, tout le reste est du
+  // code que personne n'appelle.
+  check("**le clic droit est écouté**", contents.listeners.has("context-menu"))
+  // Et il construit un menu sans se plaindre : l'écouteur va jusqu'au bout,
+  // avec des paramètres de la forme que Chromium envoie.
+  let built = true
+  try {
+    contents.emit("context-menu", {}, params())
+  } catch (err) {
+    built = String(err)
+  }
+  check("et il ouvre un menu sans broncher", built === true, String(built))
+
+  const plain = browser.contextTemplate(guest, params()).map((i) => i.label)
+  check("**inspecter est toujours là**", plain.includes("Inspect"), plain.join(", "))
+  check("les outils aussi", plain.includes("Developer tools"))
+  check("et de quoi revenir sur ses pas", plain.includes("Back") && plain.includes("Reload"))
+  check("rien à coller sur une page qui n'a pas de champ", !plain.includes("Paste"))
+  check("rien à copier sans sélection", !plain.includes("Copy"))
+
+  const onLink = browser.contextTemplate(guest, params({ linkURL: "http://localhost:3000/a" })).map((i) => i.label)
+  check("**sur un lien, on peut copier son adresse**", onLink.includes("Copy link address"))
+  const inField = browser.contextTemplate(guest, params({ isEditable: true })).map((i) => i.label)
+  check("dans un champ, couper et coller", inField.includes("Paste") && inField.includes("Cut"))
+  const selected = browser.contextTemplate(guest, params({ selectionText: "bonjour" })).map((i) => i.label)
+  check("avec une sélection, copier", selected.includes("Copy"))
+
+  // Le geste entier : « Inspecter » se place sur l'élément visé, comme dans
+  // Chrome. Ouvrir les outils et laisser chercher n'est pas la même chose.
+  const inspect = browser.contextTemplate(guest, params({ x: 33, y: 44 })).find((i) => i.label === "Inspect")
+  await browser.inspectAt(guest, 33, 44)
+  check("**inspecter vise l'élément**", contents.inspected?.x === 33 && contents.inspected?.y === 44, JSON.stringify(contents.inspected))
+  check("et le clic du menu fait le même geste", typeof inspect.click === "function")
+
+  // Les outils se dessinent dans la vue que le rendu monte sous la page, pas
+  // dans une fenêtre du système : on referme l'application en croyant fermer
+  // les outils, et on les cherche derrière les autres fenêtres.
+  const host = fakeContents(51)
+  browser.attachDevTools(guest.id, host)
+  await browser.showDevTools(guest)
+  check("**les outils se dessinent dans la fenêtre du navigateur**", contents.docked === host, String(contents.docked))
+  check("et ils sont ouverts", contents.devTools === "detach")
+
+  browser.hideDevTools(guest)
+  check("et se referment", contents.devTools === null)
+}
+
 // ---- les outils, par le serveur -----------------------------------------
 {
   browser.forgetGuests()
@@ -457,7 +559,7 @@ function fakeContents(id, page = {}) {
   )
   check("et la capture d'écran de l'app est toujours là", names.includes("zyvro_screenshot"))
 
-  const evil = await call("zyvro_browser_open", { url: "https://exemple.test" })
+  const evil = await call("zyvro_browser_open", { url: "file:///etc/passwd" })
   check("**une adresse refusée revient en erreur d'outil**", evil.result.isError === true)
   check("sans que la vue ait bougé", contents.loaded.length === 0)
 
@@ -473,7 +575,7 @@ function fakeContents(id, page = {}) {
 
 console.log(
   failures === 0
-    ? "\nL'agent a son navigateur, il ne va que là où on l'a laissé aller, et ce qu'il clique est vraiment cliqué."
+    ? "\nL'agent a son navigateur, ce qu'il clique est vraiment cliqué, et les outils s'ouvrent dans la fenêtre."
     : `\n${failures} échec(s)`
 )
 process.exit(failures === 0 ? 0 : 1)

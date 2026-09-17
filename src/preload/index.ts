@@ -133,10 +133,17 @@ const api = {
       ipcRenderer.invoke("browser:attach", contentsId, tabId),
     visited: (contentsId: number, url: string): Promise<boolean> =>
       ipcRenderer.invoke("browser:visited", contentsId, url),
+    devtoolsHost: (pageId: number, hostId: number): Promise<boolean> =>
+      ipcRenderer.invoke("browser:devtools-host", pageId, hostId),
+    devtools: (contentsId: number, open: boolean): Promise<boolean> =>
+      ipcRenderer.invoke("browser:devtools", contentsId, open),
     // `view` dit laquelle : un identifiant d'onglet pour piloter celle-là, la
     // chaîne vide pour réutiliser celle qui est ouverte, « new » pour en ouvrir
     // une de plus.
     onOpen: (cb: (payload: { view: string }) => void): Unsubscribe => on("browser:open", cb),
+    // Le processus principal demande la vue d'accueil des outils avant de
+    // pouvoir les y dessiner : c'est le rendu qui la monte.
+    onDevtoolsOpen: (cb: (payload: { view: string }) => void): Unsubscribe => on("browser:devtools-open", cb),
   },
 
   agent: {

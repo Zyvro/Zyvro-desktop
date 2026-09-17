@@ -1,7 +1,8 @@
 import { useCallback, useRef, useState } from "react"
-import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react"
+import { ArrowLeft, ArrowRight, Code2, RotateCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
+import { Splitter } from "~/panels/Splitter"
 
 // Le navigateur de test : un onglet de l'IDE, et la page que l'agent pilote.
 //
@@ -25,6 +26,13 @@ import { useWorkspace } from "~/state/workspace"
 // donne l'air d'être cassé avant même d'avoir servi.
 const BLANK = "about:blank"
 
+// La même chaîne que dans le processus principal, qui s'en sert pour
+// reconnaître la vue des outils au moment où elle s'attache. Elle est courte et
+// elle voyage par le DOM : la partager par un module que le rendu et le
+// principal importeraient tous les deux ferait entrer electron dans le bundle
+// du rendu.
+const DEVTOOLS_PARTITION = "zyvro-devtools"
+
 type Guest = Electron.WebviewTag
 
 export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
@@ -37,6 +45,11 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
   const setBrowserPage = useWorkspace((s) => s.setBrowserPage)
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState<Guest | null>(null)
+  // Les outils vivent dans cette fenêtre-ci, sous la page. Ouverts dans une
+  // fenêtre du système, on referme l'application en croyant fermer les outils,
+  // et on les cherche derrière les autres fenêtres.
+  const [tools, setTools] = useState(false)
+  const [toolsHeight, setToolsHeight] = useState(320)
   // Une <webview> n'est pas interrogeable avant `dom-ready` : `canGoBack` y
   // lève, et une exception pendant le rendu emporte l'arbre entier. L'élément
   // existe donc avant d'être utilisable, et ces deux états sont distincts.
@@ -89,12 +102,30 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
       setBrowserPage(tabId, here, here ? node.getTitle() : "", here ? undefined : "")
     }
 
+    // Les événements de la vue restent écoutés en second : ils confirment ce
+    // que le bouton a déjà fait, et ils rattrapent une ouverture venue d'ailleurs
+    // — le clic droit, « Inspecter » — qui ne passe pas par lui.
+    const opened = () => setTools(true)
+    const closed = () => setTools(false)
+
+    // Le principal demande la vue d'accueil des outils quand il en a besoin —
+    // le clic droit, « Inspecter », le bouton. Elle se monte alors, s'annonce,
+    // et il y dessine son front-end.
+    const offAsk = window.zyvro.browser.onDevtoolsOpen((payload) => {
+      if (payload?.view === tabId) setTools(true)
+    })
+
     node.addEventListener("dom-ready", attached)
+    node.addEventListener("devtools-opened", opened)
+    node.addEventListener("devtools-closed", closed)
     node.addEventListener("did-start-loading", started)
     node.addEventListener("page-favicon-updated", icon)
     node.addEventListener("did-stop-loading", stopped)
     teardown.current = () => {
+      offAsk()
       node.removeEventListener("dom-ready", attached)
+      node.removeEventListener("devtools-opened", opened)
+      node.removeEventListener("devtools-closed", closed)
       node.removeEventListener("did-start-loading", started)
       node.removeEventListener("page-favicon-updated", icon)
       node.removeEventListener("did-stop-loading", stopped)
@@ -113,6 +144,35 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
     view.loadURL(full).catch(() => {
       // L'échec s'affiche dans la page elle-même, comme dans un navigateur.
     })
+  }
+
+  // La vue d'accueil des outils, montée une fois pour toutes avec la page :
+  // Electron refuse d'y dessiner son front-end si elle a déjà navigué, donc
+  // elle reste vide jusqu'à ce qu'il s'en serve.
+  const attachTools = useCallback(
+    (node: Guest | null) => {
+      if (!node || !view || !ready) return
+      // Une seule fois : le type des événements de <webview> ne connaît pas
+      // `{ once: true }`, donc l'écouteur se retire lui-même.
+      const announce = () => {
+        node.removeEventListener("dom-ready", announce)
+        void window.zyvro.browser.devtoolsHost(view.getWebContentsId(), node.getWebContentsId())
+      }
+      node.addEventListener("dom-ready", announce)
+    },
+    [view, ready]
+  )
+
+  const toggleTools = (): void => {
+    if (!view || !ready) return
+    // Le panneau suit le geste, sans attendre de confirmation. À l'ouverture il
+    // doit de toute façon être monté avant que le principal puisse y dessiner ;
+    // à la fermeture, l'événement `devtools-closed` n'arrive pas toujours quand
+    // les outils sont hébergés par une autre vue, et un panneau qui reste
+    // ouvert après qu'on a cliqué sur « fermer » est un bouton cassé.
+    const next = !tools
+    setTools(next)
+    void window.zyvro.browser.devtools(view.getWebContentsId(), next)
   }
 
   const can = (what: "back" | "forward"): boolean => {
@@ -164,6 +224,19 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
             className="h-7 w-full rounded-md border border-white/[0.08] bg-white/[0.03] px-2.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground focus:border-white/20"
           />
         </form>
+        {/* Le clic droit n'est pas le seul chemin, et un panneau qu'on ne sait
+            pas refermer est un panneau qui reste ouvert. */}
+        <button
+          type="button"
+          title={tools ? "Close developer tools" : "Developer tools — Elements, Console, Network, Application"}
+          onClick={toggleTools}
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors hover:bg-white/[0.06]",
+            tools ? "bg-white/[0.08] text-foreground" : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          <Code2 className="h-3.5 w-3.5" />
+        </button>
       </div>
 
       {/* eslint-disable-next-line react/no-unknown-property */}
@@ -175,6 +248,28 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
         // décident de la même chose, et c'est celui d'en face qui gagne.
         className="min-h-0 flex-1 bg-white"
       />
+
+      {/* Les outils, sous la page, dans la même fenêtre. La vue reste montée
+          une fois qu'elle a servi : Electron n'accepte d'y dessiner son
+          front-end que tant qu'elle n'a pas navigué ailleurs, et la remonter à
+          chaque ouverture reviendrait à la lui reprendre. */}
+      {tools && (
+        <>
+          <Splitter
+            orientation="horizontal"
+            onResize={(delta) => setToolsHeight((h) => Math.min(900, Math.max(120, h - delta)))}
+          />
+          <div className="shrink-0" style={{ height: toolsHeight }}>
+            {/* eslint-disable-next-line react/no-unknown-property */}
+            <webview
+              ref={attachTools}
+              src="about:blank"
+              partition={DEVTOOLS_PARTITION}
+              className="h-full w-full bg-[#282828]"
+            />
+          </div>
+        </>
+      )}
     </div>
   )
 }

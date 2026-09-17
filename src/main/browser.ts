@@ -1,4 +1,4 @@
-import type { BrowserWindow, WebContents } from "electron"
+import { BrowserWindow, Menu, clipboard, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from "electron"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
@@ -22,6 +22,14 @@ import path from "node:path"
 
 export const BROWSER_PARTITION = "persist:zyvro-browser"
 
+// La session des outils de développement, distincte de celle des pages.
+//
+// Elle sert à les reconnaître au moment où le rendu les attache : une vue de
+// page reçoit la session du navigateur, un cadenas et aucune permission ; le
+// front-end des outils, lui, est du code de Chromium qu'on ne doit pas brider
+// comme une page inconnue.
+export const DEVTOOLS_PARTITION = "zyvro-devtools"
+
 export const TOOL_BROWSER_OPEN = "zyvro_browser_open"
 export const TOOL_BROWSER_READ = "zyvro_browser_read"
 export const TOOL_BROWSER_CLICK = "zyvro_browser_click"
@@ -36,18 +44,26 @@ export const TOOL_BROWSER_EVAL = "zyvro_browser_eval"
 
 // ---- la politique -------------------------------------------------------
 //
-// Un navigateur piloté par un agent qui peut aller n'importe où est aussi un
-// moyen de faire sortir ce qu'il a lu. Trois portes, et rien d'autre :
+// Le web est ouvert, et c'est un changement d'avis assumé.
 //
-//   1. La boucle locale. C'est l'usage : « vérifie que ma page marche ».
-//   2. Ce que la personne a ouvert elle-même dans cet onglet. Taper une adresse
-//      dans la barre est un accord explicite, pour cette origine.
-//   3. Une liste dans `.zyvro/browser.json`, versionnée avec le projet, donc
-//      lisible et relue comme le reste du dépôt.
+// La première version n'autorisait que la boucle locale et une liste. L'idée
+// était d'empêcher qu'un agent fasse sortir ce qu'il a lu. Elle ne tient pas :
+// le même agent a un shell et une CLI, donc `curl` et `fetch` vers n'importe
+// quelle adresse. Fermer le navigateur n'empêchait rien — ça empêchait
+// seulement l'agent de faire son travail, et « google.com n'est pas autorisé »
+// est une phrase qui n'a protégé personne.
 //
-// Ce que ça n'attrape pas, et il vaut mieux le dire : une page autorisée peut
-// emmener ailleurs par un clic sur un lien. La politique tient les adresses que
-// l'agent demande, pas ce qu'une page décide ensuite.
+// Alors : http et https, partout, comme un navigateur. Ce qui reste refusé,
+// c'est ce qui vise la machine et non le web — `file:`, `data:`, `javascript:`.
+//
+// Un projet qui veut se restreindre le dit dans `.zyvro/browser.json` :
+// `{"allow": ["https://example.com"]}` réduit l'agent à cette liste, plus la
+// boucle locale et ce que la personne a ouvert elle-même. Versionné avec le
+// projet, donc lisible et relu comme le reste du dépôt.
+//
+// Ce que ça n'attrape pas, dans les deux cas : une page peut emmener ailleurs
+// par un lien. La politique tient les adresses que l'agent demande, pas ce
+// qu'une page décide ensuite.
 
 export type Policy = {
   /** Les origines que la personne a ouvertes elle-même, cette session. */
@@ -98,17 +114,19 @@ export function allowed(url: string, policy: Policy): { ok: true; url: string } 
   }
   if (isLoopback(parsed.hostname)) return { ok: true, url: parsed.toString() }
 
-  const origin = parsed.origin
-  if (policy.visited.has(origin)) return { ok: true, url: parsed.toString() }
-
+  // Sans liste dans le projet, le web est ouvert : c'est un navigateur.
   const list = projectAllowList(policy.projectDir)
+  if (list.length === 0) return { ok: true, url: parsed.toString() }
+
+  const origin = parsed.origin
   if (list.includes(origin) || list.includes("*")) return { ok: true, url: parsed.toString() }
+  if (policy.visited.has(origin)) return { ok: true, url: parsed.toString() }
 
   return {
     ok: false,
     why:
-      `${origin} is not open to the agent. The test browser goes to localhost, to what you opened yourself in ` +
-      `its address bar, and to the origins listed in .zyvro/browser.json — {"allow": ["${origin}"]}.`,
+      `${origin} is not in this project's browser allow list (.zyvro/browser.json). ` +
+      `Add it — {"allow": ["${origin}"]} — or remove the file to let the agent browse freely.`,
   }
 }
 
@@ -120,6 +138,8 @@ export type RequestLine = { url: string; status: number; error?: string }
 export type Guest = {
   /** L'identifiant du WebContents de la vue, tel que le rendu le donne. */
   id: number
+  /** La vue vide où dessiner les outils, quand le rendu en a monté une. */
+  devtools?: WebContents
   /** L'identifiant de l'onglet — « browser:2 » — qu'un agent emploie pour dire
    *  laquelle il pilote, et que la barre latérale affiche. */
   view: string
@@ -180,9 +200,118 @@ export function registerGuest(contents: WebContents, windowId: number, view = ""
     return { action: "deny" }
   })
 
+  // Le clic droit, et ce qu'on y trouve.
+  //
+  // Une page qu'on regarde sans pouvoir l'inspecter n'est pas un navigateur de
+  // développement : c'est une capture d'écran interactive. Les outils de
+  // Chromium sont déjà là — Electron *est* Chromium — il n'y a qu'à les ouvrir
+  // sur la bonne vue, au bon élément.
+  contents.on("context-menu", (_event, params) => {
+    const window = BrowserWindow.fromId(guest.windowId) ?? undefined
+    Menu.buildFromTemplate(contextTemplate(guest, params)).popup(window ? { window } : {})
+  })
+
   contents.on("destroyed", () => guests.delete(guest.id))
 
   return guest
+}
+
+// contextTemplate : ce que le clic droit propose, et rien de plus.
+//
+// Le nécessaire, dans l'ordre où on s'en sert : revenir sur ses pas, copier ce
+// qu'on vise, et ouvrir les outils. Un menu qui propose vingt choses est un
+// menu qu'on relit à chaque fois.
+//
+// Sorti en fonction pour être vérifiable sans écran : ce qui casse ici, c'est
+// qu'un élément apparaisse au mauvais moment — « Coller » sur une page qui n'a
+// pas de champ, « Copier le lien » là où il n'y a pas de lien — et c'est la
+// forme des paramètres qui le décide.
+export function contextTemplate(guest: Guest, params: ContextMenuParams): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = []
+  const hasLink = Boolean(params.linkURL)
+  const hasSelection = params.selectionText.trim() !== ""
+
+  if (hasLink) {
+    items.push(
+      { label: "Open link", click: () => void guest.contents.loadURL(params.linkURL) },
+      { label: "Copy link address", click: () => clipboard.writeText(params.linkURL) },
+      { type: "separator" }
+    )
+  }
+  if (params.mediaType === "image" && params.srcURL) {
+    items.push({ label: "Copy image address", click: () => clipboard.writeText(params.srcURL) }, { type: "separator" })
+  }
+  if (hasSelection) {
+    items.push({ label: "Copy", role: "copy" })
+  }
+  if (params.isEditable) {
+    // Les rôles plutôt que des actions écrites à la main : ils portent les
+    // raccourcis du système et l'état grisé quand il n'y a rien à coller.
+    items.push({ label: "Cut", role: "cut" }, { label: "Paste", role: "paste" }, { label: "Select all", role: "selectAll" })
+  }
+  if (items.length > 0 && items[items.length - 1].type !== "separator") {
+    items.push({ type: "separator" })
+  }
+
+  items.push(
+    { label: "Back", enabled: canGo(guest, "back"), click: () => navigate(guest, "back") },
+    { label: "Forward", enabled: canGo(guest, "forward"), click: () => navigate(guest, "forward") },
+    { label: "Reload", click: () => navigate(guest, "reload") },
+    { type: "separator" },
+    // « Inspecter » ouvre sur l'élément visé, comme dans Chrome : c'est le
+    // geste entier, pas « ouvrez les outils puis cherchez ».
+    { label: "Inspect", click: () => void inspectAt(guest, params.x, params.y) },
+    { label: "Developer tools", click: () => void showDevTools(guest) }
+  )
+  return items
+}
+
+// showDevTools ouvre les outils de Chromium sur cette vue : Elements, Console,
+// Network, Application — le vrai front-end, pas une imitation.
+//
+// Dans une fenêtre à part, et c'est le seul choix possible ici : une vue
+// invitée n'a pas de fenêtre à elle où s'ancrer, et les ancrer dans celle de
+// l'application les mettrait par-dessus l'éditeur.
+export async function showDevTools(guest: Guest): Promise<void> {
+  if (guest.contents.isDestroyed()) return
+  if (guest.contents.isDevToolsOpened()) {
+    guest.contents.devToolsWebContents?.focus()
+    return
+  }
+  await dock(guest)
+  if (guest.contents.isDestroyed()) return
+  guest.contents.openDevTools({ mode: "detach" })
+}
+
+export async function inspectAt(guest: Guest, x: number, y: number): Promise<void> {
+  if (guest.contents.isDestroyed()) return
+  await dock(guest)
+  if (guest.contents.isDestroyed()) return
+  // inspectElement ouvre les outils si besoin, et se place sur l'élément.
+  guest.contents.inspectElement(Math.round(x), Math.round(y))
+}
+
+export function hideDevTools(guest: Guest): void {
+  if (!guest.contents.isDestroyed() && guest.contents.isDevToolsOpened()) guest.contents.closeDevTools()
+}
+
+// dock range les outils dans la fenêtre du navigateur plutôt que dans une
+// fenêtre à part.
+//
+// Le rendu monte une seconde vue vide sous la page et nous en donne le contenu ;
+// Electron accepte de dessiner son front-end dedans. Sans elle, les outils
+// s'ouvrent dans une fenêtre du système : ça marche, et ça sort de l'IDE — on
+// referme l'application en croyant fermer les outils, on cherche la fenêtre
+// derrière les autres.
+//
+// Le repli reste la fenêtre à part : une vue d'accueil qui n'est pas là ne doit
+// pas valoir « pas d'outils du tout ».
+async function dock(guest: Guest): Promise<void> {
+  if (guest.contents.isDevToolsOpened()) return
+  const host = await hostFor(guest)
+  if (!host || host.isDestroyed() || guest.contents.isDestroyed()) return
+  if (guest.contents.isDevToolsOpened()) return
+  guest.contents.setDevToolsWebContents(host)
 }
 
 export function noteRequest(guestId: number, line: RequestLine): void {
@@ -192,6 +321,55 @@ export function noteRequest(guestId: number, line: RequestLine): void {
 
 // noteVisit enregistre ce que la personne a ouvert elle-même. C'est l'accord
 // explicite dont la politique parle, et il ne vaut que pour cette origine.
+// attachDevTools : le rendu annonce la vue d'accueil des outils.
+//
+// Elle est annoncée séparément de la page parce qu'elle n'existe pas au même
+// moment : la page se monte tout de suite, l'accueil des outils seulement
+// quand quelqu'un les demande.
+export function attachDevTools(guestId: number, host: WebContents): void {
+  const guest = guests.get(guestId)
+  if (!guest) return
+  guest.devtools = host
+  const promised = waitingTools.get(guestId)
+  if (promised) {
+    waitingTools.delete(guestId)
+    for (const resolve of promised) resolve(host)
+  }
+}
+
+// Qui attend que la vue d'accueil des outils soit montée. Même rendez-vous que
+// pour une vue de navigateur : le processus principal la demande au rendu, et
+// le rendu met une image ou deux à la monter.
+const waitingTools = new Map<number, Array<(host: WebContents) => void>>()
+
+// hostFor demande au rendu de monter l'accueil des outils, et attend.
+//
+// Il rend null plutôt que d'échouer : une vue d'accueil qui n'arrive pas ne
+// doit pas valoir « pas d'outils du tout ». Les outils s'ouvrent alors dans une
+// fenêtre à part, ce qui est le comportement d'Electron par défaut.
+async function hostFor(guest: Guest, ms = 4000): Promise<WebContents | null> {
+  if (guest.devtools && !guest.devtools.isDestroyed()) return guest.devtools
+  const window = BrowserWindow.fromId(guest.windowId)
+  if (!window || window.isDestroyed()) return null
+  window.webContents.send("browser:devtools-open", { view: guest.view })
+
+  return await new Promise<WebContents | null>((resolve) => {
+    const list = waitingTools.get(guest.id) ?? []
+    const settle = (host: WebContents) => {
+      clearTimeout(timer)
+      resolve(host)
+    }
+    list.push(settle)
+    waitingTools.set(guest.id, list)
+    const timer = setTimeout(() => {
+      const left = (waitingTools.get(guest.id) ?? []).filter((fn) => fn !== settle)
+      if (left.length === 0) waitingTools.delete(guest.id)
+      else waitingTools.set(guest.id, left)
+      resolve(null)
+    }, ms)
+  })
+}
+
 export function noteVisit(guestId: number, url: string): void {
   const guest = guests.get(guestId)
   if (!guest) return
