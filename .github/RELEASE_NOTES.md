@@ -49,6 +49,58 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.5
+
+**Models that never leave your machine.** Ollama on this computer, LM Studio,
+and any other server speaking the OpenAI chat API are providers now, for text
+generation and for vision. They are configured by an address rather than by a
+key, so the panel asks for one and fetches the model list from the server
+itself — what is installed is your business and changes whenever you pull
+something new. Asking a question about an image is the call where sending it
+away is the whole cost, and a model on your own machine is the only way not to.
+
+The same for images: any server speaking the OpenAI images API can back an
+image node, generation and editing both. Editing used to be Gemini's alone on
+the reasoning that it had no equivalent elsewhere. It has.
+
+**Providers are grouped by what they do.** Image generation, vision and text
+generation are three headings rather than two, because a provider that draws an
+image cannot always read one — and when you have more than one for a job, you
+say which is tried first.
+
+**The agent panel.** Several agents at once, each in its own tab with its own
+session; the session survives closing the app, so a conversation picks up where
+it stopped. A model picker that shows the default it would have used. Images
+you attach are handed to the CLI, which can actually open them. And what the
+agent is doing is shown as it does it — the file it is reading, the command it
+is running — rather than a spinner until it finishes.
+
+**Workflows move between projects.** Import from another project on this
+machine, share one by private link, and find everything you have put online
+under *My workflows*.
+
+**Images in the chat.** Paste, drop or pick one, and ask about it.
+
+## Fixed in alpha.5
+
+**Every image a run produced showed as broken.** The app loads media from the
+engine it started, on a port it only learns at launch, and the address being
+built still carried the placeholder port — so generated images, workflow
+thumbnails and chat attachments all pointed at nothing. A resolver for exactly
+this existed and had no callers: every component used the shared one, which is
+the point of sharing them. There is one function now, and a check in the build
+that asserts the address it produces is the live port.
+
+**Runs were sent to a backend you never configured.** Each router ended with a
+fixed name, so somebody running LM Studio and holding no key at all was told to
+go and get a key for a service they had never asked for. A rule that names
+something usable is still obeyed; one that names something unusable now gives
+way to what you actually have. Two things it was hiding: an installed `claude`
+CLI was quietly elected as the default text backend — spending your
+subscription because a binary exists is your decision, not ours — and every
+install claimed to have an Ollama, because the default address was being counted
+as a credential.
+
 ## Fixed in alpha.4
 
 **The agent could not find `claude` or `codex`.** Installed from the `.dmg` and
