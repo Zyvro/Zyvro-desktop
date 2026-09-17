@@ -5,7 +5,7 @@ import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, WorkflowRef } from "../../preload"
-import { DEFAULT_PERMISSION, type Permission } from "../../shared/permission"
+import { permissionFor, setPermissionFor, subscribePermission } from "~/state/permission"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
@@ -59,8 +59,6 @@ type Thread = {
   ranWith: string | null
   /** Which CLI this thread is talking to. */
   kind: AgentKind
-  /** Ce que cet agent a le droit de faire : regarder, travailler, tout. */
-  permission: Permission
   /** What has already been written down, so a save can be skipped. */
   saved: string
   /**
@@ -105,7 +103,6 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     model,
     ranWith: null,
     kind,
-    permission: DEFAULT_PERMISSION,
     saved: "",
     images: [],
   }
@@ -460,10 +457,6 @@ export async function restore(): Promise<void> {
     model: c.model ?? null,
     ranWith: c.ranWith ?? null,
     kind: c.kind,
-    // Ce que l'agent a le droit de faire n'est pas écrit dans la conversation :
-    // c'est un choix du moment, pas un souvenir. Une conversation rouverte
-    // demain repart du défaut plutôt que d'hériter d'un « YOLO » d'hier.
-    permission: DEFAULT_PERMISSION,
     images: [],
     saved: JSON.stringify(
       c.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
@@ -560,10 +553,6 @@ function detach(threadId: string, id: string): void {
 
 function setKind(threadId: string, kind: AgentKind): void {
   mapThread(threadId, (thread) => ({ ...thread, kind }))
-}
-
-function setPermission(threadId: string, permission: Permission): void {
-  mapThread(threadId, (thread) => ({ ...thread, permission }))
 }
 
 // answerAsk : la réponse part, la demande quitte l'écran. Les deux ensemble,
@@ -689,6 +678,14 @@ export function AgentPanel(): JSX.Element {
   const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
   const kind = thread.kind
   const asks = chat.asks
+  // Ce que l'agent a le droit de faire appartient au projet, pas à cette
+  // conversation : on le choisit en fonction du dossier dans lequel on
+  // travaille, et il est encore là demain.
+  const projectDir = project?.project ?? null
+  const permission = useSyncExternalStore(
+    subscribePermission,
+    useCallback(() => permissionFor(projectDir), [projectDir])
+  )
   const [draft, setDraft] = useState("")
 
   const composer = useRef<HTMLTextAreaElement | null>(null)
@@ -758,7 +755,7 @@ export function AgentPanel(): JSX.Element {
         threadId,
         thread.model,
         images,
-        thread.permission
+        permission
       )
       bindTurn(threadId, messageId, turnId)
     } catch (error: unknown) {
@@ -999,31 +996,16 @@ export function AgentPanel(): JSX.Element {
           </p>
         )}
 
+        {/* Deux rangées : ce qu'on écrit, puis ce qui le gouverne.
+            Sur une seule, le sélecteur de droits et le trombone mangeaient la
+            moitié d'un panneau large de 360 points — il restait une ligne de
+            texte étroite, et les trois hauteurs ne tombaient jamais juste. */}
         <div
           className={cn(
-            "flex items-end gap-2 rounded-lg border border-white/[0.06] bg-white/[0.04] px-2 py-1.5 focus-within:border-white/[0.12]",
+            "rounded-lg border border-white/[0.06] bg-white/[0.04] px-2.5 py-2 focus-within:border-white/[0.12]",
             dropping && "border-primary/60 bg-primary/[0.08]"
           )}
         >
-          {/* Ce que l'agent a le droit de faire, à côté de la question qu'on
-              lui pose : c'est là qu'on hésite, et un réglage rangé dans une
-              page de préférences est un réglage qu'on découvre en lisant
-              « permission refusée » au milieu d'une réponse. */}
-          <PermissionPicker
-            value={thread.permission}
-            kind={kind}
-            disabled={disabled}
-            onChange={(permission) => setPermission(thread.id, permission)}
-          />
-          <button
-            type="button"
-            title="Attach an image"
-            disabled={disabled}
-            onClick={() => void pick()}
-            className="mb-[1px] shrink-0 rounded p-1 text-muted-foreground hover:bg-white/[0.08] hover:text-foreground disabled:opacity-40"
-          >
-            <Paperclip className="h-3.5 w-3.5" />
-          </button>
           <textarea
             ref={composer}
             rows={1}
@@ -1036,29 +1018,53 @@ export function AgentPanel(): JSX.Element {
             }}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            className="max-h-40 min-h-[20px] flex-1 resize-none bg-transparent text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
+            className="block max-h-40 min-h-[22px] w-full resize-none bg-transparent text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
 
-          {thread.busy ? (
+          <div className="mt-1.5 flex items-center gap-1">
+            {/* Ce que l'agent a le droit de faire, sous la question qu'on lui
+                pose : c'est là qu'on hésite, et un réglage rangé dans une page
+                de préférences est un réglage qu'on découvre en lisant
+                « permission refusée » au milieu d'une réponse. */}
+            <PermissionPicker
+              value={permission}
+              kind={kind}
+              disabled={disabled}
+              onChange={(next) => setPermissionFor(projectDir, next)}
+            />
             <button
               type="button"
-              onClick={stop}
-              title="Stop"
-              className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12]"
+              title="Attach an image"
+              disabled={disabled}
+              onClick={() => void pick()}
+              className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/[0.08] hover:text-foreground disabled:opacity-40"
             >
-              <Square className="h-3 w-3" />
+              <Paperclip className="h-3.5 w-3.5" />
             </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => void send(draft)}
-              disabled={disabled || draft.trim() === ""}
-              title="Send"
-              className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12] disabled:opacity-30"
-            >
-              <ArrowUp className="h-3 w-3" />
-            </button>
-          )}
+
+            <span className="flex-1" />
+
+            {thread.busy ? (
+              <button
+                type="button"
+                onClick={stop}
+                title="Stop"
+                className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12]"
+              >
+                <Square className="h-3 w-3" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => void send(draft)}
+                disabled={disabled || draft.trim() === ""}
+                title="Send"
+                className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12] disabled:opacity-30"
+              >
+                <ArrowUp className="h-3 w-3" />
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
