@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Boxes, FolderTree, GitBranch, Settings2, Store } from "lucide-react"
+import { Boxes, FolderTree, GitBranch, Search, Settings2, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { sidebarView, useWorkspace, type Mode, type PanelKey } from "~/state/workspace"
 import { useCurrentProject, useNodeCatalogue } from "~/lib/project"
@@ -8,6 +8,7 @@ import { Explorer } from "~/panels/Explorer"
 import { GitPanel } from "~/panels/GitPanel"
 import { WorkflowList } from "~/panels/WorkflowList"
 import { BrowserList } from "~/panels/BrowserList"
+import { SearchPanel } from "~/panels/SearchPanel"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
 import { AgentPanel } from "~/panels/AgentPanel"
@@ -38,6 +39,12 @@ function ActivityBar() {
       label: "Explorer",
       active: panels.explorer,
       onClick: () => setPanel("explorer", !panels.explorer),
+    },
+    {
+      icon: Search,
+      label: "Search",
+      active: panels.search,
+      onClick: () => setPanel("search", !panels.search),
     },
     {
       icon: GitBranch,
@@ -140,11 +147,13 @@ export default function App() {
                 sur le panneau lui-même : celui qui disparaît disparaît du
                 choix, sans que rien d'autre ait à le savoir. */}
             <aside
-              data-shot-zone={view === "explorer" ? "Explorer" : "Source control"}
+              data-shot-zone={view === "explorer" ? "Explorer" : view === "search" ? "Search" : "Source control"}
               className="flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-background"
               style={{ width: sidebar }}
             >
-              {view === "explorer" ? (
+              {view === "search" ? (
+                <SearchPanel />
+              ) : view === "explorer" ? (
                 <>
                   <Explorer />
                   {/* Au-dessus des workflows : c'est ce qu'on ouvre et ferme le

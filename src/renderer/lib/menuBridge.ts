@@ -1,6 +1,7 @@
 import { useWorkspace } from "~/state/workspace"
 import { closeProject, createProject, createWorkflow, forgetRecents, openProject } from "./project"
 import { askName } from "~/state/prompt"
+import { askSearchFocus } from "~/state/reveal"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -10,7 +11,7 @@ import { askName } from "~/state/prompt"
 // The handlers here only touch the store. Anything that needs React context
 // reads the resulting state.
 
-type Command = "open-project" | "new-workflow" | "save" | "toggle-terminal" | "toggle-agent"
+type Command = "open-project" | "new-workflow" | "save" | "toggle-terminal" | "toggle-agent" | "find"
 
 const listeners = new Map<Command, Set<() => void>>()
 
@@ -64,6 +65,19 @@ window.zyvro.menu.onToggleTerminal(() => {
 })
 window.zyvro.menu.onToggleAgent(() => {
   useWorkspace.getState().togglePanel("agent")
+})
+
+// ⌘F appartient à l'éditeur ouvert : c'est lui qui a une barre de recherche, et
+// lui seul sait où est le curseur. Le menu ne fait que le lui dire.
+window.zyvro.menu.onFindInFile(() => {
+  fire("find")
+})
+
+// ⇧⌘F appartient au projet : le panneau s'ouvre et la frappe suivante atterrit
+// dans son champ, sans qu'on ait à viser.
+window.zyvro.menu.onFindInProject(() => {
+  useWorkspace.getState().setPanel("search", true)
+  askSearchFocus()
 })
 
 // Un agent a demandé une page. Ce n'est pas un élément de menu, mais c'est la

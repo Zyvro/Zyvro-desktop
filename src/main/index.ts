@@ -236,7 +236,33 @@ function buildMenu(): void {
         isMac ? { role: "close" } : { role: "quit" },
       ],
     },
-    { role: "editMenu" },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" },
+        { role: "redo" },
+        { type: "separator" },
+        { role: "cut" },
+        { role: "copy" },
+        { role: "paste" },
+        { role: "selectAll" },
+        { type: "separator" },
+        // Les deux recherches, et le raccourci que tout le monde a dans les
+        // doigts. Sans une entrée de menu, l'accélérateur n'existe pas pour le
+        // système : ⌘F n'atteindrait l'éditeur que lorsqu'il a déjà le focus, et
+        // ⇧⌘F n'ouvrirait jamais le panneau.
+        {
+          label: "Find in File",
+          accelerator: "CmdOrCtrl+F",
+          click: (_item, win) => send(win as BrowserWindow, "menu:find-in-file"),
+        },
+        {
+          label: "Find in Project",
+          accelerator: "CmdOrCtrl+Shift+F",
+          click: (_item, win) => send(win as BrowserWindow, "menu:find-in-project"),
+        },
+      ],
+    },
     {
       label: "View",
       submenu: [

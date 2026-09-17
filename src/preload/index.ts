@@ -19,6 +19,26 @@ export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
 export type FileRead = { path: string; text: string; truncated: boolean } | { path: string; binary: true }
 export type AgentKind = "claude" | "codex"
 
+// Les formes de la recherche traversent le pont : elles sont redites ici parce
+// que le rendu ne peut pas importer un module du processus principal, et la
+// forme est le contrat entre les deux.
+export type SearchQuery = {
+  query: string
+  matchCase?: boolean
+  wholeWord?: boolean
+  regex?: boolean
+  include?: string
+  exclude?: string
+}
+export type SearchMatch = { line: number; column: number; length: number; text: string }
+export type SearchResult = {
+  files: { path: string; matches: SearchMatch[] }[]
+  matches: number
+  truncated: boolean
+}
+export type ReplaceTarget = { path: string; line: number; column: number; length: number }
+export type ReplaceResult = { files: number; matches: number; skipped: number }
+
 // Ce que l'agent a le droit de faire : le type traverse le pont, sa valeur vit
 // dans le module partagé. Le rendu l'importe de là et pas d'ici — ce fichier
 // importe `electron`, et le prendre pour une constante ferait entrer electron
@@ -119,6 +139,17 @@ const api = {
     reveal: (relative: string): Promise<boolean> => ipcRenderer.invoke("shell:reveal", relative),
     pick: (request: { save?: boolean; title?: string; current?: string }): Promise<string | null> =>
       ipcRenderer.invoke("files:pick", request),
+  },
+
+  // Chercher dans le projet, et remplacer — dans les fichiers qu'on n'a pas
+  // ouverts, ce qui est le propre de cette fonction.
+  search: {
+    find: (query: SearchQuery): Promise<SearchResult> => ipcRenderer.invoke("search:find", query),
+    replace: (
+      query: SearchQuery,
+      replacement: string,
+      targets: ReplaceTarget[] | null
+    ): Promise<ReplaceResult> => ipcRenderer.invoke("search:replace", query, replacement, targets),
   },
 
   terminal: {
@@ -318,6 +349,8 @@ const api = {
     onNewWorkflow: (cb: () => void): Unsubscribe => on("menu:new-workflow", cb),
     onSave: (cb: () => void): Unsubscribe => on("menu:save", cb),
     onToggleTerminal: (cb: () => void): Unsubscribe => on("menu:toggle-terminal", cb),
+    onFindInFile: (cb: () => void): Unsubscribe => on("menu:find-in-file", cb),
+    onFindInProject: (cb: () => void): Unsubscribe => on("menu:find-in-project", cb),
     onToggleAgent: (cb: () => void): Unsubscribe => on("menu:toggle-agent", cb),
   },
 }

@@ -21,7 +21,7 @@ export type Tab =
   | { kind: "diff"; id: string; path: string; staged: boolean; title: string }
   | { kind: "gitOutput"; id: "git-output"; title: string }
 
-export type PanelKey = "explorer" | "terminal" | "agent" | "git"
+export type PanelKey = "explorer" | "search" | "terminal" | "agent" | "git"
 
 // Two ways of working, and they are genuinely two — not a set of panels that
 // happen to be toggled differently.
@@ -54,10 +54,11 @@ function savedMode(): Mode {
 // It is derived rather than stored separately: `panels` is still the one place
 // that says what is open, so the menu item and the title-bar button keep
 // working on it unchanged.
-export type SidebarView = "explorer" | "git"
+export type SidebarView = "explorer" | "search" | "git"
 
 export function sidebarView(panels: Record<PanelKey, boolean>): SidebarView | null {
   if (panels.git) return "git"
+  if (panels.search) return "search"
   if (panels.explorer) return "explorer"
   return null
 }
@@ -109,7 +110,7 @@ const WELCOME: Tab = { kind: "welcome", id: "welcome", title: "Welcome" }
 // première.
 let nextBrowserId = 1
 
-const SIDEBAR: PanelKey[] = ["explorer", "git"]
+const SIDEBAR: PanelKey[] = ["explorer", "search", "git"]
 
 function withSidebar(panels: Record<PanelKey, boolean>, key: PanelKey, open: boolean) {
   const next = { ...panels, [key]: open }
@@ -163,7 +164,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activeTabId: WELCOME.id,
   drafts: {},
 
-  panels: { explorer: true, terminal: true, agent: true, git: false },
+  panels: { explorer: true, search: false, terminal: true, agent: true, git: false },
   mode: savedMode(),
 
   // Opening a project clears the editor area rather than leaving Welcome in it.

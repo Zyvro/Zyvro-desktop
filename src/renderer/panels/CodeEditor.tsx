@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { FileWarning, Loader2 } from "lucide-react"
 import { languageFor, monaco } from "~/lib/monaco"
 import { onCommand } from "~/lib/menuBridge"
+import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
 
 // Monaco is imperative: it wants a DOM node and gives back an instance to
@@ -80,10 +81,40 @@ export function CodeEditor({ tabId, path }: Props) {
       const changed = editor.onDidChangeModelContent(() => {
         setDraft(tabId, editor.getValue())
       })
+
+      // Aller à un résultat de recherche : le panneau ouvre le fichier et
+      // dépose l'endroit ; l'éditeur le prend quand il existe. Les deux cas
+      // comptent — l'onglet vient de naître, ou il était déjà là.
+      const goTo = (): void => {
+        const request = takeReveal(path)
+        if (!request) return
+        const range = {
+          startLineNumber: request.line + 1,
+          startColumn: request.column + 1,
+          endLineNumber: request.line + 1,
+          endColumn: request.column + request.length + 1,
+        }
+        editor.setSelection(range)
+        editor.revealRangeInCenter(range)
+        editor.focus()
+      }
+      goTo()
+      const offReveal = subscribeReveal(goTo)
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save())
       const menuSave = onCommand("save", () => void save())
+      // La barre de recherche de Monaco, celle que ⌘F ouvre partout ailleurs.
+      // Seul l'éditeur visible répond : les autres onglets restent montés, et
+      // ouvrir la recherche dans un fichier qu'on ne regarde pas ne servirait
+      // personne.
+      const menuFind = onCommand("find", () => {
+        if (!node.isConnected || node.offsetParent === null) return
+        editor.focus()
+        void editor.getAction("actions.find")?.run()
+      })
 
       teardownRef.current = () => {
+        offReveal()
+        menuFind()
         menuSave()
         changed.dispose()
         editor.getModel()?.dispose()

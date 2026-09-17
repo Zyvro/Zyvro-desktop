@@ -14,7 +14,7 @@ export type DirEntry = {
 
 // Folders that are noise in a project tree. Hiding them is not cosmetic: a
 // node_modules expansion is tens of thousands of entries and would lock the UI.
-const HIDDEN = new Set([
+export const HIDDEN = new Set([
   "node_modules",
   ".git",
   ".next",

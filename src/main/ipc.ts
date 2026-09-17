@@ -9,6 +9,7 @@ import * as agentModule from "./agent"
 import { helpOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
+import * as textSearch from "./search"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
@@ -410,6 +411,34 @@ export function registerIpc(onRecents?: () => void): void {
     settle({ allow: allow === true, message: allow === true ? undefined : "you said no" })
     return true
   })
+
+  // ---------- chercher, remplacer ----------
+  //
+  // Le remplacement passe par le même portail que tout le reste : un chemin
+  // vient du rendu, donc il est vérifié contre le dossier ouvert avant qu'on y
+  // écrive — même quand il sort de notre propre recherche.
+  ipcMain.handle("search:find", async (event, query: textSearch.SearchQuery) => {
+    const { ws } = requireWorkspace(event)
+    return textSearch.search(requireRoot(ws), query)
+  })
+
+  ipcMain.handle(
+    "search:replace",
+    async (
+      event,
+      query: textSearch.SearchQuery,
+      replacement: string,
+      targets: textSearch.ReplaceTarget[] | null
+    ) => {
+      const { ws } = requireWorkspace(event)
+      return textSearch.replaceAll(
+        requireRoot(ws),
+        query,
+        String(replacement ?? ""),
+        Array.isArray(targets) && targets.length > 0 ? targets : undefined
+      )
+    }
+  )
 
   ipcMain.handle("terminal:create", async (event, cols: number, rows: number) => {
     const { ws } = requireWorkspace(event)
