@@ -79,6 +79,14 @@ export function writeMcpConfig(ctx: McpTarget): { path: string; dispose: () => v
   return { path: written.file, dispose: written.dispose }
 }
 
+// mcpDirectory écrit le fichier là où le système protège déjà les secrets.
+//
+// Le fichier porte deux jetons. `0600` dit qui peut le lire là où /tmp est
+// commun à tout le monde — et ne dit rien sous Windows, qui ignore ces bits :
+// la protection y vient du dossier, `%LOCALAPPDATA%\Temp`, qui appartient à la
+// session. C'est la même phrase de deux façons, et il faut les deux : le mode
+// seul ne protège rien sous Windows, le dossier seul ne protège rien sur une
+// machine Unix partagée où /tmp est ouvert.
 function mcpDirectory(ctx: McpTarget): { dir: string; file: string; dispose: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), "zyvro-mcp-"))
   const file = path.join(dir, "mcp.json")

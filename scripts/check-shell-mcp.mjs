@@ -25,8 +25,9 @@
 //     node scripts/check-shell-mcp.mjs
 import { build } from "esbuild"
 import { execFileSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs"
 import path from "node:path"
+import { tmpdir } from "node:os"
 import { createRequire } from "node:module"
 
 const ROOT = path.resolve(import.meta.dirname, "..")
@@ -104,8 +105,33 @@ const shell = mcp.shellMcp(ctx)
   check("**la configuration nomme les deux serveurs**", names.includes("zyvro") && names.includes("zyvro-app"), names.join(", "))
   check("le moteur garde son jeton", written.mcpServers.zyvro.headers.Authorization === "Bearer jeton-moteur")
   check("la capture le sien", written.mcpServers["zyvro-app"].headers.Authorization === `Bearer ${handle.token}`)
-  // 0600 : le fichier porte un jeton, et /tmp est lisible par tout le monde.
-  check("**lisible par son seul propriétaire**", (statSync(file).mode & 0o077) === 0, (statSync(file).mode & 0o777).toString(8))
+  // Le fichier porte deux jetons, et ce qui le protège n'est pas la même chose
+  // partout. Sur une machine Unix, /tmp est commun : le mode le dit. Sous
+  // Windows, ces bits n'existent pas — Node n'en garde que le drapeau « lecture
+  // seule » — et la protection vient du dossier temporaire, qui appartient à la
+  // session. Vérifier le mode là-bas ferait échouer un garde sur une phrase
+  // fausse ; ne rien vérifier laisserait le jeton sans surveillance. On vérifie
+  // donc ce qui est vrai de chaque côté.
+  if (process.platform === "win32") {
+    // Comparés après `realpath`, et en minuscules : Windows rend volontiers le
+    // nom court d'un dossier — `C:\Users\RUNNER~1\AppData\Local\Temp` — là où
+    // le fichier porte le nom long. Deux façons d'écrire le même dossier, et
+    // une comparaison littérale dirait qu'ils sont différents.
+    const real = (p) => {
+      try {
+        return realpathSync.native(p).toLowerCase()
+      } catch {
+        return path.resolve(p).toLowerCase()
+      }
+    }
+    check(
+      "**écrit dans le dossier temporaire de la session** (Windows n'a pas de mode POSIX)",
+      real(path.dirname(file)).startsWith(real(tmpdir())),
+      `${real(path.dirname(file))} hors de ${real(tmpdir())}`
+    )
+  } else {
+    check("**lisible par son seul propriétaire**", (statSync(file).mode & 0o077) === 0, (statSync(file).mode & 0o777).toString(8))
+  }
   check(
     "**écrit hors du projet** (.zyvro/ est fait pour être commité)",
     !path.resolve(file).startsWith(path.resolve(ROOT)),
