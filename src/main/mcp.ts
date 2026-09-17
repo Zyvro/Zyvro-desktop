@@ -194,8 +194,24 @@ function quote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
+// quoteCmd : le même travail, pour `cmd`, qui ne connaît pas l'apostrophe.
+//
+// Trouvé en le lançant sur Windows, ce qui était tout l'objet de l'exercice :
+// les drapeaux de codex étaient écrits à la mode POSIX dans un `.cmd`, où
+// l'apostrophe n'est qu'un caractère ordinaire. `codex` recevait `'-c'` puis
+// une moitié de la deuxième, coupée sur le guillemet, et cmd finissait par
+// « The syntax of the command is incorrect. »
+//
+// Ici, tout est entre guillemets doubles et les guillemets intérieurs sont
+// doublés : c'est la convention que l'analyseur d'arguments de Windows défait
+// pour rendre le guillemet littéral que TOML attend autour d'une adresse.
+export function quoteCmd(value: string): string {
+  return `"${value.replace(/"/g, '""')}"`
+}
+
 function writeHelper(dir: string, ctx: McpTarget): void {
   const codex = codexMcpArgs(ctx).map(quote).join(" ")
+  const codexCmd = codexMcpArgs(ctx).map(quoteCmd).join(" ")
   const lines = [
     "#!/bin/sh",
     "# zyvro-mcp — lance un agent déjà branché sur les serveurs MCP du projet.",
@@ -283,7 +299,7 @@ function writeHelper(dir: string, ctx: McpTarget): void {
         "claude",
         `call claude --mcp-config "%${MCP_CONFIG_ENV}%" --strict-mcp-config%ARGS%`
       ),
-      ...collect("codex", `call codex ${codex}%ARGS%`),
+      ...collect("codex", `call codex ${codexCmd}%ARGS%`),
       ":info",
       ...info,
       "exit /b 0",

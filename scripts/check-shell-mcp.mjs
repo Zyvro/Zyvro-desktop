@@ -217,11 +217,19 @@ if (process.platform !== "win32") {
 if (process.platform === "win32") {
   const fake = path.join(dir, "bin")
   mkdirSync(fake, { recursive: true })
-  // Un faux agent qui écrit ce qu'on lui a passé, un argument par ligne.
+  // Un faux agent qui écrit ce qu'on lui a passé, un argument par ligne — et
+  // c'est node qui l'écrit, pas `echo %~1`.
+  //
+  // La différence compte : `cmd` défait les guillemets à sa façon avant de les
+  // rendre à `%~1`, alors qu'un vrai agent est un exécutable dont l'analyseur
+  // d'arguments est celui de Windows. Un faux en pur batch dirait donc que les
+  // arguments sont arrivés autrement qu'ils n'arrivent vraiment, et c'est
+  // précisément la citation qu'on vérifie ici.
+  writeFileSync(path.join(fake, "echo-args.cjs"), "for (const a of process.argv.slice(2)) console.log(a)\n")
   for (const name of ["claude", "codex"]) {
     writeFileSync(
       path.join(fake, `${name}.cmd`),
-      ["@echo off", ":loop", 'if "%~1"=="" exit /b 0', "echo %~1", "shift", "goto loop", ""].join("\r\n")
+      ["@echo off", `node "%~dp0echo-args.cjs" %*`, ""].join("\r\n")
     )
   }
   const helper = path.join(path.dirname(shell.env.ZYVRO_MCP_CONFIG), "zyvro-mcp.cmd")
@@ -249,15 +257,19 @@ if (process.platform === "win32") {
 
   {
     const out = run("codex", "exec", "bonjour").split(/\r?\n/).map((l) => l.trim())
+    // Avec les guillemets, qui font partie de la valeur : c'est du TOML, et
+    // `mcp_servers.zyvro.url=http://…` sans eux n'en est pas.
     check(
-      "**codex part avec l'adresse du moteur**",
-      out.some((line) => line.includes("mcp_servers.zyvro.url=")),
-      out.join(" ")
+      "**codex part avec l'adresse du moteur, guillemets compris**",
+      out.includes(`mcp_servers.zyvro.url="http://127.0.0.1:4123/mcp"`),
+      out.join(" | ")
     )
+    check("et chaque drapeau est un argument à lui", out.filter((line) => line === "-c").length === 4, out.join(" | "))
     check(
       "et le jeton reste dans l'environnement",
-      out.some((line) => line.includes("bearer_token_env_var=")) && !out.some((line) => line.includes("jeton-moteur")),
-      out.join(" ")
+      out.includes(`mcp_servers.zyvro.bearer_token_env_var="ZYVRO_MCP_TOKEN"`) &&
+        !out.some((line) => line.includes("jeton-moteur")),
+      out.join(" | ")
     )
     check("**ce qu'on tape derrière arrive**", out.includes("exec") && out.includes("bonjour"), out.join(" "))
     check("et le verbe ne repart pas avec", !out.includes("codex"), out.join(" "))
