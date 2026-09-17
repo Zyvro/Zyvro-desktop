@@ -3,6 +3,7 @@ import { CaseSensitive, ChevronDown, ChevronRight, Loader2, Regex, Replace, Repl
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { revealAt, subscribeSearchFocus } from "~/state/reveal"
+import { history, remember } from "~/state/searchHistory"
 import type { ReplaceTarget, SearchMatch, SearchResult } from "../../preload"
 
 // Chercher dans le projet, et remplacer.
@@ -28,6 +29,7 @@ type Mode = { matchCase: boolean; wholeWord: boolean; regex: boolean }
 
 export function SearchPanel() {
   const project = useWorkspace((s) => s.project)
+  const projectDir = project?.project ?? null
   const openFile = useWorkspace((s) => s.openFile)
 
   const [query, setQuery] = useState("")
@@ -48,6 +50,9 @@ export function SearchPanel() {
   // reviendrait après elle et remettrait l'ancienne liste à l'écran.
   const run = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Où l'on en est dans les recherches précédentes. -1 : on écrit, on ne
+  // remonte pas.
+  const recall = useRef(-1)
 
   // ⇧⌘F ouvre le panneau et met le curseur dans le champ : sans ça, on ouvre un
   // panneau puis on va cliquer dedans, ce qui n'est pas ce qu'un raccourci
@@ -108,7 +113,38 @@ export function SearchPanel() {
   const onQuery = (value: string): void => {
     setQuery(value)
     setNote("")
+    recall.current = -1
     later({ query: value, mode, include, exclude })
+  }
+
+  // Les flèches remontent les recherches précédentes, comme dans un terminal.
+  //
+  // Entrée les retient : on ne garde pas ce qui se déclenche tout seul après un
+  // silence, sinon l'historique se remplit de préfixes — « w », « wo »,
+  // « wor » — et ne contient plus une seule recherche entière.
+  const onQueryKey = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    const past = history(projectDir)
+    if (event.key === "Enter") {
+      event.preventDefault()
+      remember(projectDir, query)
+      recall.current = -1
+      if (timer.current) clearTimeout(timer.current)
+      void ask({ query, mode, include, exclude })
+      return
+    }
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
+    if (past.length === 0) return
+    event.preventDefault()
+    const next = event.key === "ArrowUp" ? recall.current + 1 : recall.current - 1
+    if (next < 0) {
+      recall.current = -1
+      setQuery("")
+      return
+    }
+    if (next >= past.length) return
+    recall.current = next
+    setQuery(past[next])
+    void ask({ query: past[next], mode, include, exclude })
   }
 
   const toggle = (key: keyof Mode): void => {
@@ -118,6 +154,7 @@ export function SearchPanel() {
   }
 
   const replaceThese = async (targets: ReplaceTarget[] | null): Promise<void> => {
+    remember(projectDir, query)
     setBusy(true)
     try {
       const done = await window.zyvro.search.replace(
@@ -173,6 +210,7 @@ export function SearchPanel() {
               ref={field}
               value={query}
               onChange={(event) => onQuery(event.target.value)}
+              onKeyDown={onQueryKey}
               placeholder="Search"
               spellCheck={false}
               className="min-w-0 flex-1 bg-transparent py-1 text-[12px] outline-none placeholder:text-muted-foreground"
@@ -245,17 +283,40 @@ export function SearchPanel() {
           const shut = closed[file.path]
           return (
             <div key={file.path}>
-              <button
-                className="group flex w-full items-center gap-1 px-2 py-[3px] text-left text-[12px] hover:bg-white/[0.05]"
-                onClick={() => setClosed((c) => ({ ...c, [file.path]: !shut }))}
-              >
-                {shut ? <ChevronRight className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
-                <span className="truncate font-medium">{basename(file.path)}</span>
-                <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{dirname(file.path)}</span>
+              <div className="group flex w-full items-center gap-1 px-2 py-[3px] text-[12px] hover:bg-white/[0.05]">
+                <button
+                  className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                  onClick={() => setClosed((c) => ({ ...c, [file.path]: !shut }))}
+                >
+                  {shut ? <ChevronRight className="h-3 w-3 shrink-0" /> : <ChevronDown className="h-3 w-3 shrink-0" />}
+                  <span className="truncate font-medium">{basename(file.path)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">{dirname(file.path)}</span>
+                </button>
+                {/* Tout remplacer, mais dans ce fichier seulement. Entre « celle
+                    que je regarde » et « les quatre-vingt-quatorze », il y a le
+                    cas de tous les jours : ce fichier-ci, d'un coup. */}
+                {showReplace && (
+                  <button
+                    className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-white/[0.1] hover:text-foreground group-hover:opacity-100"
+                    title={`Replace all ${file.matches.length} in ${basename(file.path)}`}
+                    onClick={() =>
+                      void replaceThese(
+                        file.matches.map((m) => ({
+                          path: file.path,
+                          line: m.line,
+                          column: m.column,
+                          length: m.length,
+                        }))
+                      )
+                    }
+                  >
+                    <ReplaceAll className="h-3 w-3" />
+                  </button>
+                )}
                 <span className="shrink-0 rounded-full bg-white/[0.08] px-1.5 text-[10px] text-muted-foreground">
                   {file.matches.length}
                 </span>
-              </button>
+              </div>
 
               {!shut &&
                 file.matches.map((match) => (

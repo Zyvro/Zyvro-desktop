@@ -207,6 +207,27 @@ plant({
   check("**en mode ordinaire, $1 est du texte**", readFileSync(path.join(project, "b.txt"), "utf8") === "$1 dollars\n")
 }
 
+// ---- un fichier entier, d'un coup ---------------------------------------
+//
+// Entre « celle que je regarde » et « les quatre-vingt-quatorze », il y a le cas
+// de tous les jours : ce fichier-ci. Le panneau l'obtient en désignant toutes
+// les occurrences d'un fichier — donc c'est la même route, et ce qu'on vérifie
+// est qu'elle ne déborde pas sur le voisin.
+{
+  plant({ "a.txt": "thing thing\n", "b.txt": "thing\n" })
+  const found = await search.search(project, { query: "thing" })
+  const one = found.files.find((f) => f.path === "a.txt")
+  const done = await search.replaceAll(
+    project,
+    { query: "thing" },
+    "widget",
+    one.matches.map((m) => ({ path: "a.txt", line: m.line, column: m.column, length: m.length }))
+  )
+  check("**tout le fichier désigné, et lui seul**", done.files === 1 && done.matches === 2, JSON.stringify(done))
+  check("le fichier visé est réécrit", readFileSync(path.join(project, "a.txt"), "utf8") === "widget widget\n")
+  check("**et le voisin est intact**", readFileSync(path.join(project, "b.txt"), "utf8") === "thing\n")
+}
+
 rmSync(project, { recursive: true, force: true })
 console.log(
   failures === 0
