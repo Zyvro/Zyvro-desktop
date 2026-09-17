@@ -45,6 +45,8 @@ writeFileSync(
      }
      setBounds(b) { this.bounds = b }
      setVisible(v) { this.visible = v }
+     getBounds() { return this.bounds }
+     getVisible() { return this.visible !== false }
    }
    const fakeWindow = {
      isDestroyed: () => false,
@@ -135,8 +137,12 @@ function fakeContents(id, page = {}) {
     },
     devTools: null,
     inspected: null,
+    // Electron rend faux ici dès que l'inspecteur d'une vue invitée est branché
+    // sur une vue à nous : les outils sont pourtant dessinés et utilisables.
+    // Le faux dit la même chose que le vrai, sinon le piège ne se reproduit
+    // pas — et c'est ce piège qui rendait des captures trouées.
     isDevToolsOpened() {
-      return this.devTools !== null
+      return this.devTools !== null && this.docked === null
     },
     openDevTools(opts) {
       this.devTools = opts?.mode ?? "docked"
@@ -553,9 +559,34 @@ function fakeContents(id, page = {}) {
   browser.placeTools(guest, { x: 0, y: 300, width: 800, height: 200 })
   check("et revient quand la place revient", guest.devtools?.visible === true)
 
+  // Ce que la fenêtre ne photographie pas toute seule. `capturePage` rend le
+  // HTML ; cette vue est native, dessinée par-dessus. Qui photographie doit
+  // pouvoir la trouver — et la trouver malgré `isDevToolsOpened()`, qui rend
+  // faux ici.
+  check("**Electron ne dit pas que les outils sont ouverts**", contents.isDevToolsOpened() === false)
+  {
+    const posed = browser.overlaysIn(30)
+    check("**la capture trouve quand même la vue**", posed.length === 1, String(posed.length))
+    check("et sait où elle est dessinée", posed[0]?.bounds?.height === 200, JSON.stringify(posed[0]?.bounds))
+    check("une autre fenêtre n'en hérite pas", browser.overlaysIn(99).length === 0)
+    browser.placeTools(guest, null)
+    check("**une vue cachée n'est pas recollée**", browser.overlaysIn(30).length === 0)
+    browser.placeTools(guest, { x: 0, y: 300, width: 800, height: 200 })
+  }
+
+  // Deux clics sur « Developer tools » ne font pas deux vues : la seconde
+  // resterait posée sur la fenêtre, par-dessus la première, et personne ne
+  // saurait la retirer.
+  {
+    const mounted = guest.devtools
+    browser.showDevTools(guest, { x: 0, y: 300, width: 800, height: 200 })
+    check("**un second clic ne monte pas une vue de plus**", guest.devtools === mounted)
+  }
+
   browser.hideDevTools(guest)
   check("et se referment", contents.devTools === null)
   check("**la vue est retirée de la fenêtre**", guest.devtools === undefined)
+  check("et la capture n'a plus rien à recoller", browser.overlaysIn(30).length === 0)
 }
 
 // ---- les outils, par le serveur -----------------------------------------

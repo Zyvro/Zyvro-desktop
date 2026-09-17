@@ -21,7 +21,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from "node:crypto"
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
-import type { BrowserWindow, Rectangle } from "electron"
+import { nativeImage, type BrowserWindow, type NativeImage, type Rectangle, type WebContents } from "electron"
+import { blit, pixelRatio, viewScale } from "./overlay"
 import {
   TOOL_BROWSER_CLICK,
   TOOL_BROWSER_EVAL,
@@ -41,6 +42,7 @@ import {
   evalInPage,
   hoverRef,
   navigate,
+  overlaysIn,
   pickGuest,
   pressKey,
   readPage,
@@ -624,6 +626,95 @@ function missingView(view: string): string {
   return `no page open in the test browser — call ${TOOL_BROWSER_OPEN} with a url first`
 }
 
+// shoot : la photo de la fenêtre, vues natives comprises.
+//
+// `capturePage` ne rend que le HTML. Les outils de développement du navigateur
+// de test sont une vue native posée par-dessus la page — Electron ne branche
+// son inspecteur sur rien d'autre — et la capture rendait donc un trou à leur
+// place : le fond de l'application, sans un mot pour le dire. On les
+// photographie séparément et on les recolle là où elles sont dessinées.
+//
+// Si quoi que ce soit ne se comprend pas — une image dans une autre unité, une
+// vue qui refuse la photo — on rend la capture sans elle : une image
+// incomplète vaut mieux qu'une image fausse.
+// shootView : la photo d'une vue native.
+//
+// `capturePage` refuse le front-end des outils de développement — « Current
+// display surface not available for capture ». C'est une surface qu'Electron ne
+// sait pas capturer, et la seule erreur qu'on obtienne ; rien ne dit quoi faire
+// à la place.
+//
+// Le protocole de débogage, lui, la rend : c'est le même Chromium, la même
+// image, par une autre porte. On s'y branche le temps de la photo et on s'en
+// détache tout de suite — un débogueur laissé attaché ralentit la page et prend
+// la place de celui qui voudrait s'y brancher ensuite.
+export async function shootView(contents: WebContents): Promise<NativeImage | null> {
+  try {
+    return await contents.capturePage()
+  } catch {
+    // La porte de derrière.
+  }
+  let mine = false
+  try {
+    if (!contents.debugger.isAttached()) {
+      contents.debugger.attach("1.3")
+      mine = true
+    }
+    const shot = (await contents.debugger.sendCommand("Page.captureScreenshot", { format: "png" })) as {
+      data?: string
+    }
+    if (!shot?.data) return null
+    return nativeImage.createFromBuffer(Buffer.from(shot.data, "base64"))
+  } catch {
+    return null
+  } finally {
+    if (mine) {
+      try {
+        contents.debugger.detach()
+      } catch {
+        // Déjà parti avec la vue.
+      }
+    }
+  }
+}
+
+async function shoot(win: BrowserWindow, rect: Rectangle | undefined): Promise<NativeImage> {
+  const image = await win.webContents.capturePage(rect)
+  const overlays = overlaysIn(win.id)
+  if (overlays.length === 0) return image
+
+  const size = image.getSize()
+  const data = image.toBitmap()
+  const ratio = pixelRatio(data.length, size.width, size.height)
+  if (ratio === 0) return image
+  const width = size.width * ratio
+  const height = size.height * ratio
+
+  // L'image est en pixels, les vues se placent en points.
+  const origin = rect ?? { x: 0, y: 0 }
+  const across = rect ? rect.width : win.getContentSize()[0]
+  const scale = viewScale(width, across)
+  if (scale === 0) return image
+
+  let posed = 0
+  for (const overlay of overlays) {
+    const patch = await shootView(overlay.contents)
+    if (!patch) continue
+    const shape = patch.getSize()
+    const bytes = patch.toBitmap()
+    const own = pixelRatio(bytes.length, shape.width, shape.height)
+    if (own === 0) continue
+    posed += blit(
+      { data, width, height },
+      { data: bytes, width: shape.width * own, height: shape.height * own },
+      (overlay.bounds.x - origin.x) * scale,
+      (overlay.bounds.y - origin.y) * scale
+    )
+  }
+  if (posed === 0) return image
+  return nativeImage.createFromBitmap(data, { width, height })
+}
+
 // takeShot capture et rend ce que le protocole attend.
 export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<ShotResult> {
   const win = pickWindow(all, args.window)
@@ -636,7 +727,7 @@ export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<Sh
     )
   }
   const rect = cleanRect(args.rect)
-  let image = await win.webContents.capturePage(rect)
+  let image = await shoot(win, rect)
 
   const scale = clampScale(args.scale)
   if (scale !== 1) {
@@ -680,7 +771,7 @@ export async function captureRegion(win: BrowserWindow | undefined, rect: unknow
   if (!win || win.isDestroyed()) throw new Error("no window to capture")
   const region = cleanRect(rect)
   if (!region) throw new Error("that is not a region")
-  const image = await win.webContents.capturePage(region)
+  const image = await shoot(win, region)
   return image.toPNG()
 }
 

@@ -32,13 +32,14 @@ const PNG_1x1 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 writeFileSync(
   path.join(dir, "electron.js"),
-  `module.exports = { app: {}, BrowserWindow: {} }\n`
+  `module.exports = { app: {}, BrowserWindow: {}, nativeImage: { createFromBuffer: (buf) => ({ from: "debugger", bytes: buf.length }) } }\n`
 )
 writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${path.join(ROOT, "src/main/shots").replace(/\\/g, "/")}"\n` +
     `export { claudeMcpConfig } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
-    `export { findZones, zoneAt, takeShot } from "${path.join(ROOT, "src/renderer/panels/ShotPicker").replace(/\\/g, "/")}"\n`
+    `export { findZones, zoneAt, takeShot } from "${path.join(ROOT, "src/renderer/panels/ShotPicker").replace(/\\/g, "/")}"\n` +
+    `export { blit, pixelRatio, viewScale } from "${path.join(ROOT, "src/main/overlay").replace(/\\/g, "/")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -295,6 +296,127 @@ const call = async (body, token = handle.token) =>
   check("**on vise la plus petite zone sous le curseur**", shots.zoneAt(ordered, 800, 400)?.name === "Agent")
   check("ailleurs, c'est la grande", shots.zoneAt(ordered, 100, 400)?.name === "Fenêtre")
   check("en dehors, rien", shots.zoneAt(ordered, 5000, 5000) === null)
+}
+
+// ---- les vues natives dans la capture ----------------------------------
+//
+// Les outils de développement ne sont pas du HTML de la fenêtre : ils sont
+// dessinés par-dessus, et une capture qui ne les recolle pas rend un trou —
+// une image d'apparence normale, vide là où on voulait regarder.
+//
+// On travaille ici sur des images à plat, en BGRA, parce que c'est ce
+// qu'Electron donne et ce qui casse : un rapport de pixels mal compris décale
+// chaque rangée, et une vue qui dépasse écrit au-delà du tampon.
+{
+  const plane = (width, height, fill) => ({ data: Buffer.alloc(width * height * 4, fill), width, height })
+  const at = (p, x, y) => p.data[(y * p.width + x) * 4]
+
+  check("**un écran ordinaire : un pixel par point**", shots.pixelRatio(10 * 10 * 4, 10, 10) === 1)
+  check("**un écran Retina : deux**", shots.pixelRatio(20 * 20 * 4, 10, 10) === 2)
+  check(
+    "**un tampon qu'on ne comprend pas ne compose rien**",
+    shots.pixelRatio(10 * 10 * 4 + 7, 10, 10) === 0,
+    String(shots.pixelRatio(10 * 10 * 4 + 7, 10, 10))
+  )
+
+  // Le piège qui ne se voit pas : la capture d'une zone de 759 points rend une
+  // image de 1518 pixels, et une vue posée aux coordonnées en points finit au
+  // quart de sa place, en haut à gauche, dans une image qui reste plausible.
+  check("**une zone doublée vaut deux pixels par point**", shots.viewScale(1518, 759) === 2)
+  check("un écran ordinaire n'en vaut qu'un", shots.viewScale(759, 759) === 1)
+  check("et sans largeur, on ne compose pas", shots.viewScale(1518, 0) === 0)
+
+  {
+    const base = plane(8, 8, 0x10)
+    const patch = plane(4, 4, 0x90)
+    const rows = shots.blit(base, patch, 2, 3)
+    check("**la vue est posée là où elle est dessinée**", rows === 4 && at(base, 2, 3) === 0x90, String(rows))
+    check("et pas un pixel à côté", at(base, 1, 3) === 0x10 && at(base, 2, 2) === 0x10)
+    check("elle s'arrête où elle finit", at(base, 5, 6) === 0x90 && at(base, 6, 6) === 0x10)
+  }
+
+  // Les outils occupent le bas du panneau, et on photographie le panneau : la
+  // vue dépasse par le bas dès que la fenêtre est plus haute que la zone
+  // demandée.
+  {
+    const base = plane(8, 8, 0x10)
+    const rows = shots.blit(base, plane(6, 6, 0x90), 5, 5)
+    check("**ce qui dépasse est coupé, pas replié**", rows === 3 && at(base, 0, 7) === 0x10, String(rows))
+    check("et le tampon a la taille qu'il avait", base.data.length === 8 * 8 * 4)
+  }
+
+  // Une zone photographiée qui commence après la vue : le décalage est négatif.
+  {
+    const base = plane(8, 8, 0x10)
+    const rows = shots.blit(base, plane(6, 6, 0x90), -4, -4)
+    check("**une vue qui commence avant la zone est coupée à gauche**", rows === 2 && at(base, 0, 0) === 0x90, String(rows))
+    check("et au-delà de sa fin, rien", at(base, 2, 2) === 0x10)
+  }
+
+  {
+    const base = plane(8, 8, 0x10)
+    check("**une vue entièrement hors de la zone ne pose rien**", shots.blit(base, plane(4, 4, 0x90), 20, 20) === 0)
+    check("et l'image est intacte", base.data.every((b) => b === 0x10))
+  }
+}
+
+// ---- la surface qu'Electron ne sait pas capturer ------------------------
+//
+// Le front-end des outils de développement refuse `capturePage` : « Current
+// display surface not available for capture ». Sans repli, la capture rendait
+// un trou et ne le disait pas. Le protocole de débogage rend la même image.
+{
+  const jeton = Buffer.from("une image").toString("base64")
+  const faireContents = (refuse) => {
+    const trace = { attaches: 0, detaches: 0, commandes: [] }
+    let attaché = false
+    return {
+      trace,
+      async capturePage() {
+        if (refuse) throw new Error("Current display surface not available for capture")
+        return { from: "capturePage" }
+      },
+      debugger: {
+        isAttached: () => attaché,
+        attach() {
+          attaché = true
+          trace.attaches++
+        },
+        detach() {
+          attaché = false
+          trace.detaches++
+        },
+        async sendCommand(name) {
+          trace.commandes.push(name)
+          return { data: jeton }
+        },
+      },
+    }
+  }
+
+  const facile = faireContents(false)
+  const direct = await shots.shootView(facile)
+  check("**quand la vue se laisse photographier, on s'arrête là**", direct?.from === "capturePage")
+  check("et on ne branche aucun débogueur dessus", facile.trace.attaches === 0)
+
+  const têtue = faireContents(true)
+  const repli = await shots.shootView(têtue)
+  check("**une surface qui refuse passe par le protocole**", repli?.from === "debugger", JSON.stringify(repli))
+  check("c'est bien une capture d'écran qu'on demande", têtue.trace.commandes[0] === "Page.captureScreenshot")
+  check(
+    "**et on se détache tout de suite**",
+    têtue.trace.attaches === 1 && têtue.trace.detaches === 1,
+    JSON.stringify(têtue.trace)
+  )
+
+  // Un débogueur déjà branché n'est pas le nôtre : on ne le débranche pas en
+  // partant, sinon on coupe les outils de quelqu'un d'autre.
+  const occupée = faireContents(true)
+  occupée.debugger.attach()
+  occupée.trace.attaches = 0
+  occupée.trace.detaches = 0
+  await shots.shootView(occupée)
+  check("**un débogueur qui était déjà là reste branché**", occupée.trace.detaches === 0, JSON.stringify(occupée.trace))
 }
 
 handle.close()

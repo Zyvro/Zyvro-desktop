@@ -294,7 +294,10 @@ export function inspectAt(guest: Guest, x: number, y: number): void {
 }
 
 export function hideDevTools(guest: Guest): void {
-  if (!guest.contents.isDestroyed() && guest.contents.isDevToolsOpened()) guest.contents.closeDevTools()
+  // Sans condition sur `isDevToolsOpened()`, qui ment ici : fermer des outils
+  // déjà fermés ne coûte rien, les laisser branchés coûte un inspecteur qui
+  // tourne derrière une vue qu'on vient de retirer.
+  if (!guest.contents.isDestroyed()) guest.contents.closeDevTools()
   dropTools(guest)
 }
 
@@ -327,7 +330,7 @@ export function dropTools(guest: Guest): void {
 // Le repli reste la fenêtre à part : une vue d'accueil qui n'est pas là ne doit
 // pas valoir « pas d'outils du tout ».
 function dock(guest: Guest, bounds: Rectangle | null): void {
-  if (guest.contents.isDevToolsOpened()) return
+  if (guest.devtools) return
   const window = BrowserWindow.fromId(guest.windowId)
   if (!window || window.isDestroyed()) return
 
@@ -373,8 +376,20 @@ export function noteRequest(guestId: number, line: RequestLine): void {
 // emplacement n'est plus visible — un onglet qu'on quitte, un panneau qu'on
 // ferme, une fenêtre qu'on redimensionne.
 
+// toolsOpen : la vue qu'on a montée, pas le drapeau d'Electron.
+//
+// `isDevToolsOpened()` rend faux sur une vue invitée dont l'inspecteur a été
+// branché sur une vue à nous — les outils sont pourtant là, dessinés et
+// utilisables. S'y fier menait à deux fautes silencieuses : la capture ne
+// recollait rien parce qu'elle croyait qu'il n'y avait rien à recoller, et un
+// second clic sur « Developer tools » montait une vue de plus par-dessus la
+// première, laissée dans la fenêtre.
+//
+// Ce qu'on sait vraiment, c'est ce qu'on a monté : cette vue-là, vivante.
 export function toolsOpen(guest: Guest): boolean {
-  return Boolean(guest.devtools) && !guest.contents.isDestroyed() && guest.contents.isDevToolsOpened()
+  const view = guest.devtools
+  if (!view) return false
+  return !guest.contents.isDestroyed() && !view.webContents.isDestroyed()
 }
 
 // placeTools pose les outils là où le rendu leur a fait de la place.
@@ -387,6 +402,25 @@ export function placeTools(guest: Guest, bounds: Rectangle | null): void {
   }
   view.setBounds(bounds)
   view.setVisible(true)
+}
+
+// overlaysIn : les vues natives posées sur cette fenêtre, et où elles sont.
+//
+// Une capture de fenêtre ne les contient pas — `capturePage` rend le HTML, et
+// une vue native se dessine par-dessus. Qui photographie doit donc les
+// recoller, et pour ça savoir qu'elles existent.
+export function overlaysIn(windowId: number): { bounds: Rectangle; contents: WebContents }[] {
+  const found: { bounds: Rectangle; contents: WebContents }[] = []
+  for (const guest of guests.values()) {
+    if (guest.windowId !== windowId) continue
+    const view = guest.devtools
+    if (!view || !toolsOpen(guest)) continue
+    if (view.getVisible() === false) continue
+    const bounds = view.getBounds()
+    if (bounds.width < 2 || bounds.height < 2) continue
+    found.push({ bounds, contents: view.webContents })
+  }
+  return found
 }
 
 export function noteVisit(guestId: number, url: string): void {
