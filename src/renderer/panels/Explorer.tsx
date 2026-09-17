@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
@@ -13,6 +13,8 @@ import { cn } from "@/lib/utils"
 import type { DirEntry } from "../../preload"
 import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
+import { subscribeFiles, unwatchDir, versionOf, watchDir } from "~/state/fileWatch"
+import { ZYVRO_PATH } from "../../shared/dropped"
 
 // The file tree loads one directory at a time. Reading the whole project up
 // front would be fine for a small folder and unusable for a real repository,
@@ -23,8 +25,16 @@ function dirKey(path: string) {
 }
 
 function useDir(path: string, enabled: boolean) {
+  // La version du dossier fait partie de la clé : quand le disque bouge, c'est
+  // une requête nouvelle, et react-query va la chercher sans que personne
+  // n'invalide quoi que ce soit.
+  const version = useSyncExternalStore(
+    subscribeFiles,
+    () => versionOf(path),
+    () => 0
+  )
   return useQuery({
-    queryKey: dirKey(path),
+    queryKey: [...dirKey(path), version],
     queryFn: () => window.zyvro.files.list(path),
     enabled,
     staleTime: 5000,
@@ -54,9 +64,13 @@ type RowProps = {
   depth: number
   expanded: Set<string>
   onToggle: (path: string) => void
+  /** La racine du projet : l'arbre parle en relatif, un chemin déposé ailleurs
+   *  doit être absolu — il part vers un shell ou vers un agent, et ni l'un ni
+   *  l'autre ne sait d'où il est compté. */
+  root: string | null
 }
 
-function Row({ entry, depth, expanded, onToggle }: RowProps) {
+function Row({ entry, depth, expanded, onToggle, root }: RowProps) {
   const openFile = useWorkspace((s) => s.openFile)
   const activeTabId = useWorkspace((s) => s.activeTabId)
   const isOpen = expanded.has(entry.path)
@@ -73,6 +87,19 @@ function Row({ entry, depth, expanded, onToggle }: RowProps) {
         style={{ paddingLeft: 8 + depth * 12 }}
         onClick={() => (entry.kind === "directory" ? onToggle(entry.path) : openFile(entry.path))}
         title={entry.path}
+        // Attraper un fichier ici et le lâcher sur le chat ou sur le terminal y
+        // écrit son chemin. En absolu : il part vers un shell ou vers un agent,
+        // et ni l'un ni l'autre ne sait d'où l'arbre compte ses chemins.
+        draggable={Boolean(root)}
+        onDragStart={(event) => {
+          if (!root) return
+          const absolute = `${root.replace(/\/$/, "")}/${entry.path}`
+          // Notre type dit « ceci est un fichier désigné » ; le `text/plain`
+          // qui l'accompagne est ce que toute autre application comprendra.
+          event.dataTransfer.setData(ZYVRO_PATH, absolute)
+          event.dataTransfer.setData("text/plain", absolute)
+          event.dataTransfer.effectAllowed = "copy"
+        }}
       >
         {entry.kind === "directory" ? (
           isOpen ? (
@@ -90,7 +117,7 @@ function Row({ entry, depth, expanded, onToggle }: RowProps) {
       {entry.kind === "directory" &&
         isOpen &&
         (children.data ?? []).map((child) => (
-          <Row key={child.path} entry={child} depth={depth + 1} expanded={expanded} onToggle={onToggle} />
+          <Row key={child.path} entry={child} depth={depth + 1} expanded={expanded} onToggle={onToggle} root={root} />
         ))}
     </>
   )
@@ -102,16 +129,39 @@ export function Explorer() {
   const client = useQueryClient()
   const root = useDir(".", Boolean(project))
 
+  // Ouvrir un dossier, c'est aussi demander à le surveiller ; le replier, c'est
+  // cesser. La surveillance suit donc exactement ce qui est affiché, et rien de
+  // plus : un `node_modules` replié ne coûte rien.
   const toggle = useMemo(
     () => (path: string) =>
       setExpanded((current) => {
         const next = new Set(current)
-        if (next.has(path)) next.delete(path)
-        else next.add(path)
+        if (next.has(path)) {
+          next.delete(path)
+          unwatchDir(path)
+        } else {
+          next.add(path)
+          watchDir(path)
+        }
         return next
       }),
     []
   )
+
+  // La racine est ouverte par définition. Un ref de rappel plutôt qu'un effet :
+  // React 18 ignore ce que rend un ref, donc le démontage est garé dans un ref
+  // à lui — c'est la forme que ce dépôt emploie là où d'autres écriraient un
+  // `useEffect`.
+  const stopRoot = useRef<(() => void) | null>(null)
+  const watchRoot = (node: HTMLDivElement | null): void => {
+    if (node) {
+      watchDir(".")
+      stopRoot.current = () => unwatchDir(".")
+      return
+    }
+    stopRoot.current?.()
+    stopRoot.current = null
+  }
 
   if (!project) {
     return <p className="px-3 py-2 text-[13px] text-muted-foreground">No project open.</p>
@@ -130,7 +180,7 @@ export function Explorer() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={watchRoot} className="flex min-h-0 flex-1 flex-col">
       <header className="flex items-center gap-1 px-3 py-2">
         <span className="flex-1 truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           {project.name}
@@ -163,7 +213,7 @@ export function Explorer() {
           <p className="px-3 py-2 text-[13px] text-destructive">{(root.error as Error).message}</p>
         )}
         {(root.data ?? []).map((entry) => (
-          <Row key={entry.path} entry={entry} depth={0} expanded={expanded} onToggle={toggle} />
+          <Row key={entry.path} entry={entry} depth={0} expanded={expanded} onToggle={toggle} root={project.project} />
         ))}
       </div>
     </div>

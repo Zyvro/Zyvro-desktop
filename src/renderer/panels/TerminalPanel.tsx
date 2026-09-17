@@ -4,6 +4,8 @@ import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
 import { Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { droppedText } from "../../shared/dropped"
+import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { useWorkspace } from "../state/workspace"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
@@ -191,6 +193,25 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const observer = new ResizeObserver(pushSize)
   observer.observe(node)
 
+  // Lâcher un fichier ici écrit son chemin, comme si on l'avait tapé.
+  //
+  // En natif et pas par React : ce sous-arbre est celui de xterm, et React ne
+  // distribue pas les événements qui y naissent — un `onDrop` posé sur le
+  // conteneur n'est jamais appelé. Vérifié : l'événement passe bien sur le
+  // nœud, et la fonction React ne s'exécute pas.
+  const onDragOver = (event: DragEvent): void => {
+    if (carriesPaths(event)) event.preventDefault()
+  }
+  const onDrop = (event: DragEvent): void => {
+    const paths = droppedPaths(event)
+    if (paths.length === 0 || ptyId === null) return
+    event.preventDefault()
+    const text = droppedText(paths, window.zyvro.platform)
+    if (text) void window.zyvro.terminal.write(ptyId, text)
+  }
+  node.addEventListener("dragover", onDragOver)
+  node.addEventListener("drop", onDrop)
+
   handles.set(key, { fit: pushSize, focus: () => term.focus() })
 
   void window.zyvro.terminal
@@ -227,6 +248,8 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   return () => {
     disposed = true
     observer.disconnect()
+    node.removeEventListener("dragover", onDragOver)
+    node.removeEventListener("drop", onDrop)
     handles.delete(key)
     offData()
     offExit()

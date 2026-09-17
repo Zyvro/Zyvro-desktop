@@ -10,6 +10,7 @@ import { helpOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import * as textSearch from "./search"
+import { createWatcher, type Watcher } from "./watch"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
@@ -41,10 +42,15 @@ export class Workspace {
   readonly daemon = new Daemon()
   readonly terminals = new Terminals()
   readonly agent = new AgentRunner()
+  // Les dossiers que l'arbre de cette fenêtre a ouverts. Par fenêtre, parce
+  // que deux fenêtres ont deux projets et deux arbres dépliés différemment.
+  watcher: Watcher | null = null
 
   async dispose(): Promise<void> {
     this.agent.cancelAll()
     this.terminals.disposeAll()
+    this.watcher?.dispose()
+    this.watcher = null
     await this.daemon.stop()
   }
 }
@@ -207,6 +213,11 @@ export function registerIpc(onRecents?: () => void): void {
     if (typeof dir !== "string" || !dir) throw new Error("A project path is required.")
     try {
       const daemon = await ws.daemon.start(dir)
+      // Les dossiers surveillés étaient ceux de l'ancien projet. Les garder
+      // ferait parler un arbre qui n'est plus affiché, et tiendrait ouverts des
+      // descripteurs sur un dossier que la personne a fermé.
+      ws.watcher?.dispose()
+      ws.watcher = null
       ws.root = dir
       win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
       win.setRepresentedFilename?.(dir)
@@ -327,6 +338,31 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("files:list", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
     return files.listDir(requireRoot(ws), relative ?? ".")
+  })
+
+  // L'arbre dit ce qu'il a ouvert et ce qu'il a replié. Rien d'autre n'est
+  // surveillé : un dossier replié n'est pas affiché, et le surveiller serait
+  // payer pour une information qu'on jette — un `node_modules` surveillé
+  // récursivement, c'est des dizaines de milliers de descripteurs sur macOS.
+  ipcMain.handle("files:watch", async (event, relative: string) => {
+    const { win, ws } = requireWorkspace(event)
+    requireRoot(ws)
+    if (!ws.watcher) {
+      ws.watcher = createWatcher(
+        () => ws.root,
+        (dir) => {
+          if (!win.isDestroyed()) win.webContents.send("files:changed", { dir })
+        }
+      )
+    }
+    await ws.watcher.watch(relative ?? ".")
+    return true
+  })
+
+  ipcMain.handle("files:unwatch", async (event, relative: string) => {
+    const { ws } = requireWorkspace(event)
+    ws.watcher?.unwatch(relative ?? ".")
+    return true
   })
 
   ipcMain.handle("files:read", async (event, relative: string) => {

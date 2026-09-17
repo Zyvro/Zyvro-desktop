@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron"
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
 
 // This is the entire surface the renderer gets. Every entry is a named
 // operation, never a path to a general capability: no `invoke(channel, ...)`
@@ -169,6 +169,29 @@ const api = {
     read: (relative: string): Promise<FileRead> => invoke("files:read", relative),
     write: (relative: string, text: string): Promise<boolean> =>
       invoke("files:write", relative, text),
+    // L'arbre dit ce qu'il ouvre et ce qu'il replie ; le principal ne surveille
+    // que ça. `onChanged` ne dit pas ce qui a changé, seulement où : le rendu
+    // sait relire un dossier, et une liste de différences à appliquer à la main
+    // serait une seconde vérité à côté de celle qui marche.
+    // Le chemin d'un fichier lâché depuis le Finder.
+    //
+    // `File.path` n'existe plus : Electron l'a retiré en 32, et le rendu n'a
+    // aucun autre moyen de savoir d'où vient un fichier déposé — un `File` est
+    // du contenu, pas un emplacement. `webUtils.getPathForFile` est le
+    // remplacement, et il vit ici parce qu'il vit dans `electron`.
+    droppedPath: (file: File): string => {
+      try {
+        return webUtils.getPathForFile(file)
+      } catch {
+        // Un fichier qui ne vient pas du disque — une image collée depuis une
+        // page web — n'a pas de chemin, et ce n'est pas une erreur.
+        return ""
+      }
+    },
+    watch: (relative: string): Promise<boolean> => invoke("files:watch", relative),
+    unwatch: (relative: string): Promise<boolean> => invoke("files:unwatch", relative),
+    onChanged: (cb: (payload: { dir: string }) => void): Unsubscribe => on("files:changed", cb),
+
     create: (relative: string, kind: "file" | "directory"): Promise<boolean> =>
       invoke("files:create", relative, kind),
     rename: (from: string, to: string): Promise<boolean> => invoke("files:rename", from, to),

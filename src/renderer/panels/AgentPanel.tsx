@@ -5,6 +5,8 @@ import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, WorkflowRef } from "../../preload"
+import { droppedText, insertAt } from "../../shared/dropped"
+import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permissionFor, setPermissionFor, subscribePermission } from "~/state/permission"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
@@ -792,7 +794,36 @@ export function AgentPanel(): JSX.Element {
   const [dropping, setDropping] = useState(false)
   const [attachError, setAttachError] = useState("")
 
+  // insertPaths écrit les chemins déposés là où était le curseur.
+  //
+  // Un chemin plutôt qu'un contenu : ce qu'on dépose sur un agent qui lit déjà
+  // le projet, c'est une désignation — « regarde celui-là ». Le contenu, il
+  // sait aller le chercher, et un dossier n'a de toute façon pas de contenu à
+  // coller.
+  const insertPaths = (paths: string[]): void => {
+    const text = droppedText(paths, window.zyvro.platform)
+    if (!text) return
+    const field = composer.current
+    const at = field ? { start: field.selectionStart, end: field.selectionEnd } : { start: draft.length, end: draft.length }
+    const next = insertAt(draft, at.start, at.end, text)
+    setDraft(next.value)
+    // Le curseur derrière ce qu'on vient de coller, et le champ qui reprend la
+    // main : on dépose pour continuer à écrire.
+    window.requestAnimationFrame(() => {
+      if (!field) return
+      field.focus()
+      field.setSelectionRange(next.cursor, next.cursor)
+      grow(field)
+    })
+  }
+
   const take = async (files: File[]): Promise<void> => {
+    // Une image est jointe — le CLI sait l'ouvrir — et tout le reste, fichier
+    // ou dossier, est désigné par son chemin.
+    const others = files.filter((file) => !file.type.startsWith("image/"))
+    if (others.length > 0) {
+      insertPaths(others.map((file) => window.zyvro.files.droppedPath(file)).filter(Boolean))
+    }
     const images = files.filter((file) => file.type.startsWith("image/"))
     if (images.length === 0) return
     setAttachError("")
@@ -946,16 +977,24 @@ export function AgentPanel(): JSX.Element {
       <div
         className="shrink-0 border-t border-white/[0.06] p-2"
         onDragOver={(event) => {
-          if (![...event.dataTransfer.types].includes("Files")) return
+          if (!carriesPaths(event)) return
           event.preventDefault()
           setDropping(true)
         }}
         onDragLeave={() => setDropping(false)}
         onDrop={(event) => {
-          if (![...event.dataTransfer.types].includes("Files")) return
+          if (!carriesPaths(event)) return
           event.preventDefault()
           setDropping(false)
-          void take([...event.dataTransfer.files])
+          // Un fichier venu du Finder peut être une image à joindre ; un
+          // fichier venu de l'arbre est toujours une désignation, et il n'y a
+          // rien à lire à son sujet — le projet est déjà ouvert.
+          const files = [...event.dataTransfer.files]
+          if (files.length > 0) {
+            void take(files)
+            return
+          }
+          insertPaths(droppedPaths(event))
         }}
       >
         {/* One chip per image, with its name and a cross — the same shape VS

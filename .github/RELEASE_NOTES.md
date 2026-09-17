@@ -138,6 +138,13 @@ made a clear instruction look like a crash.
 rather than by input name folded the old value into its fingerprint, so a second
 run with a different input was answered from the cache.
 
+**A Black Forest Labs key you had pasted never reached a run.** The panel said
+"Connected" — it reads what is stored — and the run said no key was configured,
+because the step that folds a stored key into a run's configuration did not name
+this one. Both statements were true and nothing connected them. Image nodes on
+your own FLUX key were affected too; only the platform's key, which arrives by
+another road, ever worked.
+
 **Smaller things.** The shell greeted you in French in an English app. The agent's
 message box overflowed its panel and left no room to type. Store thumbnails were
 drawn by a copy of the web app's component instead of the component.
