@@ -114,51 +114,88 @@ export type {
   SharedWorkflow,
 }
 
+// invoke : `ipcRenderer.invoke`, sans la plomberie dans le message.
+//
+// Electron enveloppe toute erreur venue du processus principal :
+//
+//     Error invoking remote method 'shots:share': Error: Sign in to publish
+//     to the store.
+//
+// Le rendu affiche `err.message` tel quel — c'est ce que font une douzaine de
+// panneaux, et c'est la bonne chose à faire : ces phrases sont écrites pour
+// être lues. Elles arrivaient précédées du nom d'un canal que personne n'a à
+// connaître, ce qui fait passer une consigne claire pour une trace technique,
+// et une fenêtre qui dit « connectez-vous pour publier » pour un bogue.
+//
+// Ici et pas dans les panneaux : le pont est le passage obligé de toutes ces
+// erreurs. Le faire douze fois voudrait dire l'oublier au treizième.
+const IPC_WRAPPER = /^Error invoking remote method '[^']*':\s*/
+
+function plainMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  if (!IPC_WRAPPER.test(raw)) return raw
+  // Une fois l'enveloppe retirée, le nom de la classe reste collé devant la
+  // phrase — « Error: », « TypeError: » — et n'apprend rien non plus.
+  const inner = raw.replace(IPC_WRAPPER, "").replace(/^[A-Za-z]*Error:\s*/, "")
+  return inner || raw
+}
+
+function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
+  return ipcRenderer.invoke(channel, ...args).then(
+    (value) => value as T,
+    (err: unknown) => {
+      // L'original garde le canal et la trace, pour qui va les chercher dans
+      // la console ; le message, lui, est la phrase.
+      throw new Error(plainMessage(err), { cause: err })
+    }
+  )
+}
+
 const api = {
   platform: process.platform,
 
   project: {
-    choose: (): Promise<string | null> => ipcRenderer.invoke("project:choose"),
-    create: (): Promise<string | null> => ipcRenderer.invoke("project:create"),
-    open: (dir: string): Promise<OpenResult> => ipcRenderer.invoke("project:open", dir),
-    current: (): Promise<OpenResult | null> => ipcRenderer.invoke("project:current"),
-    close: (): Promise<boolean> => ipcRenderer.invoke("project:close"),
-    recents: (): Promise<Recent[]> => ipcRenderer.invoke("project:recents"),
-    forgetRecents: (): Promise<Recent[]> => ipcRenderer.invoke("project:forget-recents"),
+    choose: (): Promise<string | null> => invoke("project:choose"),
+    create: (): Promise<string | null> => invoke("project:create"),
+    open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),
+    current: (): Promise<OpenResult | null> => invoke("project:current"),
+    close: (): Promise<boolean> => invoke("project:close"),
+    recents: (): Promise<Recent[]> => invoke("project:recents"),
+    forgetRecents: (): Promise<Recent[]> => invoke("project:forget-recents"),
   },
 
   files: {
-    list: (relative: string): Promise<DirEntry[]> => ipcRenderer.invoke("files:list", relative),
-    read: (relative: string): Promise<FileRead> => ipcRenderer.invoke("files:read", relative),
+    list: (relative: string): Promise<DirEntry[]> => invoke("files:list", relative),
+    read: (relative: string): Promise<FileRead> => invoke("files:read", relative),
     write: (relative: string, text: string): Promise<boolean> =>
-      ipcRenderer.invoke("files:write", relative, text),
+      invoke("files:write", relative, text),
     create: (relative: string, kind: "file" | "directory"): Promise<boolean> =>
-      ipcRenderer.invoke("files:create", relative, kind),
-    rename: (from: string, to: string): Promise<boolean> => ipcRenderer.invoke("files:rename", from, to),
-    remove: (relative: string): Promise<boolean> => ipcRenderer.invoke("files:delete", relative),
-    reveal: (relative: string): Promise<boolean> => ipcRenderer.invoke("shell:reveal", relative),
+      invoke("files:create", relative, kind),
+    rename: (from: string, to: string): Promise<boolean> => invoke("files:rename", from, to),
+    remove: (relative: string): Promise<boolean> => invoke("files:delete", relative),
+    reveal: (relative: string): Promise<boolean> => invoke("shell:reveal", relative),
     pick: (request: { save?: boolean; title?: string; current?: string }): Promise<string | null> =>
-      ipcRenderer.invoke("files:pick", request),
+      invoke("files:pick", request),
   },
 
   // Chercher dans le projet, et remplacer — dans les fichiers qu'on n'a pas
   // ouverts, ce qui est le propre de cette fonction.
   search: {
-    find: (query: SearchQuery): Promise<SearchResult> => ipcRenderer.invoke("search:find", query),
+    find: (query: SearchQuery): Promise<SearchResult> => invoke("search:find", query),
     replace: (
       query: SearchQuery,
       replacement: string,
       targets: ReplaceTarget[] | null
-    ): Promise<ReplaceResult> => ipcRenderer.invoke("search:replace", query, replacement, targets),
+    ): Promise<ReplaceResult> => invoke("search:replace", query, replacement, targets),
   },
 
   terminal: {
     create: (cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
-      ipcRenderer.invoke("terminal:create", cols, rows),
-    write: (id: string, data: string): Promise<boolean> => ipcRenderer.invoke("terminal:write", id, data),
+      invoke("terminal:create", cols, rows),
+    write: (id: string, data: string): Promise<boolean> => invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number): Promise<boolean> =>
-      ipcRenderer.invoke("terminal:resize", id, cols, rows),
-    dispose: (id: string): Promise<boolean> => ipcRenderer.invoke("terminal:dispose", id),
+      invoke("terminal:resize", id, cols, rows),
+    dispose: (id: string): Promise<boolean> => invoke("terminal:dispose", id),
     onData: (cb: (p: { id: string; data: string }) => void): Unsubscribe => on("terminal:data", cb),
     onExit: (cb: (p: { id: string; code: number }) => void): Unsubscribe => on("terminal:exit", cb),
   },
@@ -168,18 +205,18 @@ const api = {
   // réclame.
   browser: {
     attach: (contentsId: number, tabId: string): Promise<boolean> =>
-      ipcRenderer.invoke("browser:attach", contentsId, tabId),
+      invoke("browser:attach", contentsId, tabId),
     visited: (contentsId: number, url: string): Promise<boolean> =>
-      ipcRenderer.invoke("browser:visited", contentsId, url),
+      invoke("browser:visited", contentsId, url),
     devtools: (
       contentsId: number,
       open: boolean,
       bounds: { x: number; y: number; width: number; height: number } | null
-    ): Promise<boolean> => ipcRenderer.invoke("browser:devtools", contentsId, open, bounds),
+    ): Promise<boolean> => invoke("browser:devtools", contentsId, open, bounds),
     devtoolsBounds: (
       contentsId: number,
       bounds: { x: number; y: number; width: number; height: number } | null
-    ): Promise<boolean> => ipcRenderer.invoke("browser:devtools-bounds", contentsId, bounds),
+    ): Promise<boolean> => invoke("browser:devtools-bounds", contentsId, bounds),
     // `view` dit laquelle : un identifiant d'onglet pour piloter celle-là, la
     // chaîne vide pour réutiliser celle qui est ouverte, « new » pour en ouvrir
     // une de plus.
@@ -200,27 +237,27 @@ const api = {
       images: string[],
       permission: Permission
     ): Promise<string> =>
-      ipcRenderer.invoke("agent:send", kind, prompt, { workflows, permission }, conversationId, model, images),
+      invoke("agent:send", kind, prompt, { workflows, permission }, conversationId, model, images),
     // Une demande de permission venue de la CLI, et la réponse de la personne.
     onPermission: (
       cb: (payload: { id: string; tool: string; input: Record<string, unknown> }) => void
     ): Unsubscribe => on("agent:permission", cb),
     answerPermission: (id: string, allow: boolean): Promise<boolean> =>
-      ipcRenderer.invoke("agent:permission-answer", id, allow),
+      invoke("agent:permission-answer", id, allow),
     attach: (
       conversationId: string,
       name: string,
       bytes: Uint8Array
     ): Promise<{ id: string; name: string; mime: string }> =>
-      ipcRenderer.invoke("agent:attach", conversationId, name, bytes),
+      invoke("agent:attach", conversationId, name, bytes),
     detach: (conversationId: string, id: string): Promise<void> =>
-      ipcRenderer.invoke("agent:detach", conversationId, id),
-    models: (kind: AgentKind): Promise<string[]> => ipcRenderer.invoke("agent:models", kind),
-    conversations: (): Promise<Conversation[]> => ipcRenderer.invoke("agent:conversations"),
+      invoke("agent:detach", conversationId, id),
+    models: (kind: AgentKind): Promise<string[]> => invoke("agent:models", kind),
+    conversations: (): Promise<Conversation[]> => invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
-      ipcRenderer.invoke("agent:remember", conversation),
-    forget: (id: string): Promise<void> => ipcRenderer.invoke("agent:forget", id),
-    cancel: (id: string): Promise<boolean> => ipcRenderer.invoke("agent:cancel", id),
+      invoke("agent:remember", conversation),
+    forget: (id: string): Promise<void> => invoke("agent:forget", id),
+    cancel: (id: string): Promise<boolean> => invoke("agent:cancel", id),
     onText: (cb: (p: { id: string; text: string }) => void): Unsubscribe => on("agent:text", cb),
     onTool: (
       cb: (p: {
@@ -244,26 +281,26 @@ const api = {
   },
 
   account: {
-    current: (): Promise<Account | null> => ipcRenderer.invoke("account:current"),
+    current: (): Promise<Account | null> => invoke("account:current"),
     signIn: (email: string, password: string): Promise<Account> =>
-      ipcRenderer.invoke("account:sign-in", email, password),
-    signOut: (): Promise<null> => ipcRenderer.invoke("account:sign-out"),
+      invoke("account:sign-in", email, password),
+    signOut: (): Promise<null> => invoke("account:sign-out"),
   },
 
   store: {
-    nodes: (q: string): Promise<StoreListing[]> => ipcRenderer.invoke("store:nodes", q),
-    workflows: (q: string): Promise<StoreWorkflow[]> => ipcRenderer.invoke("store:workflows", q),
+    nodes: (q: string): Promise<StoreListing[]> => invoke("store:nodes", q),
+    workflows: (q: string): Promise<StoreWorkflow[]> => invoke("store:workflows", q),
     readPack: (name: string, version?: string): Promise<StorePack> =>
-      ipcRenderer.invoke("store:read-pack", name, version),
+      invoke("store:read-pack", name, version),
     installPack: (name: string, version?: string): Promise<InstallResult> =>
-      ipcRenderer.invoke("store:install-pack", name, version),
+      invoke("store:install-pack", name, version),
     installWorkflow: (name: string): Promise<InstallResult> =>
-      ipcRenderer.invoke("store:install-workflow", name),
-    installedPacks: (): Promise<InstalledPack[]> => ipcRenderer.invoke("store:installed-packs"),
+      invoke("store:install-workflow", name),
+    installedPacks: (): Promise<InstalledPack[]> => invoke("store:installed-packs"),
     publishPack: (name: string, password: string): Promise<unknown> =>
-      ipcRenderer.invoke("store:publish-pack", name, password),
+      invoke("store:publish-pack", name, password),
     publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
-      ipcRenderer.invoke("store:publish-workflow", payload),
+      invoke("store:publish-workflow", payload),
   },
 
   // Git. The shapes are imported from the main process rather than restated
@@ -281,63 +318,63 @@ const api = {
     capture: (
       rect: { x: number; y: number; width: number; height: number },
       label?: string
-    ): Promise<{ preview: string; bytes: number }> => ipcRenderer.invoke("shots:capture", rect, label),
-    save: (): Promise<string> => ipcRenderer.invoke("shots:save"),
-    share: (): Promise<string> => ipcRenderer.invoke("shots:share"),
+    ): Promise<{ preview: string; bytes: number }> => invoke("shots:capture", rect, label),
+    save: (): Promise<string> => invoke("shots:save"),
+    share: (): Promise<string> => invoke("shots:share"),
   },
 
   git: {
-    status: (): Promise<GitStatus | NoRepository> => ipcRenderer.invoke("git:status"),
-    init: (): Promise<void> => ipcRenderer.invoke("git:init"),
-    stage: (paths: string[]): Promise<void> => ipcRenderer.invoke("git:stage", paths),
-    unstage: (paths: string[]): Promise<void> => ipcRenderer.invoke("git:unstage", paths),
-    discard: (paths: string[]): Promise<void> => ipcRenderer.invoke("git:discard", paths),
+    status: (): Promise<GitStatus | NoRepository> => invoke("git:status"),
+    init: (): Promise<void> => invoke("git:init"),
+    stage: (paths: string[]): Promise<void> => invoke("git:stage", paths),
+    unstage: (paths: string[]): Promise<void> => invoke("git:unstage", paths),
+    discard: (paths: string[]): Promise<void> => invoke("git:discard", paths),
     commit: (message: string, options: CommitOptions = {}): Promise<void> =>
-      ipcRenderer.invoke("git:commit", message, options),
-    diff: (path: string, staged: boolean): Promise<string> => ipcRenderer.invoke("git:diff", path, staged),
+      invoke("git:commit", message, options),
+    diff: (path: string, staged: boolean): Promise<string> => invoke("git:diff", path, staged),
     fileAt: (path: string, revision: string): Promise<string> =>
-      ipcRenderer.invoke("git:file-at", path, revision),
-    log: (limit?: number): Promise<LogEntry[]> => ipcRenderer.invoke("git:log", limit),
-    branches: (): Promise<string[]> => ipcRenderer.invoke("git:branches"),
-    checkout: (branch: string): Promise<void> => ipcRenderer.invoke("git:checkout", branch),
-    createBranch: (name: string): Promise<void> => ipcRenderer.invoke("git:create-branch", name),
-    fetch: (): Promise<void> => ipcRenderer.invoke("git:fetch"),
-    pull: (): Promise<void> => ipcRenderer.invoke("git:pull"),
-    push: (): Promise<void> => ipcRenderer.invoke("git:push"),
+      invoke("git:file-at", path, revision),
+    log: (limit?: number): Promise<LogEntry[]> => invoke("git:log", limit),
+    branches: (): Promise<string[]> => invoke("git:branches"),
+    checkout: (branch: string): Promise<void> => invoke("git:checkout", branch),
+    createBranch: (name: string): Promise<void> => invoke("git:create-branch", name),
+    fetch: (): Promise<void> => invoke("git:fetch"),
+    pull: (): Promise<void> => invoke("git:pull"),
+    push: (): Promise<void> => invoke("git:push"),
     pushTo: (remote: string, setUpstream: boolean): Promise<void> =>
-      ipcRenderer.invoke("git:push-to", remote, setUpstream),
-    pushTags: (): Promise<void> => ipcRenderer.invoke("git:push-tags"),
-    remotes: (): Promise<Remote[]> => ipcRenderer.invoke("git:remotes"),
-    addRemote: (name: string, url: string): Promise<void> => ipcRenderer.invoke("git:add-remote", name, url),
-    removeRemote: (name: string): Promise<void> => ipcRenderer.invoke("git:remove-remote", name),
-    stashList: (): Promise<Stash[]> => ipcRenderer.invoke("git:stash-list"),
+      invoke("git:push-to", remote, setUpstream),
+    pushTags: (): Promise<void> => invoke("git:push-tags"),
+    remotes: (): Promise<Remote[]> => invoke("git:remotes"),
+    addRemote: (name: string, url: string): Promise<void> => invoke("git:add-remote", name, url),
+    removeRemote: (name: string): Promise<void> => invoke("git:remove-remote", name),
+    stashList: (): Promise<Stash[]> => invoke("git:stash-list"),
     stash: (message: string, includeUntracked: boolean): Promise<void> =>
-      ipcRenderer.invoke("git:stash", message, includeUntracked),
-    stashPop: (index: number): Promise<void> => ipcRenderer.invoke("git:stash-pop", index),
-    stashApply: (index: number): Promise<void> => ipcRenderer.invoke("git:stash-apply", index),
-    stashDrop: (index: number): Promise<void> => ipcRenderer.invoke("git:stash-drop", index),
-    tags: (): Promise<string[]> => ipcRenderer.invoke("git:tags"),
+      invoke("git:stash", message, includeUntracked),
+    stashPop: (index: number): Promise<void> => invoke("git:stash-pop", index),
+    stashApply: (index: number): Promise<void> => invoke("git:stash-apply", index),
+    stashDrop: (index: number): Promise<void> => invoke("git:stash-drop", index),
+    tags: (): Promise<string[]> => invoke("git:tags"),
     createTag: (name: string, message: string): Promise<void> =>
-      ipcRenderer.invoke("git:create-tag", name, message),
-    deleteTag: (name: string): Promise<void> => ipcRenderer.invoke("git:delete-tag", name),
+      invoke("git:create-tag", name, message),
+    deleteTag: (name: string): Promise<void> => invoke("git:delete-tag", name),
     renameBranch: (from: string, to: string): Promise<void> =>
-      ipcRenderer.invoke("git:rename-branch", from, to),
+      invoke("git:rename-branch", from, to),
     deleteBranch: (name: string, force: boolean): Promise<void> =>
-      ipcRenderer.invoke("git:delete-branch", name, force),
-    output: (): Promise<GitCommandLog[]> => ipcRenderer.invoke("git:output"),
-    agent: (): Promise<"claude" | "codex" | null> => ipcRenderer.invoke("git:agent"),
-    suggestMessage: (): Promise<string> => ipcRenderer.invoke("git:suggest-message"),
-    clone: (url: string): Promise<string | null> => ipcRenderer.invoke("git:clone", url),
+      invoke("git:delete-branch", name, force),
+    output: (): Promise<GitCommandLog[]> => invoke("git:output"),
+    agent: (): Promise<"claude" | "codex" | null> => invoke("git:agent"),
+    suggestMessage: (): Promise<string> => invoke("git:suggest-message"),
+    clone: (url: string): Promise<string | null> => invoke("git:clone", url),
   },
 
   workflows: {
-    chooseSource: (): Promise<Importable | null> => ipcRenderer.invoke("workflows:choose-source"),
+    chooseSource: (): Promise<Importable | null> => invoke("workflows:choose-source"),
     share: (payload: { name: string; description: string; graph: unknown }): Promise<SharedWorkflow> =>
-      ipcRenderer.invoke("workflows:share", payload),
-    mine: (): Promise<HostedWorkflow[]> => ipcRenderer.invoke("workflows:mine"),
+      invoke("workflows:share", payload),
+    mine: (): Promise<HostedWorkflow[]> => invoke("workflows:mine"),
   },
 
-  openExternal: (url: string): Promise<boolean> => ipcRenderer.invoke("shell:open-external", url),
+  openExternal: (url: string): Promise<boolean> => invoke("shell:open-external", url),
 
   menu: {
     onOpenProject: (cb: () => void): Unsubscribe => on("menu:open-project", cb),
