@@ -1,0 +1,91 @@
+# Les vérifications de l'application, sur les deux systèmes où elle tourne.
+#
+# Elles tournaient déjà — dans la construction d'une release, juste avant
+# l'empaquetage. Ce qui veut dire qu'une panne propre à Windows se découvrait en
+# publiant, une fois le tag posé et les installeurs à moitié construits. C'est
+# arrivé : un garde affirmait qu'un fichier était lisible par son seul
+# propriétaire, ce qui n'a pas de sens sur un système sans mode POSIX, et la
+# release s'est arrêtée là.
+#
+# Alors elles tournent à chaque poussée, avant que quoi que ce soit dépende
+# d'elles. Windows est la moitié qui compte ici : plusieurs gardes ne portent
+# que là — le lanceur `.cmd` et son piège à arguments, les chemins courts, les
+# fins de ligne — et un garde qui ne s'exécute jamais là où il porte n'est pas
+# un garde, c'est une intention.
+name: Checks
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    strategy:
+      # Une plateforme qui échoue ne doit pas cacher l'état de l'autre.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-2022
+            platform: win
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Check out the desktop app
+        uses: actions/checkout@v4
+        with:
+          path: Zyvro-desktop
+
+      # Les mêmes voisins que la construction : le rendu compile l'éditeur de
+      # graphe du site depuis ses sources, et `check-node-kinds` demande au
+      # moteur la liste des nœuds qu'il sait exécuter.
+      - name: Check out the engine
+        uses: actions/checkout@v4
+        with:
+          repository: Zyvro/Zyvro-engine
+          path: Zyvro-engine
+
+      - name: Check out the frontend
+        uses: actions/checkout@v4
+        with:
+          repository: Zyvro/Zyvro-frontend
+          path: Zyvro-frontend
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: Zyvro-engine/go.mod
+          cache-dependency-path: Zyvro-engine/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # node-gyp cherche encore distutils, que Python a retiré en 3.12.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Give node-gyp a toolchain it can find
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          npm install -g node-gyp@latest
+          $gyp = Join-Path (npm root -g) "node-gyp\bin\node-gyp.js"
+          if (-not (Test-Path $gyp)) { Write-Error "node-gyp not where expected: $gyp"; exit 1 }
+          "npm_config_node_gyp=$gyp" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Install the frontend's dependencies
+        working-directory: Zyvro-frontend
+        run: npm ci
+
+      - name: Install the desktop's dependencies
+        working-directory: Zyvro-desktop
+        run: npm ci
+
+      - name: Verify the app and its tests
+        working-directory: Zyvro-desktop
+        run: npm run typecheck

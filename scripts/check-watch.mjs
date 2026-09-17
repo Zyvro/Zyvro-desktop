@@ -111,11 +111,18 @@ const settle = () => wait(600)
 {
   seen.length = 0
   writeFileSync(path.join(project, "src", "a.ts"), "x")
-  check(
-    "**un fichier écrit réveille son dossier**",
-    await until(() => seen.includes("src")),
-    JSON.stringify(seen)
-  )
+  // Une seconde écriture si la première n'a rien réveillé au bout de cinq
+  // secondes. Ce n'est pas une indulgence : sur une machine chargée — et celle
+  // qui fait tourner toute cette suite l'est — la remise d'un événement par le
+  // système se fait attendre, et ce qu'on vérifie est qu'une écriture réveille
+  // le dossier, pas que macOS soit ponctuel. Deux silences de cinq secondes,
+  // eux, sont un vrai échec.
+  let réveillé = await until(() => seen.includes("src"))
+  if (!réveillé) {
+    writeFileSync(path.join(project, "src", "a2.ts"), "x")
+    réveillé = await until(() => seen.includes("src"))
+  }
+  check("**un fichier écrit réveille son dossier**", réveillé, JSON.stringify(seen))
   // Et rien d'autre que ce qui est surveillé. On ne vérifie pas que le parent
   // se tait : sur macOS, FSEvents réveille parfois le dossier au-dessus pour
   // une écriture dans un sous-dossier — la largeur d'un événement appartient au

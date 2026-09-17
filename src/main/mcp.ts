@@ -225,19 +225,68 @@ function writeHelper(dir: string, ctx: McpTarget): void {
   ]
   writeFileSync(path.join(dir, HELPER), lines.join("\n"), { mode: 0o700 })
 
-  // Windows n'exécute pas un script sh. Le `.cmd` ne fait que dire ce qu'il y
-  // a : les variables sont là, et un agent s'y branche avec le fichier de
-  // configuration. Rediriger les arguments d'un `.cmd` vers un binaire est un
-  // exercice que je n'ai pas pu vérifier sur cette machine, et un lanceur qui
-  // perd silencieusement ses arguments serait pire que pas de lanceur.
+  // Windows n'exécute pas un script sh, et son `.cmd` a un piège que le shell
+  // POSIX n'a pas : `shift` décale `%1`, `%2`… mais ne touche pas à `%*`.
+  //
+  // Écrire `shift` puis passer `%*` est donc la version qui a l'air juste et qui
+  // renvoie « claude » comme premier argument à claude. L'agent démarre, a l'air
+  // normal, et ignore ce qu'on lui a demandé — ce qui est exactement le genre de
+  // panne qu'on ne voit pas. Les arguments sont donc ramassés un par un dans une
+  // variable, avec `%1` et non `%~1` pour que les guillemets de l'appelant
+  // survivent : un chemin qui contient une espace est un chemin ordinaire.
+  //
+  // `call` parce que `claude` sur Windows est `claude.cmd` : sans lui, un `.cmd`
+  // qui en appelle un autre ne revient jamais, et le code de sortie est perdu.
   if (process.platform === "win32") {
+    const servers = Object.entries(mcpServers(ctx))
+    const info = [
+      "echo Zyvro MCP",
+      ...servers.map(([name, server]) => `echo   ${name.padEnd(9)} ${server.url}`),
+      `echo   config    %${MCP_CONFIG_ENV}%`,
+      "echo.",
+      `echo   ${HELPER} claude [...]   claude, with both servers wired in`,
+      `echo   ${HELPER} codex  [...]   codex, with both servers wired in`,
+      `echo   any other client: point it at %${MCP_CONFIG_ENV}%`,
+    ]
+    const collect = (label: string, run: string) => [
+      `:${label}`,
+      "shift",
+      `:${label}_args`,
+      `if "%~1"=="" goto ${label}_run`,
+      // Chaque tour relit %ARGS% à sa propre ligne : pas besoin d'expansion
+      // retardée, qui mangerait les points d'exclamation d'un chemin.
+      'set "ARGS=%ARGS% %1"',
+      "shift",
+      `goto ${label}_args`,
+      `:${label}_run`,
+      run,
+      "exit /b %ERRORLEVEL%",
+      "",
+    ]
     const cmd = [
       "@echo off",
-      "echo Zyvro MCP",
-      ...Object.entries(mcpServers(ctx)).map(([name, server]) => `echo   ${name} ${server.url}`),
-      `echo   config %${MCP_CONFIG_ENV}%`,
-      "echo.",
-      `echo   claude --mcp-config "%${MCP_CONFIG_ENV}%" --strict-mcp-config`,
+      "rem zyvro-mcp — lance un agent deja branche sur les serveurs MCP du projet.",
+      "rem Ecrit par Zyvro Studio pour ce shell ; il disparait avec lui.",
+      "setlocal",
+      'set "ARGS="',
+      'if "%~1"=="" goto info',
+      'if /i "%~1"=="-h" goto info',
+      'if /i "%~1"=="--help" goto info',
+      'if /i "%~1"=="info" goto info',
+      'if /i "%~1"=="claude" goto claude',
+      'if /i "%~1"=="codex" goto codex',
+      `echo ${HELPER}: I do not know how to wire "%~1" 1>&2`,
+      "call :info",
+      "exit /b 2",
+      "",
+      ...collect(
+        "claude",
+        `call claude --mcp-config "%${MCP_CONFIG_ENV}%" --strict-mcp-config%ARGS%`
+      ),
+      ...collect("codex", `call codex ${codex}%ARGS%`),
+      ":info",
+      ...info,
+      "exit /b 0",
       "",
     ]
     writeFileSync(path.join(dir, `${HELPER}.cmd`), cmd.join("\r\n"))

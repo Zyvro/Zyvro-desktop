@@ -203,6 +203,94 @@ if (process.platform !== "win32") {
   }
 }
 
+// ---- le lanceur Windows, pour de vrai -----------------------------------
+//
+// Le même exercice, sur le système où il est le plus facile à rater. `shift`
+// décale `%1`, `%2`… et ne touche pas à `%*` : un `.cmd` qui fait `shift` puis
+// passe `%*` renvoie « claude » comme premier argument à claude, qui démarre,
+// a l'air normal, et ignore ce qu'on lui a demandé.
+//
+// Ce bloc ne s'exécute que sous Windows, et il s'exécute vraiment : la
+// construction de la release lance `npm run typecheck` sur un runner Windows
+// avant d'empaqueter. Un garde qui ne tourne jamais là où il porte n'est pas un
+// garde.
+if (process.platform === "win32") {
+  const fake = path.join(dir, "bin")
+  mkdirSync(fake, { recursive: true })
+  // Un faux agent qui écrit ce qu'on lui a passé, un argument par ligne.
+  for (const name of ["claude", "codex"]) {
+    writeFileSync(
+      path.join(fake, `${name}.cmd`),
+      ["@echo off", ":loop", 'if "%~1"=="" exit /b 0', "echo %~1", "shift", "goto loop", ""].join("\r\n")
+    )
+  }
+  const helper = path.join(path.dirname(shell.env.ZYVRO_MCP_CONFIG), "zyvro-mcp.cmd")
+  check("**le lanceur Windows existe**", existsSync(helper), helper)
+
+  const run = (...args) =>
+    execFileSync(process.env.COMSPEC || "cmd.exe", ["/c", helper, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, ...shell.env, PATH: `${fake}${path.delimiter}${shell.env.PATH}` },
+    })
+
+  {
+    const out = run("claude", "--model", "opus").split(/\r?\n/).map((l) => l.trim())
+    check(
+      "**claude part avec la configuration du projet**",
+      out.includes("--mcp-config") && out.includes(shell.env.ZYVRO_MCP_CONFIG),
+      out.join(" ")
+    )
+    check("et seulement celle du projet", out.includes("--strict-mcp-config"), out.join(" "))
+    check("**ce qu'on tape derrière arrive**", out.includes("--model") && out.includes("opus"), out.join(" "))
+    // Le piège : avec `%*` après un `shift`, « claude » repartirait comme
+    // premier argument de claude.
+    check("**et le verbe ne repart pas avec**", !out.includes("claude"), out.join(" "))
+  }
+
+  {
+    const out = run("codex", "exec", "bonjour").split(/\r?\n/).map((l) => l.trim())
+    check(
+      "**codex part avec l'adresse du moteur**",
+      out.some((line) => line.includes("mcp_servers.zyvro.url=")),
+      out.join(" ")
+    )
+    check(
+      "et le jeton reste dans l'environnement",
+      out.some((line) => line.includes("bearer_token_env_var=")) && !out.some((line) => line.includes("jeton-moteur")),
+      out.join(" ")
+    )
+    check("**ce qu'on tape derrière arrive**", out.includes("exec") && out.includes("bonjour"), out.join(" "))
+    check("et le verbe ne repart pas avec", !out.includes("codex"), out.join(" "))
+  }
+
+  {
+    const out = run()
+    check(
+      "**seul, il dit tout ce qu'il y a**",
+      out.includes("http://127.0.0.1:4123/mcp") && out.includes(shell.env.ZYVRO_MCP_CONFIG),
+      out
+    )
+    check("en anglais lui aussi", !/[éèêàçù]/.test(out), out)
+    check("y compris le serveur de capture", out.includes(handle.origin), out)
+  }
+
+  {
+    // Un verbe inconnu doit se plaindre et sortir en erreur, pas lancer quelque
+    // chose au hasard.
+    let code = 0
+    try {
+      execFileSync(process.env.COMSPEC || "cmd.exe", ["/c", helper, "gemini"], {
+        encoding: "utf8",
+        env: { ...process.env, ...shell.env, PATH: `${fake}${path.delimiter}${shell.env.PATH}` },
+        stdio: "pipe",
+      })
+    } catch (err) {
+      code = err.status
+    }
+    check("**un client qu'il ne sait pas brancher est refusé**", code === 2, `code ${code}`)
+  }
+}
+
 // ---- la durée de vie du jeton -------------------------------------------
 {
   const file = shell.env.ZYVRO_MCP_CONFIG
