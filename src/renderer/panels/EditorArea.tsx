@@ -10,6 +10,7 @@ import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
 import { StorePanel } from "./StorePanel"
 import { BrowserTab } from "./BrowserTab"
+import { Favicon } from "./BrowserList"
 
 // Every open tab stays mounted. A graph that unmounted when you glanced at a
 // file would lose its viewport, its selection and any run in progress, so tabs
@@ -41,8 +42,14 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
           : "bg-white/[0.02] text-muted-foreground hover:bg-white/[0.05]"
       )}
     >
-      <button className="min-w-0 flex-1 truncate text-left" onClick={() => activateTab(tab.id)}>
-        {tab.title}
+      <button
+        className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
+        onClick={() => activateTab(tab.id)}
+      >
+        {/* Seuls les onglets de navigateur portent une icône : c'est ce qui les
+            distingue entre eux, là où un fichier se distingue par son nom. */}
+        {tab.kind === "browser" && <Favicon key={tab.icon} icon={tab.icon} className="h-3.5 w-3.5" />}
+        <span className="truncate">{tab.title}</span>
       </button>
       <button
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
@@ -73,7 +80,7 @@ function TabBody({ tab }: { tab: Tab }) {
     case "store":
       return <StorePanel />
     case "browser":
-      return <BrowserTab />
+      return <BrowserTab tabId={tab.id} url={tab.url} />
     default:
       return <Welcome />
   }

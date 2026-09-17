@@ -120,6 +120,9 @@ export type RequestLine = { url: string; status: number; error?: string }
 export type Guest = {
   /** L'identifiant du WebContents de la vue, tel que le rendu le donne. */
   id: number
+  /** L'identifiant de l'onglet — « browser:2 » — qu'un agent emploie pour dire
+   *  laquelle il pilote, et que la barre latérale affiche. */
+  view: string
   contents: WebContents
   windowId: number
   console: LogLine[]
@@ -140,11 +143,11 @@ const guests = new Map<number, Guest>()
 // avoir demandé qu'on en ouvre une.
 const waiting = new Map<number, Array<(guest: Guest) => void>>()
 
-export function registerGuest(contents: WebContents, windowId: number): Guest {
+export function registerGuest(contents: WebContents, windowId: number, view = ""): Guest {
   const existing = guests.get(contents.id)
   if (existing) return existing
 
-  const guest: Guest = { id: contents.id, contents, windowId, console: [], requests: [], visited: new Set() }
+  const guest: Guest = { id: contents.id, view, contents, windowId, console: [], requests: [], visited: new Set() }
   guests.set(contents.id, guest)
 
   const promised = waiting.get(windowId)
@@ -204,13 +207,48 @@ function push<T>(list: T[], line: T): void {
   if (list.length > KEPT) list.splice(0, list.length - KEPT)
 }
 
-// pickGuest choisit la vue à piloter : celle de la fenêtre au premier plan,
-// comme la capture d'écran choisit sa fenêtre.
-export function pickGuest(all: BrowserWindow[]): Guest | undefined {
-  const open = [...guests.values()].filter((g) => !g.contents.isDestroyed())
+// lastServed est la vue sur laquelle un outil a agi en dernier.
+//
+// C'est ce qui rend l'absence de `view` utilisable : un agent qui ouvre une
+// page puis la lit, la clique et la photographie parle évidemment de celle-là.
+// Sans cette mémoire, « la première ouverte » l'enverrait ailleurs dès la
+// deuxième vue, et rien dans la réponse ne le dirait.
+let lastServed = ""
+
+export function openViews(): Guest[] {
+  return [...guests.values()].filter((g) => !g.contents.isDestroyed())
+}
+
+// pickGuest choisit la vue à piloter : celle qu'on nomme, sinon la dernière
+// servie, sinon la seule qu'il y ait.
+export function pickGuest(all: BrowserWindow[], view = ""): Guest | undefined {
+  const open = openViews()
+  const wanted = view.trim()
+  if (wanted) {
+    const named = open.find((g) => g.view === wanted)
+    if (named) lastServed = named.view
+    return named
+  }
+  const recent = open.find((g) => g.view === lastServed)
+  if (recent) return recent
   if (open.length <= 1) return open[0]
   const focused = all.find((w) => !w.isDestroyed() && w.isFocused())
   return (focused && open.find((g) => g.windowId === focused.id)) ?? open[0]
+}
+
+export function serveGuest(guest: Guest): Guest {
+  lastServed = guest.view
+  return guest
+}
+
+// describeViews : ce que l'agent doit savoir pour en nommer une.
+export function describeViews(): Array<Record<string, unknown>> {
+  return openViews().map((g) => ({
+    view: g.view,
+    url: g.contents.getURL(),
+    title: g.contents.getTitle(),
+    serving: g.view === lastServed,
+  }))
 }
 
 export function guestForWindow(windowId: number): Guest | undefined {
@@ -222,8 +260,11 @@ export function guestForWindow(windowId: number): Guest | undefined {
 // Il échoue plutôt que d'attendre indéfiniment : une fenêtre qui n'ouvre pas
 // l'onglet est un bug, et un agent bloqué sans rien dire est pire qu'un agent
 // qui rapporte l'échec.
-export function waitForGuest(windowId: number, ms = 10_000): Promise<Guest> {
-  const open = guestForWindow(windowId)
+export function waitForGuest(windowId: number, ms = 10_000, fresh = false): Promise<Guest> {
+  // `fresh` attend celle qui n'existe pas encore : quand un agent demande une
+  // vue de plus, rendre celle qui est déjà là lui ferait piloter la page que la
+  // personne est en train de lire.
+  const open = fresh ? undefined : guestForWindow(windowId)
   if (open) return Promise.resolve(open)
   return new Promise((resolve, reject) => {
     const list = waiting.get(windowId) ?? []
@@ -248,6 +289,7 @@ export function guestCount(): number {
 
 export function forgetGuests(): void {
   guests.clear()
+  lastServed = ""
 }
 
 // ---- les gestes ---------------------------------------------------------

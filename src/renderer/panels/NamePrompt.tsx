@@ -1,5 +1,6 @@
 import { useCallback, useState, useSyncExternalStore } from "react"
 import * as Dialog from "@radix-ui/react-dialog"
+import { cn } from "@/lib/utils"
 import { getPending, settle, subscribe } from "~/state/prompt"
 
 // The replacement for window.prompt. It renders whatever the module store has
@@ -10,7 +11,7 @@ export function NamePrompt() {
   const pending = useSyncExternalStore(subscribe, getPending, getPending)
   // Remounting on each request is deliberate: it resets the input to the new
   // initial value without an effect watching for the request to change.
-  return pending ? <PromptDialog key={pending.title + pending.initial} /> : null
+  return pending ? <PromptDialog key={pending.title + pending.initial + pending.kind} /> : null
 }
 
 function PromptDialog() {
@@ -25,9 +26,19 @@ function PromptDialog() {
     node?.select()
   }, [])
 
+  // Une question sans champ n'a rien à mettre au premier plan que sa réponse.
+  const focusConfirm = useCallback((node: HTMLButtonElement | null) => {
+    node?.focus()
+  }, [])
+
   if (!pending) return null
 
+  const asking = pending.kind === "confirm"
   const submit = () => {
+    if (asking) {
+      settle("yes")
+      return
+    }
     const trimmed = value.trim()
     if (trimmed) settle(trimmed)
   }
@@ -47,6 +58,7 @@ function PromptDialog() {
             {pending.label}
           </Dialog.Description>
 
+          {!asking && (
           <input
             ref={focusInput}
             className="mt-3 h-9 w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 text-sm outline-none focus:border-primary/50"
@@ -59,6 +71,7 @@ function PromptDialog() {
               }
             }}
           />
+          )}
 
           <div className="mt-4 flex justify-end gap-2">
             <button
@@ -68,8 +81,14 @@ function PromptDialog() {
               Cancel
             </button>
             <button
-              className="rounded-lg bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              disabled={value.trim() === ""}
+              ref={asking ? focusConfirm : undefined}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-[13px] font-medium disabled:opacity-50",
+                pending.danger
+                  ? "bg-destructive text-white hover:bg-destructive/90"
+                  : "bg-primary text-primary-foreground hover:bg-primary/90"
+              )}
+              disabled={!asking && value.trim() === ""}
               onClick={submit}
             >
               {pending.confirmLabel}

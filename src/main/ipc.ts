@@ -11,7 +11,7 @@ import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type BrowserHost } from "./shots"
-import { guestForWindow, noteVisit, registerGuest, waitForGuest } from "./browser"
+import { guestForWindow, noteVisit, openViews, registerGuest, waitForGuest, type Guest } from "./browser"
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
@@ -50,18 +50,29 @@ async function realpathOfParent(target: string): Promise<string> {
 // rendu d'ouvrir l'onglet. Il vit ici parce que c'est ici que les fenêtres et
 // les projets se connaissent.
 export const browserHost: BrowserHost = {
-  open: async (win) => {
-    const already = guestForWindow(win.id)
-    if (already) {
-      // Révélé plutôt que dupliqué : deux onglets navigateur dans une fenêtre
-      // seraient deux pages, et l'agent ne saurait pas laquelle il pilote.
-      win.webContents.send("browser:open")
-      return already
+  open: async (win, view = "") => {
+    // Une vue nommée qui existe : on la révèle à la personne et on la rend.
+    // Sans ça, l'agent piloterait une page que personne ne regarde.
+    const named = view && view !== "new" ? viewNamed(view) : null
+    if (named) {
+      win.webContents.send("browser:open", { view })
+      return named
     }
-    win.webContents.send("browser:open")
-    return waitForGuest(win.id)
+    if (view !== "new") {
+      const already = guestForWindow(win.id)
+      if (already) {
+        win.webContents.send("browser:open", { view: "" })
+        return already
+      }
+    }
+    win.webContents.send("browser:open", { view })
+    return waitForGuest(win.id, 10_000, view === "new")
   },
   projectDir: (win) => workspaces.get(win)?.root ?? null,
+}
+
+function viewNamed(view: string): Guest | null {
+  return openViews().find((g) => g.view === view) ?? null
 }
 
 const workspaces = new WeakMap<BrowserWindow, Workspace>()
@@ -304,11 +315,11 @@ export function registerIpc(onRecents?: () => void): void {
   // c'est la seule façon pour le processus principal de tenir la vue, et c'est
   // le rendu qui la possède. Rien n'est accepté d'une autre fenêtre — l'identité
   // vient de l'expéditeur, comme partout ailleurs.
-  ipcMain.handle("browser:attach", async (event, contentsId: number) => {
+  ipcMain.handle("browser:attach", async (event, contentsId: number, view: string) => {
     const { win } = requireWorkspace(event)
     const guest = webContents.fromId(Number(contentsId))
     if (!guest || guest.getType() !== "webview") throw new Error("that is not a browser view")
-    registerGuest(guest, win.id)
+    registerGuest(guest, win.id, String(view ?? ""))
     return true
   })
 

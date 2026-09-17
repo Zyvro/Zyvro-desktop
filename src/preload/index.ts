@@ -129,10 +129,14 @@ const api = {
   // processus principal lui demande d'ouvrir l'onglet quand un agent le
   // réclame.
   browser: {
-    attach: (contentsId: number): Promise<boolean> => ipcRenderer.invoke("browser:attach", contentsId),
+    attach: (contentsId: number, tabId: string): Promise<boolean> =>
+      ipcRenderer.invoke("browser:attach", contentsId, tabId),
     visited: (contentsId: number, url: string): Promise<boolean> =>
       ipcRenderer.invoke("browser:visited", contentsId, url),
-    onOpen: (cb: () => void): Unsubscribe => on("browser:open", cb),
+    // `view` dit laquelle : un identifiant d'onglet pour piloter celle-là, la
+    // chaîne vide pour réutiliser celle qui est ouverte, « new » pour en ouvrir
+    // une de plus.
+    onOpen: (cb: (payload: { view: string }) => void): Unsubscribe => on("browser:open", cb),
   },
 
   agent: {

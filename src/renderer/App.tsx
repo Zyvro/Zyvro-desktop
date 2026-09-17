@@ -7,6 +7,7 @@ import { TitleBar } from "~/panels/TitleBar"
 import { Explorer } from "~/panels/Explorer"
 import { GitPanel } from "~/panels/GitPanel"
 import { WorkflowList } from "~/panels/WorkflowList"
+import { BrowserList } from "~/panels/BrowserList"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
 import { AgentPanel } from "~/panels/AgentPanel"
@@ -146,6 +147,10 @@ export default function App() {
               {view === "explorer" ? (
                 <>
                   <Explorer />
+                  {/* Au-dessus des workflows : c'est ce qu'on ouvre et ferme le
+                      plus souvent dans une session de mise au point, et ce
+                      qu'un agent est en train de piloter pendant qu'on lit. */}
+                  <BrowserList />
                   <WorkflowList />
                 </>
               ) : (

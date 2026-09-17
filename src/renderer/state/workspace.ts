@@ -12,7 +12,10 @@ export type Tab =
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "store"; id: "store"; title: string }
-  | { kind: "browser"; id: "browser"; title: string }
+  // Plusieurs vues de navigateur, comme plusieurs onglets : une page de
+  // connexion d'un côté, la page qu'on teste de l'autre, et un agent qui pilote
+  // celle qu'on lui nomme.
+  | { kind: "browser"; id: string; title: string; url: string; icon?: string }
   // A diff is its own kind rather than a file tab with a flag: it has two sides,
   // it is read-only, and closing it must not look like closing the file.
   | { kind: "diff"; id: string; path: string; staged: boolean; title: string }
@@ -84,7 +87,8 @@ type WorkspaceState = {
   openGitOutput: () => void
   openProviders: () => void
   openStore: () => void
-  openBrowser: () => void
+  openBrowser: (request?: { url?: string; reuse?: boolean }) => string
+  setBrowserPage: (id: string, url: string, title: string, icon?: string) => void
   closeTab: (id: string) => void
   activateTab: (id: string) => void
   renameTab: (id: string, title: string) => void
@@ -98,6 +102,12 @@ type WorkspaceState = {
 }
 
 const WELCOME: Tab = { kind: "welcome", id: "welcome", title: "Welcome" }
+
+// Les vues de navigateur sont numérotées dans l'ordre où on les ouvre, et le
+// numéro ne se réutilise pas : un agent qui tient « browser:2 » ne doit pas se
+// retrouver à piloter la page de quelqu'un d'autre parce qu'on a fermé la
+// première.
+let nextBrowserId = 1
 
 const SIDEBAR: PanelKey[] = ["explorer", "git"]
 
@@ -243,18 +253,35 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 
-  // Un seul onglet navigateur par fenêtre, révélé plutôt que dupliqué : deux
-  // vues seraient deux pages, et un agent qui en pilote une ne saurait pas
-  // laquelle la personne regarde.
-  openBrowser: () => {
-    const id = "browser"
-    if (get().tabs.some((t) => t.id === id)) {
-      set({ activeTabId: id })
-      return
+  // Une vue de navigateur de plus, ou celle qui est déjà là.
+  //
+  // `reuse` est ce que demande un agent qui veut simplement une page ouverte :
+  // il ne veut pas une vue de plus à chaque appel. Le bouton de la barre
+  // latérale, lui, en ouvre une nouvelle à chaque clic — c'est ce qu'on lui
+  // demande en cliquant dessus.
+  openBrowser: (request = {}) => {
+    const existing = get().tabs.find((t) => t.kind === "browser")
+    if (request.reuse && existing) {
+      set({ activeTabId: existing.id })
+      return existing.id
     }
-    const tab: Tab = { kind: "browser", id, title: "Browser" }
+    const id = `browser:${nextBrowserId++}`
+    const tab: Tab = { kind: "browser", id, title: "Browser", url: request.url ?? "", icon: "" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+    return id
   },
+
+  // Le titre de la page devient celui de l'onglet, et la liste de la barre
+  // latérale le lit : « Browser », « Browser », « Browser » ne dit pas laquelle
+  // est la page de connexion.
+  setBrowserPage: (id, url, title, icon) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) =>
+        t.id === id && t.kind === "browser"
+          ? { ...t, url, title: title.trim() || "Browser", icon: icon ?? t.icon }
+          : t
+      ),
+    })),
 
   closeTab: (id) =>
     set((s) => {

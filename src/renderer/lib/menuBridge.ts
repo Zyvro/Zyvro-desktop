@@ -69,6 +69,15 @@ window.zyvro.menu.onToggleAgent(() => {
 // Un agent a demandé une page. Ce n'est pas un élément de menu, mais c'est la
 // même mécanique — un événement du processus principal qui touche le magasin —
 // et l'onglet doit exister avant que la vue puisse s'annoncer.
-window.zyvro.browser.onOpen(() => {
-  useWorkspace.getState().openBrowser()
+window.zyvro.browser.onOpen((payload) => {
+  const state = useWorkspace.getState()
+  const wanted = payload?.view ?? ""
+  // Une vue nommée qui existe encore : on la révèle, on n'en fabrique pas une
+  // autre. C'est ce qui fait qu'un agent peut dire « browser:2 » et voir la
+  // personne regarder la même page que lui.
+  if (wanted && wanted !== "new" && state.tabs.some((t) => t.id === wanted)) {
+    state.activateTab(wanted)
+    return
+  }
+  state.openBrowser({ reuse: wanted !== "new" })
 })

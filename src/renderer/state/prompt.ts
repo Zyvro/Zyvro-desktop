@@ -9,6 +9,14 @@ export type NameRequest = {
   label: string
   initial: string
   confirmLabel: string
+  // « confirm » n'a pas de champ à remplir : une seule question et deux
+  // réponses. Le même magasin les porte, parce que ce qui est difficile ici
+  // n'est pas le formulaire, c'est de pouvoir demander depuis n'importe où —
+  // un menu, une ligne de liste, un raccourci.
+  kind: "name" | "confirm"
+  // Le bouton qui détruit est rouge. Une suppression qui a l'air d'une
+  // création est une suppression qu'on accepte sans lire.
+  danger: boolean
 }
 
 type Pending = NameRequest & { resolve: (value: string | null) => void }
@@ -40,8 +48,32 @@ export function askName(request: Partial<NameRequest> & { title: string }): Prom
       label: "Name",
       initial: "",
       confirmLabel: "Create",
+      kind: "name",
+      danger: false,
       ...request,
       resolve,
+    }
+    emit()
+  })
+}
+
+// askConfirm : la question avant ce qui ne se rattrape pas.
+export function askConfirm(request: {
+  title: string
+  label: string
+  confirmLabel?: string
+  danger?: boolean
+}): Promise<boolean> {
+  pending?.resolve(null)
+  return new Promise((resolve) => {
+    pending = {
+      title: request.title,
+      label: request.label,
+      initial: "",
+      confirmLabel: request.confirmLabel ?? "Delete",
+      kind: "confirm",
+      danger: request.danger !== false,
+      resolve: (value) => resolve(value !== null),
     }
     emit()
   })

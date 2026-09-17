@@ -95,6 +95,8 @@ function fakeContents(id, page = {}) {
         this.forward++
       },
     },
+    getURL: () => page.url || "http://localhost:3000/",
+    getTitle: () => page.title || "Ma page",
     reloaded: 0,
     reload() {
       this.reloaded++
@@ -390,6 +392,31 @@ function fakeContents(id, page = {}) {
     contents.scripts.some((x) => x.includes("innerWidth")),
     contents.scripts.at(-1)?.slice(0, 60)
   )
+}
+
+// ---- plusieurs vues ------------------------------------------------------
+//
+// On en ouvre plusieurs — la page qu'on teste, celle de connexion, la version
+// en ligne à comparer. Le risque est qu'un agent en pilote une autre que celle
+// qu'il croit, et rien dans la réponse ne le dirait.
+{
+  browser.forgetGuests()
+  const one = browser.registerGuest(fakeContents(40), 20, "browser:1")
+  const two = browser.registerGuest(fakeContents(41), 20, "browser:2")
+
+  check("**une vue nommée est celle qu'on obtient**", browser.pickGuest([], "browser:2")?.id === two.id)
+  check("un nom inconnu ne se rabat pas sur une autre", browser.pickGuest([], "browser:9") === undefined)
+
+  // La mémoire de la dernière servie : un agent qui ouvre puis lit parle de la
+  // même page, et ne devrait pas avoir à la nommer à chaque appel.
+  browser.serveGuest(one)
+  check("**sans nom, c'est la dernière servie**", browser.pickGuest([])?.id === one.id)
+  browser.serveGuest(two)
+  check("et elle suit ce qu'on vient de faire", browser.pickGuest([])?.id === two.id)
+
+  const listed = browser.describeViews()
+  check("la liste nomme les deux", listed.map((v) => v.view).join(",") === "browser:1,browser:2", JSON.stringify(listed))
+  check("et dit laquelle est servie", listed.find((v) => v.serving)?.view === "browser:2")
 }
 
 // ---- les outils, par le serveur -----------------------------------------

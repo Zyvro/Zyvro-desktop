@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { ArrowLeft, ArrowRight, RotateCw } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useWorkspace } from "~/state/workspace"
 
 // Le navigateur de test : un onglet de l'IDE, et la page que l'agent pilote.
 //
@@ -19,17 +20,21 @@ import { cn } from "@/lib/utils"
 // rappel, qui rend sa fonction de démontage. C'est exactement la durée de vie
 // de l'élément.
 
-const HOME = "http://localhost:3000"
+// Une vue vide plutôt qu'une adresse choisie pour elle : personne ne sait ce
+// que cette machine sert sur le port 3000, et une page d'erreur à l'ouverture
+// donne l'air d'être cassé avant même d'avoir servi.
+const BLANK = "about:blank"
 
 type Guest = Electron.WebviewTag
 
-export function BrowserTab() {
+export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
   // `src` ne bouge jamais après le montage. Le lier à l'adresse courante ferait
   // renavigger la vue à chaque fin de chargement — une redirection suffisait à
   // relancer la page, et une page qui se recharge toute seule est exactement ce
   // qu'on est en train d'essayer de déboguer.
-  const [home] = useState(HOME)
-  const [typed, setTyped] = useState(HOME)
+  const [home] = useState(url || BLANK)
+  const [typed, setTyped] = useState(url)
+  const setBrowserPage = useWorkspace((s) => s.setBrowserPage)
   const [loading, setLoading] = useState(false)
   const [view, setView] = useState<Guest | null>(null)
   // Une <webview> n'est pas interrogeable avant `dom-ready` : `canGoBack` y
@@ -59,23 +64,42 @@ export function BrowserTab() {
     // vue à piloter.
     const attached = () => {
       setReady(true)
-      void window.zyvro.browser.attach(node.getWebContentsId())
+      // L'identifiant de l'onglet part avec : c'est par lui qu'un agent nomme
+      // la vue qu'il pilote, et le processus principal n'a aucun autre moyen de
+      // relier ce contenu à ce que la personne voit dans sa barre latérale.
+      void window.zyvro.browser.attach(node.getWebContentsId(), tabId)
     }
     const started = () => setLoading(true)
+    // La favicon vient de la page et d'elle seule : un onglet qui garderait
+    // celle du site précédent dirait qu'on est ailleurs qu'on est.
+    const icon = (event: Electron.PageFaviconUpdatedEvent) => {
+      setBrowserPage(tabId, node.getURL(), node.getTitle(), event.favicons[0] ?? "")
+    }
     const stopped = () => {
       setLoading(false)
-      setTyped(node.getURL())
+      const here = node.getURL() === BLANK ? "" : node.getURL()
+      setTyped(here)
+      // Le titre de la page devient celui de l'onglet et de la ligne dans la
+      // barre latérale. Trois « Browser » ne disent pas laquelle est laquelle —
+      // mais une vue encore vide s'appelle « Browser » et pas « about:blank »,
+      // qui est une adresse et pas un nom.
+      // L'icône n'est pas remise à zéro ici : elle arrive par son propre
+      // événement, souvent après la fin du chargement. La vider à chaque arrêt
+      // la ferait clignoter à chaque navigation.
+      setBrowserPage(tabId, here, here ? node.getTitle() : "", here ? undefined : "")
     }
 
     node.addEventListener("dom-ready", attached)
     node.addEventListener("did-start-loading", started)
+    node.addEventListener("page-favicon-updated", icon)
     node.addEventListener("did-stop-loading", stopped)
     teardown.current = () => {
       node.removeEventListener("dom-ready", attached)
       node.removeEventListener("did-start-loading", started)
+      node.removeEventListener("page-favicon-updated", icon)
       node.removeEventListener("did-stop-loading", stopped)
     }
-  }, [])
+  }, [tabId, setBrowserPage])
 
   // go est la seule porte par laquelle la personne ouvre une adresse, et c'est
   // pour ça qu'elle la déclare : ce qu'on ouvre soi-même devient une origine

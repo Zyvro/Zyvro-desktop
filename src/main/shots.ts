@@ -37,6 +37,7 @@ import {
   allowed,
   canGo,
   clickRef,
+  describeViews,
   evalInPage,
   hoverRef,
   navigate,
@@ -44,6 +45,7 @@ import {
   pressKey,
   readPage,
   scrollPage,
+  serveGuest,
   setField,
   shootPage,
   typeInto,
@@ -112,7 +114,8 @@ export function describeWindows(all: BrowserWindow[]): Array<Record<string, unkn
 export const listWindowsTool = {
   name: TOOL_LIST_WINDOWS,
   description:
-    "List the Zyvro Studio windows that are open, with their id and size. Pass an id to zyvro_screenshot to capture one of them.",
+    "List what is open in Zyvro Studio: its windows, with their id and size, and the test browser views with their id, address and title. " +
+    "Pass a window id to zyvro_screenshot, or a view id to any zyvro_browser_ tool.",
   inputSchema: { type: "object", properties: {} },
   annotations: { title: "List app windows", readOnlyHint: true, openWorldHint: false },
 }
@@ -179,6 +182,10 @@ export const browserOpenTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       url: { type: "string", description: "http or https address to open." },
       go: { type: "string", enum: ["back", "forward", "reload"], description: "Move in history instead of opening an address." },
       wait_seconds: { type: "number", description: "How long to wait for the page to finish loading. Default 15." },
@@ -195,6 +202,10 @@ export const browserReadTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       match: {
         type: "string",
         description: "Only return elements whose text, value or link contains this. Cheaper than reading a whole catalogue page.",
@@ -212,6 +223,10 @@ export const browserClickTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       ref: { type: "string", description: "An element ref from zyvro_browser_read, such as e7." },
       hover: { type: "boolean", description: "Move the pointer onto it without clicking. Default false." },
     },
@@ -228,6 +243,10 @@ export const browserKeyTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       key: { type: "string", description: "Escape, Tab, Enter, ArrowDown, Backspace, a, …" },
       modifiers: {
         type: "array",
@@ -247,6 +266,10 @@ export const browserScrollTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       ref: { type: "string", description: "Scroll inside this element instead of the page." },
       direction: { type: "string", enum: ["up", "down"], description: "Default down." },
       amount: { type: "number", description: "Pixels. Default 600." },
@@ -263,6 +286,10 @@ export const browserSetTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       ref: { type: "string", description: "An element ref from zyvro_browser_read." },
       text: { type: "string", description: "For a select: the option's text. For a field: the value to put in it." },
       checked: { type: "boolean", description: "For a checkbox or a radio." },
@@ -280,6 +307,10 @@ export const browserWaitTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       text: { type: "string", description: "Wait for this text to appear in the page." },
       ref: { type: "string", description: "Wait for this element, from a previous read." },
       gone: { type: "boolean", description: "Wait for it to disappear instead. Default false." },
@@ -295,7 +326,13 @@ export const browserEvalTool = {
     "Run a JavaScript expression in the page and return what it evaluates to, as JSON. The way out when no other tool fits — reading a computed style, a global the app exposes, the contents of a canvas.",
   inputSchema: {
     type: "object",
-    properties: { expression: { type: "string", description: "A JavaScript expression, not a statement." } },
+    properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
+      expression: { type: "string", description: "A JavaScript expression, not a statement." },
+    },
     required: ["expression"],
   },
   annotations: { title: "Evaluate", readOnlyHint: false, openWorldHint: false },
@@ -307,6 +344,10 @@ export const browserTypeTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       ref: { type: "string", description: "An element ref from zyvro_browser_read." },
       text: { type: "string" },
       submit: { type: "boolean", description: "Press Enter after typing. Default false." },
@@ -322,6 +363,10 @@ export const browserShotTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       path: { type: "string", description: "Write the PNG here instead of returning it." },
       ref: { type: "string", description: "Frame on this element instead of the whole page." },
     },
@@ -337,6 +382,10 @@ export const browserLogsTool = {
   inputSchema: {
     type: "object",
     properties: {
+      view: {
+        type: "string",
+        description: "Which browser view, when several are open — an id from zyvro_list_windows, such as browser:2.",
+      },
       pattern: { type: "string", description: "Only lines matching this regular expression. A console can be noisy." },
       requests: { type: "boolean", description: "Include every request, not only the ones that failed. Default false." },
     },
@@ -364,8 +413,10 @@ export const BROWSER_TOOLS = [
 // un serveur qui annonce un outil qu'il ne peut pas rendre fait perdre un tour
 // à chaque agent qui l'essaie.
 export type BrowserHost = {
-  /** Ouvre (ou révèle) l'onglet navigateur et rend la vue quand elle répond. */
-  open: (win: BrowserWindow) => Promise<Guest>
+  /** Ouvre (ou révèle) un onglet navigateur et rend la vue quand elle répond.
+   *  `view` nomme laquelle : un identifiant, « new », ou rien pour celle qui est
+   *  déjà ouverte. */
+  open: (win: BrowserWindow, view?: string) => Promise<Guest>
   /** Le dossier du projet de cette fenêtre, pour `.zyvro/browser.json`. */
   projectDir: (win: BrowserWindow) => string | null
 }
@@ -383,34 +434,44 @@ async function browserCall(
   const win = pickWindow(all)
   if (!win) throw new Error("Zyvro Studio is not open")
 
-  // L'ouverture est le seul outil qui peut créer la vue ; les cinq autres
-  // parlent de la page ouverte, et dire « ouvrez-en une » est plus utile que
-  // d'en ouvrir une vide.
+  // Quelle vue. Nommée, c'est celle-là ; sans nom, celle qu'on vient de servir,
+  // parce qu'un agent qui ouvre une page puis la lit parle évidemment de
+  // celle-là. Plusieurs vues sans cette mémoire, et le deuxième appel partirait
+  // ailleurs sans que rien ne le dise.
+  const view = typeof args.view === "string" ? args.view.trim() : ""
+
+  // L'ouverture est le seul outil qui peut créer la vue ; les autres parlent de
+  // la page ouverte, et dire « ouvrez-en une » est plus utile que d'en ouvrir
+  // une vide.
   if (name === TOOL_BROWSER_OPEN) {
     const patience = typeof args.wait_seconds === "number" ? args.wait_seconds : 15
     const go = typeof args.go === "string" ? (args.go as Go) : null
 
     if (go) {
-      const guest = pickGuest(all)
-      if (!guest) throw new Error(`no page open in the test browser — call ${TOOL_BROWSER_OPEN} with a url first`)
-      if (!canGo(guest, go)) throw new Error(`nothing to go ${go} to in this tab`)
+      const guest = pickGuest(all, view)
+      if (!guest) throw new Error(missingView(view))
+      if (!canGo(guest, go)) throw new Error(`nothing to go ${go} to in ${guest.view || "this view"}`)
       navigate(guest, go)
       await waitForLoad(guest.contents, patience)
-      return text(await describe(guest))
+      return text(await describe(serveGuest(guest)))
     }
 
     const url = String(args.url ?? "")
-    const verdict = allowed(url, { visited: pickGuest(all)?.visited ?? new Set(), projectDir: host.projectDir(win) })
+    const verdict = allowed(url, {
+      visited: pickGuest(all, view)?.visited ?? new Set(),
+      projectDir: host.projectDir(win),
+    })
     if (!verdict.ok) throw new Error(verdict.why)
 
-    const guest = await host.open(win)
+    const guest = await host.open(win, view)
     await guest.contents.loadURL(verdict.url)
     await waitForLoad(guest.contents, patience)
-    return text(await describe(guest))
+    return text(await describe(serveGuest(guest)))
   }
 
-  const guest = pickGuest(all)
-  if (!guest) throw new Error(`no page open in the test browser — call ${TOOL_BROWSER_OPEN} first`)
+  const guest = pickGuest(all, view)
+  if (!guest) throw new Error(missingView(view))
+  serveGuest(guest)
 
   switch (name) {
     case TOOL_BROWSER_READ:
@@ -510,10 +571,22 @@ async function browserCall(
 async function describe(guest: Guest): Promise<string> {
   const page = await readPage(guest)
   return (
-    `${page.title || "(no title)"} — ${page.url}\n` +
+    `${guest.view ? `${guest.view}: ` : ""}${page.title || "(no title)"} — ${page.url}\n` +
     `${page.elements.length} elements to click or type into` +
     `${page.more_below ? ", and more below the fold" : ""}. Read it for the text.`
   )
+}
+
+// missingView : le refus qui dit quoi faire. Nommer une vue fermée et n'avoir
+// aucune vue ne se réparent pas de la même façon.
+function missingView(view: string): string {
+  const open = describeViews()
+  if (view) {
+    return open.length === 0
+      ? `there is no browser view open — call ${TOOL_BROWSER_OPEN} with a url`
+      : `no browser view called ${view}. Open: ${open.map((v) => v.view).join(", ")}`
+  }
+  return `no page open in the test browser — call ${TOOL_BROWSER_OPEN} with a url first`
 }
 
 // takeShot capture et rend ce que le protocole attend.
@@ -684,7 +757,21 @@ async function handle(
       case "tools/call": {
         switch (msg.params?.name) {
           case TOOL_LIST_WINDOWS:
-            reply({ content: [{ type: "text", text: JSON.stringify(describeWindows(windows()), null, 1) }] })
+            reply({
+              content: [
+                {
+                  type: "text",
+                  // Les fenêtres et les vues ensemble : c'est une seule question
+                  // — « qu'est-ce qui est ouvert ? » — et deux outils pour y
+                  // répondre en feraient un que personne n'appelle.
+                  text: JSON.stringify(
+                    { windows: describeWindows(windows()), ...(browser ? { browser_views: describeViews() } : {}) },
+                    null,
+                    1
+                  ),
+                },
+              ],
+            })
             return
           case TOOL_SCREENSHOT:
             reply(await takeShot(windows(), msg.params?.arguments ?? {}))
