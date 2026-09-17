@@ -8,9 +8,9 @@ import { helpOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
-import { currentAccount, signIn, signOut } from "./account"
+import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
-import { captureRegion } from "./shots"
+import { captureRegion, saveShot, shareShot } from "./shots"
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
@@ -152,16 +152,40 @@ export function registerIpc(onRecents?: () => void): void {
   // La capture d'une zone, demandée par le bouton de la barre du bas. La
   // fenêtre est celle qui a posé la question : c'est celle que la personne
   // regarde, et elle ne peut pas en viser une autre depuis son propre rendu.
+  // La capture, puis ce qu'on en fait — en trois temps, parce que la fenêtre
+  // qui s'ouvre entre les deux pose une vraie question : garder, ou publier.
+  //
+  // Les octets restent ici entre les deux : les renvoyer au rendu puis les
+  // reprendre les ferait traverser deux fois le pont pour rien, et une capture
+  // d'écran d'un grand moniteur pèse quelques mégaoctets.
+  let pending: { png: Buffer; label: string } | null = null
+
   ipcMain.handle("shots:capture", async (event, rect, label?: string) => {
     const win = BrowserWindow.fromWebContents(event.sender)
+    const png = await captureRegion(win ?? undefined, rect)
+    pending = { png, label: typeof label === "string" ? label : "" }
+    // L'aperçu part en data URL : c'est une image que le rendu doit afficher,
+    // pas un fichier qu'il doit lire.
+    return { preview: `data:image/png;base64,${png.toString("base64")}`, bytes: png.length }
+  })
+
+  ipcMain.handle("shots:save", async () => {
+    if (!pending) throw new Error("nothing captured")
     // Dans les téléchargements : c'est le dossier où l'on va chercher ce qu'on
     // vient de récupérer, et il est déjà dans la barre latérale de tout le
     // monde.
-    return captureRegion(win ?? undefined, rect, {
+    return saveShot(pending.png, {
       dir: app.getPath("downloads"),
-      label,
+      label: pending.label,
       open: (file) => void shell.openPath(file),
     })
+  })
+
+  ipcMain.handle("shots:share", async () => {
+    if (!pending) throw new Error("nothing captured")
+    return shareShot(pending.png, pending.label, (pathname, init) =>
+      authorized(pathname, init as unknown as RequestInit)
+    )
   })
 
   ipcMain.handle("project:recents", async () => loadRecents())

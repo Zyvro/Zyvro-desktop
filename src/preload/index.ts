@@ -202,8 +202,16 @@ const api = {
   // fenêtre — c'est le processus principal qui la possède — donc il décrit la
   // région et reçoit en retour où l'image est partie.
   shots: {
-    capture: (rect: { x: number; y: number; width: number; height: number }, label?: string): Promise<string> =>
-      ipcRenderer.invoke("shots:capture", rect, label),
+    // Trois temps : on photographie, la fenêtre demande quoi en faire, puis on
+    // garde ou on partage. Les octets restent côté principal entre les deux —
+    // les faire traverser le pont deux fois pour rien coûterait quelques
+    // mégaoctets à chaque capture.
+    capture: (
+      rect: { x: number; y: number; width: number; height: number },
+      label?: string
+    ): Promise<{ preview: string; bytes: number }> => ipcRenderer.invoke("shots:capture", rect, label),
+    save: (): Promise<string> => ipcRenderer.invoke("shots:save"),
+    share: (): Promise<string> => ipcRenderer.invoke("shots:share"),
   },
 
   git: {

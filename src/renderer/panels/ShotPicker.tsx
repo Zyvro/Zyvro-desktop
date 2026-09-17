@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react"
-import { Camera } from "lucide-react"
+import { Camera, Download, Link as LinkIcon } from "lucide-react"
+import { CTA_PRIMARY, CTA_SECONDARY } from "@/components/ui/cta"
 import { cn } from "@/lib/utils"
 
 // Photographier une zone de l'application, au clic.
@@ -10,10 +11,10 @@ import { cn } from "@/lib/utils"
 // jamais juste sur le bord d'un panneau.
 //
 // Ici l'application sait où sont ses panneaux : elle les propose, on en vise
-// un, elle le rend au pixel près. L'image va dans les téléchargements et
-// s'ouvre : le presse-papiers seul ne montrait rien — on cliquait, un message
-// disait « copied », et il fallait coller ailleurs pour savoir ce qu'on avait
-// pris.
+// un, elle le rend au pixel près. Puis elle demande quoi en faire : garder sur
+// la machine, ou partager un lien. Les deux gestes n'ont pas les mêmes
+// conséquences — l'un reste ici, l'autre publie — donc la question se pose au
+// lieu d'être tranchée à notre place.
 
 // ZONES est l'inventaire, et il vit à côté de l'attribut qu'il cherche : un
 // panneau qui perd son `data-shot-zone` disparaît simplement du choix, sans
@@ -61,7 +62,13 @@ export function zoneAt(zones: Zone[], x: number, y: number): Zone | null {
 
 type Picking = { zones: Zone[]; hover: Zone | null } | null
 
+// Ce qui vient d'être photographié et attend une décision. Garder et partager
+// ne sont pas la même chose — l'un reste sur la machine, l'autre publie — donc
+// la question se pose au lieu d'être tranchée à notre place.
+type Taken = { zone: string; preview: string; bytes: number; busy: "" | "save" | "share"; error: string } | null
+
 let picking: Picking = null
+let taken: Taken = null
 let toast: string | null = null
 const listeners = new Set<() => void>()
 
@@ -73,6 +80,7 @@ function subscribe(l: () => void) {
   return () => listeners.delete(l)
 }
 const snapshot = () => picking
+const takenSnapshot = () => taken
 const toastSnapshot = () => toast
 const nothing = () => null
 
@@ -111,12 +119,44 @@ function onClick(e: MouseEvent) {
 
 async function capture(zone: Zone) {
   try {
-    const file = await window.zyvro.shots.capture(zone.rect, zone.name)
-    // Le nom du fichier, pas son chemin entier : il est dans les
-    // téléchargements, et l'image vient de s'ouvrir de toute façon.
-    say(`Saved ${file.split("/").pop()}`)
+    const shot = await window.zyvro.shots.capture(zone.rect, zone.name)
+    taken = { zone: zone.name, preview: shot.preview, bytes: shot.bytes, busy: "", error: "" }
+    emit()
   } catch (err) {
     say(err instanceof Error ? err.message : "Could not capture")
+  }
+}
+
+export function dismissShot(): void {
+  taken = null
+  emit()
+}
+
+async function decide(what: "save" | "share") {
+  if (!taken) return
+  taken = { ...taken, busy: what, error: "" }
+  emit()
+  try {
+    if (what === "save") {
+      const file = await window.zyvro.shots.save()
+      taken = null
+      emit()
+      // Le nom du fichier, pas son chemin entier : il est dans les
+      // téléchargements, et l'image vient de s'ouvrir de toute façon.
+      say(`Saved ${file.split("/").pop()}`)
+    } else {
+      const url = await window.zyvro.shots.share()
+      await navigator.clipboard.writeText(url).catch(() => {})
+      taken = null
+      emit()
+      say("Link copied")
+    }
+  } catch (err) {
+    // L'erreur reste dans la fenêtre plutôt que de la fermer : l'image est
+    // toujours là, et la plus fréquente — « connecte-toi pour publier » — se
+    // répare en deux clics sans avoir à reprendre la capture.
+    taken = taken ? { ...taken, busy: "", error: err instanceof Error ? err.message : "Could not do that" } : null
+    emit()
   }
 }
 
@@ -160,12 +200,78 @@ export function ShotButton() {
   )
 }
 
+// ShotDialog : ce qu'on fait de la capture.
+//
+// L'image d'abord, en grand. Une fenêtre qui demande « garder ou partager »
+// sans montrer ce qu'on a pris demande de se souvenir, et on vient justement
+// de cliquer sur un panneau parmi six.
+function ShotDialog() {
+  const shot = useSyncExternalStore(subscribe, takenSnapshot, nothing)
+  if (!shot) return null
+
+  return (
+    <div className="fixed inset-0 z-[102] flex items-center justify-center bg-black/60 p-8 backdrop-blur-sm">
+      <div className="w-[min(34rem,90vw)] overflow-hidden rounded-2xl border border-white/10 bg-card shadow-[0_24px_80px_rgba(0,0,0,0.7)]">
+        <div className="max-h-[50vh] overflow-hidden border-b border-white/[0.06] bg-black/40">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={shot.preview} alt={`Screenshot of ${shot.zone}`} className="block w-full object-contain" />
+        </div>
+
+        <div className="flex flex-col gap-3 p-4">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-medium">{shot.zone}</span>
+            <span className="text-[11px] text-muted-foreground">{Math.round(shot.bytes / 1024)} KB</span>
+          </div>
+
+          {shot.error && <p className="text-[12px] leading-relaxed text-red-300">{shot.error}</p>}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={shot.busy !== ""}
+              onClick={() => void decide("save")}
+              className={cn(CTA_SECONDARY, "h-10 flex-1 px-4 disabled:opacity-60")}
+            >
+              <Download className="h-4 w-4" />
+              {shot.busy === "save" ? "Saving…" : "Download"}
+            </button>
+            <button
+              type="button"
+              disabled={shot.busy !== ""}
+              onClick={() => void decide("share")}
+              className={cn(CTA_PRIMARY, "h-10 flex-1 px-4 disabled:opacity-60")}
+            >
+              <LinkIcon className="h-4 w-4" />
+              {shot.busy === "share" ? "Uploading…" : "Share a link"}
+            </button>
+            <button
+              type="button"
+              onClick={dismissShot}
+              className="h-10 rounded-xl px-3 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {/* Dit avant le clic, pas après : « partager » met une image sur
+              internet, et un lien public se re-partage tout seul. */}
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            Download keeps it on this machine. Share uploads it to your Zyvro account and copies a public link — anyone
+            with the link can open it.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function ShotOverlay() {
   const state = useSyncExternalStore(subscribe, snapshot, nothing)
   const message = useSyncExternalStore(subscribe, toastSnapshot, nothing)
 
   return (
     <>
+      <ShotDialog />
       {state && (
         <div className="fixed inset-0 z-[100] cursor-crosshair">
           {state.zones.map((z) => {
@@ -192,7 +298,7 @@ export function ShotOverlay() {
           })}
           <div className="pointer-events-none absolute inset-x-0 bottom-8 flex justify-center">
             <span className="rounded-full bg-black/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-lg">
-              Click a panel to save and open it · Esc to cancel
+              Click a panel · Esc to cancel
             </span>
           </div>
         </div>

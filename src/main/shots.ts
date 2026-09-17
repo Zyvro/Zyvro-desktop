@@ -159,28 +159,48 @@ export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<Sh
   return { content: [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }] }
 }
 
-// captureRegion sert le bouton de la barre du bas : une région de la fenêtre,
-// écrite sur le disque et ouverte.
+// captureRegion prend la photo et s'arrête là.
 //
-// Le presse-papiers seul ne montrait rien : on cliquait, un message disait
-// « copied », et il fallait aller coller ailleurs pour savoir ce qu'on avait
-// pris. Un fichier qui s'ouvre répond à la question tout seul — et il reste,
-// donc on peut le glisser dans un message plus tard.
-export async function captureRegion(
-  win: BrowserWindow | undefined,
-  rect: unknown,
-  place: { dir: string; open: (file: string) => void; label?: string }
-): Promise<string> {
+// Elle ne décide plus quoi en faire : la capture ouvre une fenêtre qui demande
+// — garder, ou partager — et ces deux-là sont des gestes différents, avec des
+// conséquences différentes. L'un reste sur la machine, l'autre publie.
+export async function captureRegion(win: BrowserWindow | undefined, rect: unknown): Promise<Buffer> {
   if (!win || win.isDestroyed()) throw new Error("no window to capture")
   const region = cleanRect(rect)
   if (!region) throw new Error("that is not a region")
-
   const image = await win.webContents.capturePage(region)
+  return image.toPNG()
+}
+
+// saveShot écrit la capture et l'ouvre.
+export function saveShot(png: Buffer, place: { dir: string; open: (file: string) => void; label?: string }): string {
   const file = path.join(place.dir, shotName(place.label))
   mkdirSync(place.dir, { recursive: true })
-  writeFileSync(file, image.toPNG())
+  writeFileSync(file, png)
   place.open(file)
   return file
+}
+
+// shareShot dépose la capture sur le service et rend le lien.
+//
+// Il n'y a pas de route nouvelle pour ça : `/api/uploads` range déjà une image
+// pour un compte et `/content/…` la sert sans demander qui vous êtes. Une
+// seconde façon de téléverser une image serait une seconde façon de se tromper.
+//
+// Et c'est pour ça qu'il faut un compte : ce lien est public, donc ce qui le
+// dépose doit avoir un nom. Un dépôt anonyme ferait de ce serveur un
+// hébergeur de fichiers pour n'importe qui.
+export async function shareShot(
+  png: Buffer,
+  label: string,
+  post: (path: string, init: { method: string; body: FormData }) => Promise<unknown>
+): Promise<string> {
+  const form = new FormData()
+  form.append("file", new Blob([new Uint8Array(png)], { type: "image/png" }), shotName(label))
+  const answer = (await post("/api/uploads", { method: "POST", body: form })) as { url?: unknown }
+  const url = typeof answer?.url === "string" ? answer.url.trim() : ""
+  if (!url) throw new Error("the server accepted the image but returned no link")
+  return url
 }
 
 // shotName : la zone et l'heure, dans un nom qu'on peut trier.

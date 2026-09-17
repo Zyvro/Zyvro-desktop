@@ -173,6 +173,78 @@ const call = async (body, token = handle.token) =>
   check("un outil inconnu est refusé", body.result.isError === true)
 }
 
+// ---- garder, ou partager ------------------------------------------------
+//
+// La capture ne décide plus toute seule. Deux gestes, deux conséquences : l'un
+// écrit un fichier ici, l'autre met une image sur internet. Ce qui doit être
+// tenu, c'est qu'ils restent distincts — et que partager demande un compte,
+// sans quoi ce serveur devient un hébergeur de fichiers pour n'importe qui.
+{
+  const out = path.join(tmpdir(), "zyvro-shot-decide")
+  rmSync(out, { recursive: true, force: true })
+  const win = fakeWindow({ id: 9, title: "projet" })
+  const png = await shots.captureRegion(win, { x: 0, y: 0, width: 10, height: 10 })
+  check("la capture rend des octets et rien d'autre", Buffer.isBuffer(png) && png.length > 0)
+
+  let opened = null
+  const file = shots.saveShot(png, { dir: out, label: "Explorer", open: (f) => (opened = f) })
+  check("garder écrit le fichier et l'ouvre", readFileSync(file).length === png.length && opened === file)
+
+  let sent = null
+  const url = await shots.shareShot(png, "Explorer", async (pathname, init) => {
+    sent = { pathname, method: init.method, name: init.body.get("file")?.name, type: init.body.get("file")?.type }
+    return { url: "https://server.zyv.ro/content/uploads/u1/abc.png" }
+  })
+  check("**partager passe par la route qui existe déjà**", sent?.pathname === "/api/uploads" && sent.method === "POST", JSON.stringify(sent))
+  check("l'image part comme un fichier, pas comme du base64", sent?.type === "image/png")
+  check("et sous un nom qui dit la zone et l'heure", /^zyvro-explorer-\d{4}-\d{2}-\d{2}/.test(sent?.name ?? ""), sent?.name)
+  check("le lien rendu est celui du serveur", url === "https://server.zyv.ro/content/uploads/u1/abc.png")
+
+  // Un serveur qui accepte l'image sans rendre de lien : la capture existe
+  // quelque part et personne ne peut la voir. C'est une erreur, pas un succès.
+  const silent = await shots
+    .shareShot(png, "z", async () => ({}))
+    .then(() => false, () => true)
+  check("**un dépôt sans lien est une erreur**", silent)
+}
+
+// ---- ce que l'agent reçoit ---------------------------------------------
+//
+// C'est le point de tout ceci : l'outil n'existe que si la configuration écrite
+// pour le tour le nomme. Un serveur qui écoute et que personne ne déclare est
+// un serveur que l'agent n'a pas.
+{
+  const cfg = shots.claudeMcpConfig({ daemonOrigin: "http://127.0.0.1:4000", daemonToken: "jeton-moteur" })
+  const written = JSON.parse(readFileSync(cfg.path, "utf8"))
+  const names = Object.keys(written.mcpServers)
+  check("**la configuration de l'agent nomme les deux serveurs**", names.includes("zyvro") && names.includes("zyvro-app"), names.join(", "))
+  check("la capture y porte son jeton à elle", written.mcpServers["zyvro-app"].headers.Authorization === `Bearer ${handle.token}`)
+  check("et son adresse à elle", written.mcpServers["zyvro-app"].url === handle.origin)
+  check("le moteur garde le sien", written.mcpServers.zyvro.headers.Authorization === "Bearer jeton-moteur")
+  cfg.dispose()
+}
+
+// ---- le nom du fichier -------------------------------------------------
+{
+  const name = shots.shotName("Source control", new Date("2026-09-17T04:58:12Z"))
+  check("le nom porte la zone et l'heure", name === "zyvro-source-control-2026-09-17-04-58-12.png", name)
+  check("une zone sans nom ne laisse pas de tiret orphelin", shots.shotName("", new Date("2026-09-17T04:58:12Z")) === "zyvro-2026-09-17-04-58-12.png")
+  // Un nom fixe écraserait la capture d'avant, et c'est toujours celle qu'on
+  // voulait garder.
+  const a = shots.shotName("x", new Date("2026-09-17T04:58:12Z"))
+  const b = shots.shotName("x", new Date("2026-09-17T04:58:13Z"))
+  check("**deux captures ne se marchent pas dessus**", a !== b)
+}
+
+// ---- la région demandée ------------------------------------------------
+{
+  const win = fakeWindow({ id: 8, title: "projet" })
+  await shots.captureRegion(win, { x: 0, y: 0, width: 100, height: 60 })
+  check("la région demandée atteint la fenêtre", JSON.stringify(win.asked.rect) === '{"x":0,"y":0,"width":100,"height":60}')
+  check("une région absurde est refusée", await shots.captureRegion(win, { width: -1 }).then(() => false, () => true))
+  check("sans fenêtre, refus clair", await shots.captureRegion(undefined, { x: 0, y: 0, width: 1, height: 1 }).then(() => false, () => true))
+}
+
 // ---- ce que l'agent reçoit ---------------------------------------------
 //
 // C'est le point de tout ceci : l'outil n'existe que si la configuration écrite
@@ -204,15 +276,10 @@ const call = async (body, token = handle.token) =>
   rmSync(out, { recursive: true, force: true })
   let opened = null
   const win = fakeWindow({ id: 7, title: "projet" })
-  const file = await shots.captureRegion(win, { x: 0, y: 0, width: 100, height: 60 }, {
-    dir: out,
-    label: "Explorer",
-    open: (f) => (opened = f),
-  })
+  const png = await shots.captureRegion(win, { x: 0, y: 0, width: 100, height: 60 })
+  const file = shots.saveShot(png, { dir: out, label: "Explorer", open: (f) => (opened = f) })
   check("la région est écrite dans le dossier demandé", readFileSync(file).length > 0)
   check("**et l'image est ouverte**", opened === file, String(opened))
-  check("la région demandée atteint bien la fenêtre", JSON.stringify(win.asked.rect) === '{"x":0,"y":0,"width":100,"height":60}')
-  check("une région absurde est refusée", await shots.captureRegion(win, { width: -1 }, { dir: out, open: () => {} }).then(() => false, () => true))
 }
 
 // ---- le sélecteur de zone ----------------------------------------------

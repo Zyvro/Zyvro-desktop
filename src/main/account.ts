@@ -85,7 +85,16 @@ async function callWithResponse(
   key?: string
 ): Promise<{ body: unknown; setCookie: string | null }> {
   const headers = new Headers(init.headers)
-  headers.set("Content-Type", "application/json")
+  // Sauf pour un envoi de fichier.
+  //
+  // Un corps `FormData` porte sa propre frontière, que `fetch` calcule et met
+  // dans l'en-tête lui-même. L'écraser par `application/json` laisse partir un
+  // corps multipart annoncé comme du JSON : le serveur ne sait plus où
+  // commencent les morceaux et répond « that upload could not be read », ce qui
+  // envoie chercher du côté de l'image alors que rien ne cloche avec elle.
+  if (!(init.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json")
+  }
   if (key) headers.set("Authorization", `Bearer ${key}`)
 
   let response: Response
