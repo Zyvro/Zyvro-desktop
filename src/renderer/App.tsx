@@ -10,6 +10,7 @@ import { WorkflowList } from "~/panels/WorkflowList"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
 import { AgentPanel } from "~/panels/AgentPanel"
+import { ShotOverlay } from "~/panels/ShotPicker"
 import { StatusBar } from "~/panels/StatusBar"
 import { Splitter } from "~/panels/Splitter"
 import { NamePrompt } from "~/panels/NamePrompt"
@@ -126,12 +127,19 @@ export default function App() {
     <div className="flex h-full flex-col bg-background text-foreground">
       <TitleBar />
 
-      <div className="flex min-h-0 flex-1">
+      {/* La fenêtre entière est une zone aussi : c'est la plus grande, donc la
+          dernière visée, et c'est elle qu'on veut quand on montre l'atelier
+          plutôt qu'un panneau. */}
+      <div data-shot-zone="Window" className="flex min-h-0 flex-1">
         <ActivityBar />
 
         {view && (
           <>
+            {/* Les zones que le sélecteur de capture propose. L'attribut vit
+                sur le panneau lui-même : celui qui disparaît disparaît du
+                choix, sans que rien d'autre ait à le savoir. */}
             <aside
+              data-shot-zone={view === "explorer" ? "Explorer" : "Source control"}
               className="flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-background"
               style={{ width: sidebar }}
             >
@@ -151,7 +159,10 @@ export default function App() {
           </>
         )}
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <main
+          data-shot-zone={layout.agentCentre ? "Agent" : "Editor"}
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
           {layout.agentCentre ? <AgentPanel /> : <EditorArea />}
           {layout.terminal && (
             <>
@@ -159,7 +170,7 @@ export default function App() {
                 orientation="horizontal"
                 onResize={(delta) => setTerminal((h) => clamp(h - delta, LIMITS.terminal))}
               />
-              <div className="shrink-0" style={{ height: terminal }}>
+              <div data-shot-zone="Terminal" className="shrink-0" style={{ height: terminal }}>
                 <TerminalPanel />
               </div>
             </>
@@ -173,6 +184,7 @@ export default function App() {
               onResize={(delta) => setAgent((w) => clamp(w - delta, LIMITS.agent))}
             />
             <aside
+              data-shot-zone="Agent"
               className="flex min-h-0 shrink-0 flex-col border-l border-white/[0.06] bg-background"
               style={{ width: agent }}
             >
@@ -187,6 +199,7 @@ export default function App() {
       </div>
 
       <StatusBar />
+      <ShotOverlay />
       <NamePrompt />
     </div>
   )

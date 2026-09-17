@@ -198,6 +198,14 @@ const api = {
   // here, the same rule the store types follow two blocks up and for the same
   // reason: a description of somebody else's data that lives in two places
   // disagrees with itself eventually.
+  // La capture d'une zone. Le rendu ne peut pas photographier sa propre
+  // fenêtre — c'est le processus principal qui la possède — donc il décrit la
+  // région et reçoit en retour où l'image est partie.
+  shots: {
+    capture: (rect: { x: number; y: number; width: number; height: number }, label?: string): Promise<string> =>
+      ipcRenderer.invoke("shots:capture", rect, label),
+  },
+
   git: {
     status: (): Promise<GitStatus | NoRepository> => ipcRenderer.invoke("git:status"),
     init: (): Promise<void> => ipcRenderer.invoke("git:init"),

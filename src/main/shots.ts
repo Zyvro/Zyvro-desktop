@@ -159,6 +159,40 @@ export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<Sh
   return { content: [{ type: "image", data: png.toString("base64"), mimeType: "image/png" }] }
 }
 
+// captureRegion sert le bouton de la barre du bas : une région de la fenêtre,
+// écrite sur le disque et ouverte.
+//
+// Le presse-papiers seul ne montrait rien : on cliquait, un message disait
+// « copied », et il fallait aller coller ailleurs pour savoir ce qu'on avait
+// pris. Un fichier qui s'ouvre répond à la question tout seul — et il reste,
+// donc on peut le glisser dans un message plus tard.
+export async function captureRegion(
+  win: BrowserWindow | undefined,
+  rect: unknown,
+  place: { dir: string; open: (file: string) => void; label?: string }
+): Promise<string> {
+  if (!win || win.isDestroyed()) throw new Error("no window to capture")
+  const region = cleanRect(rect)
+  if (!region) throw new Error("that is not a region")
+
+  const image = await win.webContents.capturePage(region)
+  const file = path.join(place.dir, shotName(place.label))
+  mkdirSync(place.dir, { recursive: true })
+  writeFileSync(file, image.toPNG())
+  place.open(file)
+  return file
+}
+
+// shotName : la zone et l'heure, dans un nom qu'on peut trier.
+//
+// Un nom fixe écraserait la capture précédente, et c'est toujours celle qu'on
+// voulait garder.
+export function shotName(label?: string, now: Date = new Date()): string {
+  const stamp = now.toISOString().slice(0, 19).replace(/[:T]/g, "-")
+  const zone = (label ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+  return `zyvro-${zone ? `${zone}-` : ""}${stamp}.png`
+}
+
 // ---- le transport ------------------------------------------------------
 //
 // Le même que celui du moteur : JSON-RPC sur une requête HTTP, un jeton en

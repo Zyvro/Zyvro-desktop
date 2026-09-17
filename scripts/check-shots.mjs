@@ -37,7 +37,8 @@ writeFileSync(
 writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${path.join(ROOT, "src/main/shots").replace(/\\/g, "/")}"\n` +
-    `export { claudeMcpConfig } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n`
+    `export { claudeMcpConfig } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
+    `export { findZones, zoneAt } from "${path.join(ROOT, "src/renderer/panels/ShotPicker").replace(/\\/g, "/")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -45,7 +46,14 @@ await build({
   bundle: true,
   format: "cjs",
   platform: "node",
-  alias: { electron: path.join(dir, "electron.js") },
+  // Le sélecteur vit dans le rendu : ses alias sont ceux du front et de
+  // l'application, sinon esbuild ne sait pas où chercher.
+  alias: {
+    electron: path.join(dir, "electron.js"),
+    "@": path.resolve(ROOT, "../Zyvro-frontend/src"),
+    "~": path.join(ROOT, "src/renderer"),
+  },
+  loader: { ".tsx": "tsx" },
   absWorkingDir: ROOT,
   logLevel: "silent",
 })
@@ -179,6 +187,49 @@ const call = async (body, token = handle.token) =>
   check("et son adresse à elle", written.mcpServers["zyvro-app"].url === handle.origin)
   check("le moteur garde le sien", written.mcpServers.zyvro.headers.Authorization === "Bearer jeton-moteur")
   cfg.dispose()
+}
+
+// ---- le fichier écrit ---------------------------------------------------
+{
+  const name = shots.shotName("Source control", new Date("2026-09-17T04:58:12Z"))
+  check("le nom porte la zone et l'heure", name === "zyvro-source-control-2026-09-17-04-58-12.png", name)
+  check("une zone sans nom ne laisse pas de tiret orphelin", shots.shotName("", new Date("2026-09-17T04:58:12Z")) === "zyvro-2026-09-17-04-58-12.png")
+  // Un nom fixe écraserait la capture d'avant, et c'est toujours celle qu'on
+  // voulait garder.
+  const a = shots.shotName("x", new Date("2026-09-17T04:58:12Z"))
+  const b = shots.shotName("x", new Date("2026-09-17T04:58:13Z"))
+  check("**deux captures ne se marchent pas dessus**", a !== b)
+
+  const out = path.join(tmpdir(), "zyvro-shot-region")
+  rmSync(out, { recursive: true, force: true })
+  let opened = null
+  const win = fakeWindow({ id: 7, title: "projet" })
+  const file = await shots.captureRegion(win, { x: 0, y: 0, width: 100, height: 60 }, {
+    dir: out,
+    label: "Explorer",
+    open: (f) => (opened = f),
+  })
+  check("la région est écrite dans le dossier demandé", readFileSync(file).length > 0)
+  check("**et l'image est ouverte**", opened === file, String(opened))
+  check("la région demandée atteint bien la fenêtre", JSON.stringify(win.asked.rect) === '{"x":0,"y":0,"width":100,"height":60}')
+  check("une région absurde est refusée", await shots.captureRegion(win, { width: -1 }, { dir: out, open: () => {} }).then(() => false, () => true))
+}
+
+// ---- le sélecteur de zone ----------------------------------------------
+//
+// Deux zones se chevauchent toujours — un panneau est dans une colonne — donc
+// « celle qu'on vise » doit être la plus petite. Sinon le clic rendrait la
+// fenêtre entière chaque fois qu'on demande un panneau, et l'image aurait
+// l'air normale.
+{
+  const zones = [
+    { name: "Fenêtre", rect: { x: 0, y: 0, width: 1000, height: 800 } },
+    { name: "Agent", rect: { x: 700, y: 0, width: 300, height: 800 } },
+  ]
+  const ordered = [...zones].sort((a, b) => a.rect.width * a.rect.height - b.rect.width * b.rect.height)
+  check("**on vise la plus petite zone sous le curseur**", shots.zoneAt(ordered, 800, 400)?.name === "Agent")
+  check("ailleurs, c'est la grande", shots.zoneAt(ordered, 100, 400)?.name === "Fenêtre")
+  check("en dehors, rien", shots.zoneAt(ordered, 5000, 5000) === null)
 }
 
 handle.close()

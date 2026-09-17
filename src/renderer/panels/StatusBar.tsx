@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { ArrowDown, ArrowUp, Check, CircleSlash, Cpu, GitBranch, Loader2, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { ShotButton } from "~/panels/ShotPicker"
 import { useWorkspace } from "~/state/workspace"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 
@@ -125,6 +126,8 @@ export function StatusBar() {
         <Cpu className="h-3 w-3" />
         {project ? `Local engine on port ${project.daemon.port}` : "No project open"}
       </span>
+
+      <ShotButton />
 
       {status.data && (
         <>

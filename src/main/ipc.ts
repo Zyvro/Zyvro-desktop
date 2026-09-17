@@ -10,6 +10,7 @@ import * as files from "./files"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
+import { captureRegion } from "./shots"
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
@@ -146,6 +147,21 @@ export function registerIpc(onRecents?: () => void): void {
     const { ws } = requireWorkspace(event)
     if (!ws.root || !ws.daemon.current) return null
     return { project: ws.root, name: path.basename(ws.root), daemon: ws.daemon.current }
+  })
+
+  // La capture d'une zone, demandée par le bouton de la barre du bas. La
+  // fenêtre est celle qui a posé la question : c'est celle que la personne
+  // regarde, et elle ne peut pas en viser une autre depuis son propre rendu.
+  ipcMain.handle("shots:capture", async (event, rect, label?: string) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    // Dans les téléchargements : c'est le dossier où l'on va chercher ce qu'on
+    // vient de récupérer, et il est déjà dans la barre latérale de tout le
+    // monde.
+    return captureRegion(win ?? undefined, rect, {
+      dir: app.getPath("downloads"),
+      label,
+      open: (file) => void shell.openPath(file),
+    })
   })
 
   ipcMain.handle("project:recents", async () => loadRecents())
