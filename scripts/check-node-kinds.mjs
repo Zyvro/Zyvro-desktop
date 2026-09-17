@@ -47,12 +47,49 @@ const end = src.indexOf("\n]", start)
 const span = src.slice(start, end === -1 ? undefined : end)
 const frontendTypes = new Set([...span.matchAll(/^\s{2}\{\s*type:\s*"([A-Za-z]+)"/gm)].map((m) => m[1]))
 
+// La deuxième question, et c'est la même forme : quels nœuds une exécution
+// peut-elle remplir par leur nom ?
+//
+// L'éditeur décide s'il propose un nom à un nœud ; le moteur décide si ce nom
+// sert à quelque chose. Un miroir de plus, et celui-ci se paie cher : un nœud
+// d'entrée à qui l'éditeur ne propose pas de nom ne se remplace qu'en
+// désignant son identifiant, qui n'est écrit nulle part — un agent à qui on
+// demande « refais-le avec ce fichier » tourne alors sur la valeur d'origine et
+// rend un résultat qui a l'air juste.
+const engineInputTypes = new Set(
+  execFileSync("go", ["run", "./cmd/zyvrod", "--runtime-input-types"], { cwd: engineDir, encoding: "utf8" })
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+)
+const inputSpan = src.slice(src.indexOf("export const RUNTIME_INPUT_TYPES"))
+const frontendInputTypes = new Set(
+  [...inputSpan.slice(0, inputSpan.indexOf("]")).matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1])
+)
+const inputMissing = [...engineInputTypes].filter((t) => !frontendInputTypes.has(t)).sort()
+const inputExtra = [...frontendInputTypes].filter((t) => !engineInputTypes.has(t)).sort()
+
 const missing = [...engineTypes].filter((t) => !frontendTypes.has(t)).sort()
 const extra = [...frontendTypes].filter((t) => !engineTypes.has(t)).sort()
 
-if (missing.length === 0 && extra.length === 0) {
-  console.log(`Palette agrees with the engine (${frontendTypes.size} nodes).`)
+if (missing.length === 0 && extra.length === 0 && inputMissing.length === 0 && inputExtra.length === 0) {
+  console.log(
+    `Palette agrees with the engine (${frontendTypes.size} nodes), ` +
+      `and so does the list of inputs a run can fill by name (${frontendInputTypes.size}).`
+  )
   process.exit(0)
+}
+if (inputMissing.length) {
+  console.log(
+    `FAIL  a run can fill these by name and the editor offers no name for them:\n        ${inputMissing.join(", ")}`
+  )
+  console.log("      add them to RUNTIME_INPUT_TYPES in Zyvro-frontend/src/lib/nodes.ts")
+}
+if (inputExtra.length) {
+  console.log(
+    `FAIL  the editor offers a runtime name on these and the engine never reads it:\n        ${inputExtra.join(", ")}`
+  )
+  console.log("      the name would look like it works and fill nothing")
 }
 if (missing.length) {
   console.log(`FAIL  the engine runs these and the web palette does not offer them:\n        ${missing.join(", ")}`)
