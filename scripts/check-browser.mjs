@@ -82,12 +82,40 @@ function fakeContents(id, page = {}) {
     emit(name, ...args) {
       for (const fn of listeners.get(name) ?? []) fn(...args)
     },
+    scripts: [],
+    navigationHistory: {
+      back: 0,
+      forward: 0,
+      canGoBack: () => page.canGoBack !== false,
+      canGoForward: () => page.canGoForward === true,
+      goBack() {
+        this.back++
+      },
+      goForward() {
+        this.forward++
+      },
+    },
+    reloaded: 0,
+    reload() {
+      this.reloaded++
+    },
     async executeJavaScript(script) {
       this.events.push({ type: "eval" })
+      this.scripts.push(script)
+      if (page.answer) return page.answer(script)
       if (script.includes("scrollIntoView")) {
         return page.box === undefined ? { x: 20, y: 30, width: 40, height: 10 } : page.box
       }
-      return { url: "http://localhost:3000/", title: "Ma page", text: "bonjour", truncated: false, elements: [] }
+      if (script.includes("scrollBy")) return { y: 600, height: 4000 }
+      return {
+        url: "http://localhost:3000/",
+        title: "Ma page",
+        text: "bonjour",
+        truncated: false,
+        elements: [],
+        scroll: { y: 0, height: 2000, viewport: 800 },
+        more_below: true,
+      }
     },
     sendInputEvent(event) {
       this.events.push(event)
@@ -250,7 +278,7 @@ function fakeContents(id, page = {}) {
   }
   const guest = browser.registerGuest(mute, 5)
   const started = Date.now()
-  const err = await browser.readPage(guest, 200).then(() => null, (e) => e)
+  const err = await browser.readPage(guest, "", 200).then(() => null, (e) => e)
   check("**une page muette finit par rendre une erreur**", err instanceof Error, String(err))
   check("qui dit qu'on n'a pas eu de réponse", err?.message.includes("did not answer"), String(err?.message))
   check("et on a réessayé une fois avant d'abandonner", asked === 2, `${asked} tentative(s)`)
@@ -260,8 +288,108 @@ function fakeContents(id, page = {}) {
   const closed = fakeContents(21)
   closed.isDestroyed = () => true
   const gone = browser.registerGuest(closed, 6)
-  const err2 = await browser.readPage(gone, 200).then(() => null, (e) => e)
+  const err2 = await browser.readPage(gone, "", 200).then(() => null, (e) => e)
   check("une vue fermée le dit immédiatement", err2?.message.includes("closed"), String(err2?.message))
+}
+
+// ---- les autres gestes ---------------------------------------------------
+//
+// Ceux qu'un agent qui teste une page demande dès la deuxième minute, et qui
+// manquaient à la première version.
+{
+  browser.forgetGuests()
+  const contents = fakeContents(30)
+  const guest = browser.registerGuest(contents, 9)
+
+  browser.navigate(guest, "back")
+  browser.navigate(guest, "forward")
+  browser.navigate(guest, "reload")
+  check(
+    "**revenir, avancer, recharger**",
+    contents.navigationHistory.back === 1 && contents.navigationHistory.forward === 1 && contents.reloaded === 1
+  )
+  check("et on sait dire qu'il n'y a nulle part où avancer", browser.canGo(guest, "forward") === false)
+
+  contents.events.length = 0
+  await browser.hoverRef(guest, "e1")
+  check(
+    "**le survol survole, et ne clique pas**",
+    contents.events.some((e) => e.type === "mouseMove") && !contents.events.some((e) => e.type === "mouseDown")
+  )
+
+  contents.events.length = 0
+  browser.pressKey(guest, "Escape")
+  const escape = contents.events.map((e) => e.type)
+  check("**Échap est une vraie touche**", escape.includes("keyDown") && escape.includes("keyUp"))
+  check("sans caractère, puisque ce n'en est pas un", !escape.includes("char"))
+
+  contents.events.length = 0
+  browser.pressKey(guest, "a", ["meta", "n'importe quoi"])
+  const withMods = contents.events.find((e) => e.type === "keyDown")
+  check(
+    "**un modificateur inventé est jeté, pas transmis**",
+    JSON.stringify(withMods.modifiers) === JSON.stringify(["meta"]),
+    JSON.stringify(withMods.modifiers)
+  )
+  check("un modificateur connu passe", browser.cleanModifiers(["Shift", "CTRL"]).join(",") === "shift,ctrl")
+
+  const where = await browser.scrollPage(guest, { direction: "down", amount: 600 })
+  check("le défilement dit où on en est", where.y === 600 && where.height === 4000, JSON.stringify(where))
+}
+
+// ---- attendre, plutôt que parier ----------------------------------------
+//
+// Agir avant que la page soit prête est la seule vraie cause d'échec instable.
+{
+  browser.forgetGuests()
+  let visible = false
+  const contents = fakeContents(31, { answer: () => visible })
+  const guest = browser.registerGuest(contents, 10)
+
+  setTimeout(() => {
+    visible = true
+  }, 300)
+  const seen = await browser.waitFor(guest, { text: "Bonjour", seconds: 5 })
+  check("**on attend qu'une chose apparaisse**", seen.includes("there"), seen)
+
+  const never = await browser
+    .waitFor(guest, { text: "jamais", gone: true, seconds: 1 })
+    .then(() => null, (err) => err)
+  check("**et l'attente qui échoue dit quoi faire**", never?.message.includes("read the page"), String(never?.message))
+  check("sans ref ni texte, on refuse plutôt que d'attendre pour rien",
+    await browser.waitFor(guest, {}).then(() => false, () => true))
+}
+
+// ---- ce qu'un clic ne sait pas faire ------------------------------------
+{
+  browser.forgetGuests()
+  const contents = fakeContents(32, { answer: (script) => (script.includes("SELECT") ? "value=fr" : null) })
+  const guest = browser.registerGuest(contents, 11)
+  const done = await browser.setField(guest, "e2", { text: "Français" })
+  check("**une liste déroulante se choisit par le texte de l'option**", done === "value=fr", done)
+  check(
+    "et la page est prévenue du changement",
+    contents.scripts.some((x) => x.includes('dispatchEvent(new Event("change"'))
+  )
+
+  const absent = fakeContents(33, { answer: () => null })
+  const gone = browser.registerGuest(absent, 12)
+  const err = await browser.setField(gone, "e9", { checked: true }).then(() => null, (e) => e)
+  check("un élément disparu le dit", err?.message.includes("read it again"), String(err?.message))
+}
+
+// ---- la porte de sortie --------------------------------------------------
+{
+  browser.forgetGuests()
+  const contents = fakeContents(34, { answer: () => ({ width: 1280 }) })
+  const guest = browser.registerGuest(contents, 13)
+  const answer = await browser.evalInPage(guest, "innerWidth")
+  check("**une expression rend ce que JSON sait porter**", answer.width === 1280, JSON.stringify(answer))
+  check(
+    "et l'expression part telle quelle",
+    contents.scripts.some((x) => x.includes("innerWidth")),
+    contents.scripts.at(-1)?.slice(0, 60)
+  )
 }
 
 // ---- les outils, par le serveur -----------------------------------------
@@ -289,8 +417,10 @@ function fakeContents(id, page = {}) {
   }).then((r) => r.json())
   const names = listed.result.tools.map((t) => t.name)
   check(
-    "**les six outils du navigateur sont annoncés**",
-    ["open", "read", "click", "type", "screenshot", "logs"].every((n) => names.includes(`zyvro_browser_${n}`)),
+    "**tous les outils du navigateur sont annoncés**",
+    ["open", "read", "click", "type", "key", "set", "scroll", "wait", "screenshot", "logs", "eval"].every((n) =>
+      names.includes(`zyvro_browser_${n}`)
+    ),
     names.join(", ")
   )
   check("et la capture d'écran de l'app est toujours là", names.includes("zyvro_screenshot"))

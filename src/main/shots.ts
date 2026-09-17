@@ -24,18 +24,32 @@ import path from "node:path"
 import type { BrowserWindow, Rectangle } from "electron"
 import {
   TOOL_BROWSER_CLICK,
+  TOOL_BROWSER_EVAL,
+  TOOL_BROWSER_KEY,
   TOOL_BROWSER_LOGS,
   TOOL_BROWSER_OPEN,
   TOOL_BROWSER_READ,
+  TOOL_BROWSER_SCROLL,
+  TOOL_BROWSER_SET,
   TOOL_BROWSER_SHOT,
   TOOL_BROWSER_TYPE,
+  TOOL_BROWSER_WAIT,
   allowed,
+  canGo,
   clickRef,
+  evalInPage,
+  hoverRef,
+  navigate,
   pickGuest,
+  pressKey,
   readPage,
+  scrollPage,
+  setField,
   shootPage,
   typeInto,
+  waitFor,
   waitForLoad,
+  type Go,
   type Guest,
 } from "./browser"
 
@@ -160,14 +174,15 @@ export const browserOpenTool = {
   name: TOOL_BROWSER_OPEN,
   description:
     "Open a page in Zyvro Studio's own test browser — a tab inside the IDE, with its own session, so it never touches the user's browser or their logins. " +
-    "Goes to localhost, to origins the user opened themselves in that tab, and to those listed in the project's .zyvro/browser.json.",
+    "Goes to localhost, to origins the user opened themselves in that tab, and to those listed in the project's .zyvro/browser.json. " +
+    "Pass go instead of url to move through this tab's history.",
   inputSchema: {
     type: "object",
     properties: {
       url: { type: "string", description: "http or https address to open." },
+      go: { type: "string", enum: ["back", "forward", "reload"], description: "Move in history instead of opening an address." },
       wait_seconds: { type: "number", description: "How long to wait for the page to finish loading. Default 15." },
     },
-    required: ["url"],
   },
   annotations: { title: "Open a page", readOnlyHint: false, openWorldHint: true },
 }
@@ -177,19 +192,113 @@ export const browserReadTool = {
   description:
     "Read the page open in the test browser: its address, title, visible text, and the elements you can click or type into, each with a ref like e12. " +
     "Read again after anything that changes the page — the refs belong to the page as it was.",
-  inputSchema: { type: "object", properties: {} },
+  inputSchema: {
+    type: "object",
+    properties: {
+      match: {
+        type: "string",
+        description: "Only return elements whose text, value or link contains this. Cheaper than reading a whole catalogue page.",
+      },
+    },
+  },
   annotations: { title: "Read the page", readOnlyHint: true, openWorldHint: false },
 }
 
 export const browserClickTool = {
   name: TOOL_BROWSER_CLICK,
-  description: "Click an element in the test browser by the ref zyvro_browser_read gave it. Sends a real mouse click, so focus and hover handlers run.",
+  description:
+    "Click an element in the test browser by the ref zyvro_browser_read gave it. Sends a real mouse click, so focus and hover handlers run. " +
+    "Set hover to only move the pointer onto it, which is what opens a menu that appears on hover.",
   inputSchema: {
     type: "object",
-    properties: { ref: { type: "string", description: "An element ref from zyvro_browser_read, such as e7." } },
+    properties: {
+      ref: { type: "string", description: "An element ref from zyvro_browser_read, such as e7." },
+      hover: { type: "boolean", description: "Move the pointer onto it without clicking. Default false." },
+    },
     required: ["ref"],
   },
   annotations: { title: "Click", readOnlyHint: false, openWorldHint: false },
+}
+
+export const browserKeyTool = {
+  name: TOOL_BROWSER_KEY,
+  description:
+    "Press a key in the test browser: Escape, Tab, Enter, ArrowDown, Backspace, or a character with modifiers. " +
+    "It goes to whatever has focus, so click the field first when it matters.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      key: { type: "string", description: "Escape, Tab, Enter, ArrowDown, Backspace, a, …" },
+      modifiers: {
+        type: "array",
+        items: { type: "string" },
+        description: "shift, control, alt, meta — anything else is ignored rather than refused.",
+      },
+    },
+    required: ["key"],
+  },
+  annotations: { title: "Press a key", readOnlyHint: false, openWorldHint: false },
+}
+
+export const browserScrollTool = {
+  name: TOOL_BROWSER_SCROLL,
+  description:
+    "Scroll the page in the test browser, or an element of it. Needed to photograph what is further down, and to trigger what only loads on approach — an infinite list stays empty for whoever never scrolls.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      ref: { type: "string", description: "Scroll inside this element instead of the page." },
+      direction: { type: "string", enum: ["up", "down"], description: "Default down." },
+      amount: { type: "number", description: "Pixels. Default 600." },
+    },
+  },
+  annotations: { title: "Scroll", readOnlyHint: false, openWorldHint: false },
+}
+
+export const browserSetTool = {
+  name: TOOL_BROWSER_SET,
+  description:
+    "Set a field the keyboard cannot reach: choose in a dropdown by its option text, or put a checkbox in a state. " +
+    "Say what you want it to be, not what to toggle — a checkbox set twice must end up where you asked.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      ref: { type: "string", description: "An element ref from zyvro_browser_read." },
+      text: { type: "string", description: "For a select: the option's text. For a field: the value to put in it." },
+      checked: { type: "boolean", description: "For a checkbox or a radio." },
+    },
+    required: ["ref"],
+  },
+  annotations: { title: "Set a field", readOnlyHint: false, openWorldHint: false },
+}
+
+export const browserWaitTool = {
+  name: TOOL_BROWSER_WAIT,
+  description:
+    "Wait until a text or an element appears in the test browser — or disappears, with gone. " +
+    "This is the cure for acting before the page is ready, which is the one real cause of flaky checks.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Wait for this text to appear in the page." },
+      ref: { type: "string", description: "Wait for this element, from a previous read." },
+      gone: { type: "boolean", description: "Wait for it to disappear instead. Default false." },
+      seconds: { type: "number", description: "How long to wait before giving up. Default 10, at most 60." },
+    },
+  },
+  annotations: { title: "Wait for", readOnlyHint: true, openWorldHint: false },
+}
+
+export const browserEvalTool = {
+  name: TOOL_BROWSER_EVAL,
+  description:
+    "Run a JavaScript expression in the page and return what it evaluates to, as JSON. The way out when no other tool fits — reading a computed style, a global the app exposes, the contents of a canvas.",
+  inputSchema: {
+    type: "object",
+    properties: { expression: { type: "string", description: "A JavaScript expression, not a statement." } },
+    required: ["expression"],
+  },
+  annotations: { title: "Evaluate", readOnlyHint: false, openWorldHint: false },
 }
 
 export const browserTypeTool = {
@@ -212,7 +321,10 @@ export const browserShotTool = {
   description: "Screenshot the page in the test browser. Returns the image, or writes it to a file when a path is given.",
   inputSchema: {
     type: "object",
-    properties: { path: { type: "string", description: "Write the PNG here instead of returning it." } },
+    properties: {
+      path: { type: "string", description: "Write the PNG here instead of returning it." },
+      ref: { type: "string", description: "Frame on this element instead of the whole page." },
+    },
   },
   annotations: { title: "Screenshot the page", readOnlyHint: true, openWorldHint: false },
 }
@@ -222,7 +334,13 @@ export const browserLogsTool = {
   description:
     "The console messages and the failed requests of the page in the test browser, since it was last loaded. " +
     "This is what a broken page says about itself, and it is usually the answer.",
-  inputSchema: { type: "object", properties: {} },
+  inputSchema: {
+    type: "object",
+    properties: {
+      pattern: { type: "string", description: "Only lines matching this regular expression. A console can be noisy." },
+      requests: { type: "boolean", description: "Include every request, not only the ones that failed. Default false." },
+    },
+  },
   annotations: { title: "Console and failed requests", readOnlyHint: true, openWorldHint: false },
 }
 
@@ -231,8 +349,13 @@ export const BROWSER_TOOLS = [
   browserReadTool,
   browserClickTool,
   browserTypeTool,
+  browserKeyTool,
+  browserSetTool,
+  browserScrollTool,
+  browserWaitTool,
   browserShotTool,
   browserLogsTool,
+  browserEvalTool,
 ]
 
 // BrowserHost est ce que le serveur ne peut pas savoir tout seul : où est le
@@ -264,15 +387,26 @@ async function browserCall(
   // parlent de la page ouverte, et dire « ouvrez-en une » est plus utile que
   // d'en ouvrir une vide.
   if (name === TOOL_BROWSER_OPEN) {
+    const patience = typeof args.wait_seconds === "number" ? args.wait_seconds : 15
+    const go = typeof args.go === "string" ? (args.go as Go) : null
+
+    if (go) {
+      const guest = pickGuest(all)
+      if (!guest) throw new Error(`no page open in the test browser — call ${TOOL_BROWSER_OPEN} with a url first`)
+      if (!canGo(guest, go)) throw new Error(`nothing to go ${go} to in this tab`)
+      navigate(guest, go)
+      await waitForLoad(guest.contents, patience)
+      return text(await describe(guest))
+    }
+
     const url = String(args.url ?? "")
     const verdict = allowed(url, { visited: pickGuest(all)?.visited ?? new Set(), projectDir: host.projectDir(win) })
     if (!verdict.ok) throw new Error(verdict.why)
 
     const guest = await host.open(win)
     await guest.contents.loadURL(verdict.url)
-    await waitForLoad(guest.contents, typeof args.wait_seconds === "number" ? args.wait_seconds : 15)
-    const page = await readPage(guest)
-    return text(`${page.title || "(no title)"} — ${page.url}\n${page.elements.length} elements to click or type into. Read it for the text.`)
+    await waitForLoad(guest.contents, patience)
+    return text(await describe(guest))
   }
 
   const guest = pickGuest(all)
@@ -280,34 +414,106 @@ async function browserCall(
 
   switch (name) {
     case TOOL_BROWSER_READ:
-      return text(JSON.stringify(await readPage(guest), null, 1))
+      return text(JSON.stringify(await readPage(guest, typeof args.match === "string" ? args.match : ""), null, 1))
     case TOOL_BROWSER_CLICK: {
-      const at = await clickRef(guest, String(args.ref ?? ""))
+      const ref = String(args.ref ?? "")
+      if (args.hover === true) {
+        await hoverRef(guest, ref)
+        return text(`the pointer is on ${ref} — read the page, a menu may have opened`)
+      }
+      const at = await clickRef(guest, ref)
       await waitForLoad(guest.contents, 10)
-      return text(`clicked ${args.ref} at ${at.x},${at.y} — the page may have changed, read it again`)
+      return text(`clicked ${ref} at ${at.x},${at.y} — the page may have changed, read it again`)
     }
     case TOOL_BROWSER_TYPE:
       await typeInto(guest, String(args.ref ?? ""), String(args.text ?? ""), args.submit === true)
       if (args.submit === true) await waitForLoad(guest.contents, 10)
       return text(`typed into ${args.ref}${args.submit === true ? " and pressed Enter" : ""}`)
+    case TOOL_BROWSER_KEY: {
+      const key = String(args.key ?? "")
+      if (!key) throw new Error("say which key")
+      pressKey(guest, key, Array.isArray(args.modifiers) ? args.modifiers.map(String) : [])
+      await waitForLoad(guest.contents, 5)
+      return text(`pressed ${key}`)
+    }
+    case TOOL_BROWSER_SET: {
+      const done = await setField(guest, String(args.ref ?? ""), {
+        text: typeof args.text === "string" ? args.text : undefined,
+        checked: typeof args.checked === "boolean" ? args.checked : undefined,
+      })
+      return text(`${args.ref}: ${done}`)
+    }
+    case TOOL_BROWSER_SCROLL: {
+      const where = await scrollPage(guest, {
+        ref: typeof args.ref === "string" ? args.ref : undefined,
+        direction: args.direction === "up" ? "up" : "down",
+        amount: typeof args.amount === "number" ? args.amount : undefined,
+      })
+      return text(`at ${where.y} of ${where.height}`)
+    }
+    case TOOL_BROWSER_WAIT:
+      return text(
+        await waitFor(guest, {
+          text: typeof args.text === "string" ? args.text : undefined,
+          ref: typeof args.ref === "string" ? args.ref : undefined,
+          gone: args.gone === true,
+          seconds: typeof args.seconds === "number" ? args.seconds : undefined,
+        })
+      )
+    case TOOL_BROWSER_EVAL: {
+      const answer = await evalInPage(guest, String(args.expression ?? "null"))
+      return text(JSON.stringify(answer, null, 1) ?? "undefined")
+    }
     case TOOL_BROWSER_SHOT: {
-      const shot = await shootPage(guest, typeof args.path === "string" ? args.path : undefined)
+      const shot = await shootPage(
+        guest,
+        typeof args.path === "string" ? args.path : undefined,
+        typeof args.ref === "string" ? args.ref : undefined
+      )
       if (shot.file) return text(`Wrote the page to ${shot.file}`)
       return { content: [{ type: "image", data: shot.png.toString("base64"), mimeType: "image/png" }] }
     }
-    case TOOL_BROWSER_LOGS:
+    case TOOL_BROWSER_LOGS: {
+      // Le filtre est une expression régulière parce qu'une console est
+      // bavarde : chercher « \[MyApp\] » coûte une lecture au lieu de deux cents
+      // lignes. Une expression illisible ne fait pas échouer l'outil — elle
+      // devient du texte à chercher tel quel.
+      const raw = typeof args.pattern === "string" ? args.pattern.trim() : ""
+      let keep: (line: string) => boolean = () => true
+      if (raw) {
+        try {
+          const rx = new RegExp(raw, "i")
+          keep = (line) => rx.test(line)
+        } catch {
+          keep = (line) => line.toLowerCase().includes(raw.toLowerCase())
+        }
+      }
       return text(
         JSON.stringify(
           {
-            console: guest.console,
-            failed: guest.requests.filter((r) => r.error || r.status >= 400),
+            console: guest.console.filter((line) => keep(`${line.level} ${line.text}`)),
+            failed: guest.requests.filter((r) => (r.error || r.status >= 400) && keep(r.url)),
+            ...(args.requests === true ? { requests: guest.requests.filter((r) => keep(r.url)) } : {}),
           },
           null,
           1
         )
       )
+    }
   }
   throw new Error(`no such tool: ${name}`)
+}
+
+// describe : ce qu'on répond après une navigation. Le titre et l'adresse — qui
+// disent tout de suite si on est où on croyait — et de quoi décider du geste
+// suivant sans relire la page entière.
+async function describe(guest: Guest): Promise<string> {
+  const page = await readPage(guest)
+  return (
+    `${page.title || "(no title)"} — ${page.url}\n` +
+    `${page.elements.length} elements to click or type into` +
+    `${page.more_below ? ", and more below the fold" : ""}. Read it for the text.`
+  )
 }
 
 // takeShot capture et rend ce que le protocole attend.

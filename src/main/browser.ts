@@ -28,6 +28,11 @@ export const TOOL_BROWSER_CLICK = "zyvro_browser_click"
 export const TOOL_BROWSER_TYPE = "zyvro_browser_type"
 export const TOOL_BROWSER_SHOT = "zyvro_browser_screenshot"
 export const TOOL_BROWSER_LOGS = "zyvro_browser_logs"
+export const TOOL_BROWSER_KEY = "zyvro_browser_key"
+export const TOOL_BROWSER_SCROLL = "zyvro_browser_scroll"
+export const TOOL_BROWSER_SET = "zyvro_browser_set"
+export const TOOL_BROWSER_WAIT = "zyvro_browser_wait"
+export const TOOL_BROWSER_EVAL = "zyvro_browser_eval"
 
 // ---- la politique -------------------------------------------------------
 //
@@ -250,14 +255,20 @@ export function forgetGuests(): void {
 // REF est l'attribut que la lecture pose sur les éléments qu'on peut viser.
 // Il vit dans la page, pas dans un index ici : la page change à chaque clic, et
 // un index gardé de ce côté désignerait des éléments qui n'existent plus.
-const REF = "data-zyvro-ref"
+const REF_ATTR = "data-zyvro-ref"
 
-// readScript est ce que la lecture exécute dans la page.
+// readScriptFor est ce que la lecture exécute dans la page.
 //
 // Elle rend du texte, pas une image : une capture coûte des milliers de jetons
 // et ne dit pas ce qui est cliquable. L'arbre ici nomme ce qu'on peut viser et
 // donne son texte, ce qui suffit à décider du geste suivant.
-const readScript = `(() => {
+//
+// `match` réduit la liste à ce qu'on cherche. Sur une page de catalogue, cent
+// vingt éléments sont cent vingt lignes dont l'agent lit une : chercher « panier »
+// coûte une lecture au lieu de trois.
+function readScriptFor(match: string): string {
+  return `(() => {
+  const wanted = ${JSON.stringify(match.toLowerCase())}
   const seen = []
   let n = 0
   const visible = (el) => {
@@ -270,39 +281,68 @@ const readScript = `(() => {
     const own = (el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.innerText || el.getAttribute("title") || "").trim()
     return own.replace(/\\s+/g, " ").slice(0, 120)
   }
-  for (const el of document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [onclick]')) {
+  for (const el of document.querySelectorAll('a[href], button, input, select, textarea, [role="button"], [role="link"], [role="tab"], [role="checkbox"], [role="menuitem"], [onclick], [contenteditable="true"]')) {
     if (!visible(el)) continue
     const ref = "e" + ++n
-    el.setAttribute(${JSON.stringify(REF)}, ref)
+    el.setAttribute(${JSON.stringify(REF_ATTR)}, ref)
+    const text = label(el)
+    const value = typeof el.value === "string" ? el.value.slice(0, 120) : undefined
+    if (wanted && !((text + " " + (value || "") + " " + (el.getAttribute("href") || "")).toLowerCase().includes(wanted))) continue
+    const box = el.getBoundingClientRect()
     seen.push({
       ref,
       tag: el.tagName.toLowerCase(),
       type: el.getAttribute("type") || undefined,
-      text: label(el),
+      text,
       // Ce que le champ contient, à part de son nom. Sans ça, un champ dont le
       // texte affiché est son *placeholder* a l'air vide après qu'on y a écrit,
       // et l'agent réécrit — ou conclut que l'écriture n'a pas marché.
-      value: typeof el.value === "string" ? el.value.slice(0, 120) : undefined,
+      value,
+      checked: typeof el.checked === "boolean" ? el.checked : undefined,
+      disabled: el.disabled === true ? true : undefined,
+      // Ce qui est hors de l'écran demande un défilement avant d'être
+      // photographié ; cliquable, ça l'est de toute façon.
+      offscreen: box.bottom < 0 || box.top > innerHeight ? true : undefined,
+      options: el.tagName === "SELECT" ? Array.from(el.options).map((o) => o.text).slice(0, 30) : undefined,
       href: el.getAttribute("href") || undefined,
     })
-    if (n >= 120) break
+    if (seen.length >= 120) break
   }
-  const text = (document.body ? document.body.innerText : "").replace(/\\n{3,}/g, "\\n\\n").trim()
+  const whole = (document.body ? document.body.innerText : "").replace(/\\n{3,}/g, "\\n\\n").trim()
+  // Quand on cherche quelque chose de précis, le texte entier de la page est
+  // exactement ce qu'on essayait de ne pas payer : il reste, en plus court.
+  const room = wanted ? 800 : 6000
   return {
     url: location.href,
     title: document.title,
-    text: text.slice(0, 6000),
-    truncated: text.length > 6000,
+    text: whole.slice(0, room),
+    truncated: whole.length > room,
     elements: seen,
+    scroll: { y: Math.round(scrollY), height: Math.round(document.documentElement.scrollHeight), viewport: Math.round(innerHeight) },
+    more_below: scrollY + innerHeight < document.documentElement.scrollHeight - 4,
   }
 })()`
+}
 
 export type Snapshot = {
   url: string
   title: string
   text: string
   truncated: boolean
-  elements: Array<{ ref: string; tag: string; type?: string; text: string; value?: string; href?: string }>
+  elements: Array<{
+    ref: string
+    tag: string
+    type?: string
+    text: string
+    value?: string
+    checked?: boolean
+    disabled?: boolean
+    offscreen?: boolean
+    options?: string[]
+    href?: string
+  }>
+  scroll: { y: number; height: number; viewport: number }
+  more_below: boolean
 }
 
 // inPage exécute dans la page, et répond toujours.
@@ -342,8 +382,8 @@ async function inPage<T>(guest: Guest, script: string, ms = PAGE_ANSWER_MS): Pro
   }
 }
 
-export async function readPage(guest: Guest, ms?: number): Promise<Snapshot> {
-  return await inPage<Snapshot>(guest, readScript, ms)
+export async function readPage(guest: Guest, match = "", ms?: number): Promise<Snapshot> {
+  return await inPage<Snapshot>(guest, readScriptFor(match), ms)
 }
 
 type Box = { x: number; y: number; width: number; height: number } | null
@@ -352,7 +392,7 @@ type Box = { x: number; y: number; width: number; height: number } | null
 // clic aux coordonnées d'un élément hors du cadre atterrit sur autre chose.
 async function boxOf(guest: Guest, ref: string): Promise<Box> {
   const script = `(() => {
-    const el = document.querySelector('[${REF}=' + ${JSON.stringify(JSON.stringify(ref))} + ']')
+    const el = document.querySelector('[${REF_ATTR}=' + ${JSON.stringify(JSON.stringify(ref))} + ']')
     if (!el) return null
     el.scrollIntoView({ block: "center", inline: "center" })
     const r = el.getBoundingClientRect()
@@ -412,8 +452,196 @@ export async function typeInto(
   }
 }
 
-export async function shootPage(guest: Guest, target?: string): Promise<{ png: Buffer; file?: string }> {
-  const image = await guest.contents.capturePage()
+// ---- les autres gestes --------------------------------------------------
+//
+// Ce qui a été ajouté après coup, parce qu'un agent qui teste une page les
+// demande dès la deuxième minute : revenir en arrière, attendre que quelque
+// chose apparaisse, appuyer sur Échap, survoler un menu, descendre dans la
+// page, choisir dans une liste déroulante.
+
+export type Go = "back" | "forward" | "reload"
+
+export function navigate(guest: Guest, go: Go): void {
+  if (go === "back") guest.contents.navigationHistory.goBack()
+  else if (go === "forward") guest.contents.navigationHistory.goForward()
+  else guest.contents.reload()
+}
+
+export function canGo(guest: Guest, go: Go): boolean {
+  if (go === "back") return guest.contents.navigationHistory.canGoBack()
+  if (go === "forward") return guest.contents.navigationHistory.canGoForward()
+  return true
+}
+
+// hover est le geste des menus qui s'ouvrent au survol, et de rien d'autre.
+// Sans lui, le sous-menu n'existe pas dans la page et l'agent conclut que le
+// lien qu'il cherche n'y est pas.
+export async function hoverRef(guest: Guest, ref: string): Promise<void> {
+  const box = await boxOf(guest, ref)
+  if (!box) throw missing(ref)
+  guest.contents.sendInputEvent({ type: "mouseMove", x: Math.round(box.x), y: Math.round(box.y) })
+}
+
+// pressKey : une touche, avec ses modificateurs. Échap ferme, Tab passe au
+// champ suivant, les flèches parcourent une liste — aucune de ces choses ne se
+// fait au clic, et toutes décident de ce qu'une page montre ensuite.
+// MODIFIERS : ceux qu'Electron reconnaît. Un nom inventé n'est pas ignoré, il
+// fait refuser l'événement entier, donc on ne laisse passer que ceux-là.
+const MODIFIERS = ["shift", "control", "ctrl", "alt", "meta", "command", "cmd", "capslock", "numlock"] as const
+type Modifier = (typeof MODIFIERS)[number]
+
+export function cleanModifiers(raw: string[]): Modifier[] {
+  return raw
+    .map((m) => m.toLowerCase().trim())
+    .filter((m): m is Modifier => (MODIFIERS as readonly string[]).includes(m))
+}
+
+export function pressKey(guest: Guest, key: string, modifiers: string[] = []): void {
+  const mods = cleanModifiers(modifiers)
+  guest.contents.sendInputEvent({ type: "keyDown", keyCode: key, modifiers: mods })
+  // Un caractère imprimable demande aussi l'événement `char` : sans lui, la
+  // touche est vue mais rien ne s'écrit.
+  if (key.length === 1 && mods.length === 0) guest.contents.sendInputEvent({ type: "char", keyCode: key })
+  guest.contents.sendInputEvent({ type: "keyUp", keyCode: key, modifiers: mods })
+}
+
+// scrollPage descend ou remonte, dans la page ou dans un élément.
+//
+// Nécessaire pour deux choses : photographier ce qui est plus bas, et déclencher
+// ce qui ne charge qu'en approchant — une liste infinie reste vide pour qui ne
+// descend jamais.
+export async function scrollPage(
+  guest: Guest,
+  what: { ref?: string; direction?: "up" | "down"; amount?: number }
+): Promise<{ y: number; height: number }> {
+  const step = Math.round(what.amount && what.amount > 0 ? what.amount : 600) * (what.direction === "up" ? -1 : 1)
+  const target = what.ref
+    ? `document.querySelector('[${REF_ATTR}=' + ${JSON.stringify(JSON.stringify(what.ref))} + ']')`
+    : "null"
+  const script = `(() => {
+    const el = ${target}
+    if (el) el.scrollBy(0, ${step})
+    else scrollBy(0, ${step})
+    return { y: Math.round(el ? el.scrollTop : scrollY), height: Math.round(el ? el.scrollHeight : document.documentElement.scrollHeight) }
+  })()`
+  return await inPage(guest, script)
+}
+
+// setField pour ce qu'un clic ne sait pas faire.
+//
+// Une liste déroulante native s'ouvre hors de la page — un menu du système — et
+// aucun clic synthétique ne la parcourt. Une case à cocher, elle, se coche au
+// clic, mais « mets-la à coché » est ce qu'on veut dire, pas « bascule-la » :
+// deux appels de suite la laisseraient comme avant.
+export async function setField(
+  guest: Guest,
+  ref: string,
+  value: { text?: string; checked?: boolean }
+): Promise<string> {
+  const script = `(() => {
+    const el = document.querySelector('[${REF_ATTR}=' + ${JSON.stringify(JSON.stringify(ref))} + ']')
+    if (!el) return null
+    if (${JSON.stringify(value.checked !== undefined)}) {
+      el.checked = ${JSON.stringify(value.checked === true)}
+      el.dispatchEvent(new Event("input", { bubbles: true }))
+      el.dispatchEvent(new Event("change", { bubbles: true }))
+      return "checked=" + el.checked
+    }
+    const wanted = ${JSON.stringify(value.text ?? "")}
+    if (el.tagName === "SELECT") {
+      const option = Array.from(el.options).find((o) => o.text === wanted || o.value === wanted)
+      if (!option) return "no-option:" + Array.from(el.options).map((o) => o.text).join(" | ")
+      el.value = option.value
+    } else {
+      // Le passage par le setter natif : une entrée contrôlée par React ignore
+      // une écriture directe sur .value, et la page garderait l'ancien texte
+      // tout en l'affichant changé.
+      const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")
+      if (setter && setter.set) setter.set.call(el, wanted)
+      else el.value = wanted
+    }
+    el.dispatchEvent(new Event("input", { bubbles: true }))
+    el.dispatchEvent(new Event("change", { bubbles: true }))
+    return "value=" + el.value
+  })()`
+  const answer = await inPage<string | null>(guest, script)
+  if (answer === null) throw missing(ref)
+  if (answer.startsWith("no-option:")) {
+    throw new Error(`no such option — this list offers: ${answer.slice("no-option:".length)}`)
+  }
+  return answer
+}
+
+// waitFor est le remède à la seule vraie cause d'échec instable : agir avant
+// que la page soit prête. Attendre un texte ou un élément dit *quoi* attendre,
+// là où un délai fixe est un pari qu'on perd une fois sur dix.
+export async function waitFor(
+  guest: Guest,
+  what: { text?: string; ref?: string; gone?: boolean; seconds?: number }
+): Promise<string> {
+  const limitMs = Math.min(60, Math.max(1, what.seconds ?? 10)) * 1000
+  const until = Date.now() + limitMs
+  const wantsText = (what.text ?? "").trim()
+  const wantsRef = (what.ref ?? "").trim()
+  if (!wantsText && !wantsRef) throw new Error("say what to wait for: a text, or an element ref")
+
+  const script = `(() => {
+    const text = ${JSON.stringify(wantsText)}
+    const ref = ${JSON.stringify(wantsRef)}
+    if (ref) return Boolean(document.querySelector('[${REF_ATTR}=' + JSON.stringify(ref) + ']'))
+    return (document.body ? document.body.innerText : "").includes(text)
+  })()`
+
+  for (;;) {
+    const there = await inPage<boolean>(guest, script, 5000)
+    if (there === !what.gone) {
+      return what.gone ? "it is gone" : "it is there"
+    }
+    if (Date.now() > until) {
+      throw new Error(
+        `waited ${Math.round(limitMs / 1000)}s and ${wantsRef || `"${wantsText}"`} is still ${what.gone ? "there" : "missing"} — read the page to see what it shows instead`
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
+// evalInPage est la porte de sortie : ce qu'aucun outil ne prévoit, on le
+// demande à la page elle-même. Elle rend ce que JSON sait porter, parce qu'un
+// nœud du DOM ne traverse pas le pont et reviendrait en objet vide.
+export async function evalInPage(guest: Guest, expression: string): Promise<unknown> {
+  const script = `(() => {
+    const answer = (() => { return (${expression}) })()
+    try {
+      return JSON.parse(JSON.stringify(answer ?? null))
+    } catch {
+      return String(answer)
+    }
+  })()`
+  return await inPage<unknown>(guest, script)
+}
+
+export async function shootPage(
+  guest: Guest,
+  target?: string,
+  ref?: string
+): Promise<{ png: Buffer; file?: string }> {
+  // Cadrée sur un élément quand on en nomme un : la page entière pour montrer
+  // un bouton mal aligné coûte une image de deux mille pixels dont l'agent
+  // regarde cinquante.
+  let region: { x: number; y: number; width: number; height: number } | undefined
+  if (ref) {
+    const box = await boxOf(guest, ref)
+    if (!box) throw missing(ref)
+    region = {
+      x: Math.max(0, Math.round(box.x - box.width / 2)),
+      y: Math.max(0, Math.round(box.y - box.height / 2)),
+      width: Math.max(1, Math.round(box.width)),
+      height: Math.max(1, Math.round(box.height)),
+    }
+  }
+  const image = await guest.contents.capturePage(region)
   const png = image.toPNG()
   const file = (target ?? "").trim()
   if (!file) return { png }

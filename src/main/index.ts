@@ -92,6 +92,11 @@ function createWindow(): BrowserWindow {
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
     webPreferences.webSecurity = true
+    // Les boîtes de dialogue de la page — alert, confirm, prompt — bloquent le
+    // rendu jusqu'à ce que quelqu'un clique. Un agent ne peut pas cliquer
+    // dedans : la page resterait figée et l'outil n'aurait plus qu'à expirer.
+    // Désactivées, `confirm` rend « non » et la page continue.
+    webPreferences.disableDialogs = true
     // Une seule session, la sienne : ni celle de l'application, ni celle du
     // navigateur de la personne.
     params.partition = BROWSER_PARTITION
