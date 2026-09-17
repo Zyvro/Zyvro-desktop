@@ -26,13 +26,6 @@ import { Splitter } from "~/panels/Splitter"
 // donne l'air d'être cassé avant même d'avoir servi.
 const BLANK = "about:blank"
 
-// La même chaîne que dans le processus principal, qui s'en sert pour
-// reconnaître la vue des outils au moment où elle s'attache. Elle est courte et
-// elle voyage par le DOM : la partager par un module que le rendu et le
-// principal importeraient tous les deux ferait entrer electron dans le bundle
-// du rendu.
-const DEVTOOLS_PARTITION = "zyvro-devtools"
-
 type Guest = Electron.WebviewTag
 
 export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
@@ -60,6 +53,7 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
   // terminal : l'élément possède ses abonnements, et rien ne survit à sa
   // disparition.
   const teardown = useRef<(() => void) | null>(null)
+  const teardownTools = useRef<(() => void) | null>(null)
 
   const attach = useCallback((node: Guest | null) => {
     if (node === null) {
@@ -114,6 +108,9 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
     const offAsk = window.zyvro.browser.onDevtoolsOpen((payload) => {
       if (payload?.view === tabId) setTools(true)
     })
+    const offGone = window.zyvro.browser.onDevtoolsClosed((payload) => {
+      if (payload?.view === tabId) setTools(false)
+    })
 
     node.addEventListener("dom-ready", attached)
     node.addEventListener("devtools-opened", opened)
@@ -123,6 +120,7 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
     node.addEventListener("did-stop-loading", stopped)
     teardown.current = () => {
       offAsk()
+      offGone()
       node.removeEventListener("dom-ready", attached)
       node.removeEventListener("devtools-opened", opened)
       node.removeEventListener("devtools-closed", closed)
@@ -146,19 +144,39 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
     })
   }
 
-  // La vue d'accueil des outils, montée une fois pour toutes avec la page :
-  // Electron refuse d'y dessiner son front-end si elle a déjà navigué, donc
-  // elle reste vide jusqu'à ce qu'il s'en serve.
-  const attachTools = useCallback(
-    (node: Guest | null) => {
+  // L'emplacement des outils : le rendu réserve la place, le processus
+  // principal y pose sa vue.
+  //
+  // Les outils de Chromium ne se dessinent pas dans une page — Electron ne
+  // relie son pont d'inspection qu'à une vue native. Ce div est donc un trou
+  // dans la mise en page, et une ref à rappel branche un observateur de taille
+  // qui dit où il est. Quand l'onglet passe en arrière-plan, il mesure zéro, et
+  // la vue disparaît avec lui : sans ça elle resterait posée par-dessus
+  // l'éditeur, à afficher la page d'un onglet qu'on ne regarde plus.
+  const place = useCallback(
+    (node: HTMLDivElement | null) => {
+      const current = teardownTools.current
+      teardownTools.current = null
+      current?.()
       if (!node || !view || !ready) return
-      // Une seule fois : le type des événements de <webview> ne connaît pas
-      // `{ once: true }`, donc l'écouteur se retire lui-même.
-      const announce = () => {
-        node.removeEventListener("dom-ready", announce)
-        void window.zyvro.browser.devtoolsHost(view.getWebContentsId(), node.getWebContentsId())
+
+      const id = view.getWebContentsId()
+      const report = () => {
+        const box = node.getBoundingClientRect()
+        void window.zyvro.browser.devtoolsBounds(id, {
+          x: Math.round(box.x),
+          y: Math.round(box.y),
+          width: Math.round(box.width),
+          height: Math.round(box.height),
+        })
       }
-      node.addEventListener("dom-ready", announce)
+      report()
+      const watcher = new ResizeObserver(report)
+      watcher.observe(node)
+      teardownTools.current = () => {
+        watcher.disconnect()
+        void window.zyvro.browser.devtoolsBounds(id, null)
+      }
     },
     [view, ready]
   )
@@ -172,7 +190,9 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
     // ouvert après qu'on a cliqué sur « fermer » est un bouton cassé.
     const next = !tools
     setTools(next)
-    void window.zyvro.browser.devtools(view.getWebContentsId(), next)
+    // Sans emplacement à l'ouverture : le panneau vient de se monter, il n'est
+    // pas encore mesuré. L'observateur le dira dans la foulée.
+    void window.zyvro.browser.devtools(view.getWebContentsId(), next, null)
   }
 
   const can = (what: "back" | "forward"): boolean => {
@@ -259,15 +279,9 @@ export function BrowserTab({ tabId, url }: { tabId: string; url: string }) {
             orientation="horizontal"
             onResize={(delta) => setToolsHeight((h) => Math.min(900, Math.max(120, h - delta)))}
           />
-          <div className="shrink-0" style={{ height: toolsHeight }}>
-            {/* eslint-disable-next-line react/no-unknown-property */}
-            <webview
-              ref={attachTools}
-              src="about:blank"
-              partition={DEVTOOLS_PARTITION}
-              className="h-full w-full bg-[#282828]"
-            />
-          </div>
+          {/* Le trou où la vue native se pose. Il ne contient rien : ce qu'on y
+              voit est dessiné par-dessus, par Chromium. */}
+          <div ref={place} className="shrink-0 bg-[#282828]" style={{ height: toolsHeight }} />
         </>
       )}
     </div>

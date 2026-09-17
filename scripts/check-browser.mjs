@@ -36,9 +36,26 @@ mkdirSync(dir, { recursive: true })
 writeFileSync(
   path.join(dir, "electron.js"),
   `let built = null
+   let removed = 0
+   class WebContentsView {
+     constructor() {
+       this.bounds = null
+       this.visible = null
+       this.webContents = { isDestroyed: () => false, close() {} }
+     }
+     setBounds(b) { this.bounds = b }
+     setVisible(v) { this.visible = v }
+   }
+   const fakeWindow = {
+     isDestroyed: () => false,
+     contentView: { addChildView() {}, removeChildView() { removed++ } },
+     webContents: { send() {} },
+   }
    module.exports = {
      app: {},
-     BrowserWindow: { fromId: () => null },
+     removedViews: () => removed,
+     WebContentsView,
+     BrowserWindow: { fromId: () => fakeWindow },
      clipboard: { text: "", writeText(t) { this.text = t } },
      Menu: {
        built: () => built,
@@ -90,6 +107,9 @@ function fakeContents(id, page = {}) {
     getType: () => "webview",
     on(name, fn) {
       listeners.set(name, [...(listeners.get(name) ?? []), fn])
+    },
+    once(name, fn) {
+      this.on(name, fn)
     },
     off() {},
     // Une page qui ouvre une fenêtre : la vraie vue refuse et charge dans
@@ -509,21 +529,33 @@ function fakeContents(id, page = {}) {
   // Le geste entier : « Inspecter » se place sur l'élément visé, comme dans
   // Chrome. Ouvrir les outils et laisser chercher n'est pas la même chose.
   const inspect = browser.contextTemplate(guest, params({ x: 33, y: 44 })).find((i) => i.label === "Inspect")
-  await browser.inspectAt(guest, 33, 44)
+  browser.inspectAt(guest, 33, 44)
   check("**inspecter vise l'élément**", contents.inspected?.x === 33 && contents.inspected?.y === 44, JSON.stringify(contents.inspected))
   check("et le clic du menu fait le même geste", typeof inspect.click === "function")
 
-  // Les outils se dessinent dans la vue que le rendu monte sous la page, pas
-  // dans une fenêtre du système : on referme l'application en croyant fermer
-  // les outils, et on les cherche derrière les autres fenêtres.
-  const host = fakeContents(51)
-  browser.attachDevTools(guest.id, host)
-  await browser.showDevTools(guest)
-  check("**les outils se dessinent dans la fenêtre du navigateur**", contents.docked === host, String(contents.docked))
+  // Les outils se dessinent dans une vue native posée sur la fenêtre, à la
+  // place que le rendu leur réserve. La première version les mettait dans une
+  // seconde <webview> : le front-end s'affichait, ses huit onglets aussi, et
+  // tous étaient vides — Electron ne relie pas son pont d'inspection à une vue
+  // invitée. Ce qu'on vérifie ici, c'est qu'une vue est bien créée et branchée.
+  browser.hideDevTools(guest)
+  browser.showDevTools(guest, { x: 0, y: 300, width: 800, height: 300 })
+  check("**les outils sont branchés sur la page**", contents.docked !== null, String(contents.docked))
+  check("dans une vue posée sur la fenêtre", Boolean(guest.devtools), String(guest.devtools))
+  check("à la place qu'on leur a donnée", guest.devtools?.bounds?.height === 300, JSON.stringify(guest.devtools?.bounds))
   check("et ils sont ouverts", contents.devTools === "detach")
+
+  // Un onglet qu'on quitte mesure zéro : la vue se cache, sinon elle resterait
+  // posée par-dessus l'éditeur à montrer la page d'un onglet qu'on ne regarde
+  // plus.
+  browser.placeTools(guest, { x: 0, y: 0, width: 0, height: 0 })
+  check("**hors de l'écran, la vue se cache**", guest.devtools?.visible === false)
+  browser.placeTools(guest, { x: 0, y: 300, width: 800, height: 200 })
+  check("et revient quand la place revient", guest.devtools?.visible === true)
 
   browser.hideDevTools(guest)
   check("et se referment", contents.devTools === null)
+  check("**la vue est retirée de la fenêtre**", guest.devtools === undefined)
 }
 
 // ---- les outils, par le serveur -----------------------------------------

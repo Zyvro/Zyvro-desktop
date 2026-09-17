@@ -1,4 +1,13 @@
-import { BrowserWindow, Menu, clipboard, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from "electron"
+import {
+  BrowserWindow,
+  Menu,
+  WebContentsView,
+  clipboard,
+  type ContextMenuParams,
+  type MenuItemConstructorOptions,
+  type Rectangle,
+  type WebContents,
+} from "electron"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 
@@ -21,14 +30,6 @@ import path from "node:path"
 // dans shots.ts, avec le serveur qui les sert déjà.
 
 export const BROWSER_PARTITION = "persist:zyvro-browser"
-
-// La session des outils de développement, distincte de celle des pages.
-//
-// Elle sert à les reconnaître au moment où le rendu les attache : une vue de
-// page reçoit la session du navigateur, un cadenas et aucune permission ; le
-// front-end des outils, lui, est du code de Chromium qu'on ne doit pas brider
-// comme une page inconnue.
-export const DEVTOOLS_PARTITION = "zyvro-devtools"
 
 export const TOOL_BROWSER_OPEN = "zyvro_browser_open"
 export const TOOL_BROWSER_READ = "zyvro_browser_read"
@@ -138,8 +139,8 @@ export type RequestLine = { url: string; status: number; error?: string }
 export type Guest = {
   /** L'identifiant du WebContents de la vue, tel que le rendu le donne. */
   id: number
-  /** La vue vide où dessiner les outils, quand le rendu en a monté une. */
-  devtools?: WebContents
+  /** La vue native où Chromium dessine ses outils, quand ils sont ouverts. */
+  devtools?: WebContentsView
   /** L'identifiant de l'onglet — « browser:2 » — qu'un agent emploie pour dire
    *  laquelle il pilote, et que la barre latérale affiche. */
   view: string
@@ -272,27 +273,46 @@ export function contextTemplate(guest: Guest, params: ContextMenuParams): MenuIt
 // Dans une fenêtre à part, et c'est le seul choix possible ici : une vue
 // invitée n'a pas de fenêtre à elle où s'ancrer, et les ancrer dans celle de
 // l'application les mettrait par-dessus l'éditeur.
-export async function showDevTools(guest: Guest): Promise<void> {
+export function showDevTools(guest: Guest, bounds: Rectangle | null = null): void {
   if (guest.contents.isDestroyed()) return
-  if (guest.contents.isDevToolsOpened()) {
+  if (toolsOpen(guest)) {
+    placeTools(guest, bounds)
     guest.contents.devToolsWebContents?.focus()
     return
   }
-  await dock(guest)
-  if (guest.contents.isDestroyed()) return
+  dock(guest, bounds)
   guest.contents.openDevTools({ mode: "detach" })
 }
 
-export async function inspectAt(guest: Guest, x: number, y: number): Promise<void> {
+export function inspectAt(guest: Guest, x: number, y: number): void {
   if (guest.contents.isDestroyed()) return
-  await dock(guest)
-  if (guest.contents.isDestroyed()) return
+  // Sans emplacement connu, la vue est créée invisible : le rendu ouvre son
+  // panneau en apprenant que les outils le sont, mesure, et nous le dit.
+  dock(guest, null)
   // inspectElement ouvre les outils si besoin, et se place sur l'élément.
   guest.contents.inspectElement(Math.round(x), Math.round(y))
 }
 
 export function hideDevTools(guest: Guest): void {
   if (!guest.contents.isDestroyed() && guest.contents.isDevToolsOpened()) guest.contents.closeDevTools()
+  dropTools(guest)
+}
+
+// dropTools retire la vue de la fenêtre et la détruit.
+//
+// « Fermer les outils ne détruit pas la vue qui les porte », dit la
+// documentation : c'est à l'appelant de le faire. Une vue oubliée reste posée
+// sur la fenêtre, par-dessus l'éditeur, et ne répond plus à personne.
+export function dropTools(guest: Guest): void {
+  const view = guest.devtools
+  if (!view) return
+  guest.devtools = undefined
+  const window = BrowserWindow.fromId(guest.windowId)
+  if (window && !window.isDestroyed()) {
+    window.contentView.removeChildView(view)
+    window.webContents.send("browser:devtools-closed", { view: guest.view })
+  }
+  if (!view.webContents.isDestroyed()) view.webContents.close()
 }
 
 // dock range les outils dans la fenêtre du navigateur plutôt que dans une
@@ -306,12 +326,27 @@ export function hideDevTools(guest: Guest): void {
 //
 // Le repli reste la fenêtre à part : une vue d'accueil qui n'est pas là ne doit
 // pas valoir « pas d'outils du tout ».
-async function dock(guest: Guest): Promise<void> {
+function dock(guest: Guest, bounds: Rectangle | null): void {
   if (guest.contents.isDevToolsOpened()) return
-  const host = await hostFor(guest)
-  if (!host || host.isDestroyed() || guest.contents.isDestroyed()) return
-  if (guest.contents.isDevToolsOpened()) return
-  guest.contents.setDevToolsWebContents(host)
+  const window = BrowserWindow.fromId(guest.windowId)
+  if (!window || window.isDestroyed()) return
+
+  const view = new WebContentsView({
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  })
+  guest.devtools = view
+  window.contentView.addChildView(view)
+  placeTools(guest, bounds)
+  guest.contents.setDevToolsWebContents(view.webContents)
+  // Le rendu ouvre son panneau et mesure : c'est ce qui donne à la vue sa place
+  // quand l'ouverture vient d'ailleurs que du bouton — le clic droit, ou
+  // « Inspecter ».
+  window.webContents.send("browser:devtools-open", { view: guest.view })
+
+  // Les outils fermés depuis leur propre interface, ou avec la page : la vue
+  // s'en va avec eux, sans attendre que quelqu'un y pense.
+  guest.contents.once("devtools-closed", () => dropTools(guest))
+  guest.contents.once("destroyed", () => dropTools(guest))
 }
 
 export function noteRequest(guestId: number, line: RequestLine): void {
@@ -321,53 +356,37 @@ export function noteRequest(guestId: number, line: RequestLine): void {
 
 // noteVisit enregistre ce que la personne a ouvert elle-même. C'est l'accord
 // explicite dont la politique parle, et il ne vaut que pour cette origine.
-// attachDevTools : le rendu annonce la vue d'accueil des outils.
+// ---- les outils de développement ---------------------------------------
 //
-// Elle est annoncée séparément de la page parce qu'elle n'existe pas au même
-// moment : la page se monte tout de suite, l'accueil des outils seulement
-// quand quelqu'un les demande.
-export function attachDevTools(guestId: number, host: WebContents): void {
-  const guest = guests.get(guestId)
-  if (!guest) return
-  guest.devtools = host
-  const promised = waitingTools.get(guestId)
-  if (promised) {
-    waitingTools.delete(guestId)
-    for (const resolve of promised) resolve(host)
-  }
+// Ce sont ceux de Chromium, pas une imitation : Elements, Console, Sources,
+// Network, Performance, Memory, Application, Security.
+//
+// Ils se dessinent dans une `WebContentsView` posée sur la fenêtre, à
+// l'emplacement que le rendu leur réserve sous la page. La première version les
+// mettait dans une seconde `<webview>` : le front-end s'affichait, ses huit
+// onglets aussi, et tous étaient vides — Electron ne relie pas le pont
+// d'inspection à une vue invitée, donc les outils n'étaient connectés à rien.
+// Une vue native est le chemin documenté, et c'est celui qui marche.
+//
+// Ce que ça coûte : une vue native se dessine au-dessus du HTML, pas dedans.
+// Elle suit donc l'emplacement que le rendu mesure et disparaît dès que cet
+// emplacement n'est plus visible — un onglet qu'on quitte, un panneau qu'on
+// ferme, une fenêtre qu'on redimensionne.
+
+export function toolsOpen(guest: Guest): boolean {
+  return Boolean(guest.devtools) && !guest.contents.isDestroyed() && guest.contents.isDevToolsOpened()
 }
 
-// Qui attend que la vue d'accueil des outils soit montée. Même rendez-vous que
-// pour une vue de navigateur : le processus principal la demande au rendu, et
-// le rendu met une image ou deux à la monter.
-const waitingTools = new Map<number, Array<(host: WebContents) => void>>()
-
-// hostFor demande au rendu de monter l'accueil des outils, et attend.
-//
-// Il rend null plutôt que d'échouer : une vue d'accueil qui n'arrive pas ne
-// doit pas valoir « pas d'outils du tout ». Les outils s'ouvrent alors dans une
-// fenêtre à part, ce qui est le comportement d'Electron par défaut.
-async function hostFor(guest: Guest, ms = 4000): Promise<WebContents | null> {
-  if (guest.devtools && !guest.devtools.isDestroyed()) return guest.devtools
-  const window = BrowserWindow.fromId(guest.windowId)
-  if (!window || window.isDestroyed()) return null
-  window.webContents.send("browser:devtools-open", { view: guest.view })
-
-  return await new Promise<WebContents | null>((resolve) => {
-    const list = waitingTools.get(guest.id) ?? []
-    const settle = (host: WebContents) => {
-      clearTimeout(timer)
-      resolve(host)
-    }
-    list.push(settle)
-    waitingTools.set(guest.id, list)
-    const timer = setTimeout(() => {
-      const left = (waitingTools.get(guest.id) ?? []).filter((fn) => fn !== settle)
-      if (left.length === 0) waitingTools.delete(guest.id)
-      else waitingTools.set(guest.id, left)
-      resolve(null)
-    }, ms)
-  })
+// placeTools pose les outils là où le rendu leur a fait de la place.
+export function placeTools(guest: Guest, bounds: Rectangle | null): void {
+  const view = guest.devtools
+  if (!view) return
+  if (!bounds || bounds.width < 2 || bounds.height < 2) {
+    view.setVisible(false)
+    return
+  }
+  view.setBounds(bounds)
+  view.setVisible(true)
 }
 
 export function noteVisit(guestId: number, url: string): void {

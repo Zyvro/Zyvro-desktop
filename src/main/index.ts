@@ -2,7 +2,7 @@ import { app, BrowserWindow, Menu, nativeImage, session, shell } from "electron"
 import path from "node:path"
 import { browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { startShotsServer } from "./shots"
-import { BROWSER_PARTITION, DEVTOOLS_PARTITION, noteRequest } from "./browser"
+import { BROWSER_PARTITION, noteRequest } from "./browser"
 import { loadRecents } from "./recents"
 import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath } from "./cli"
@@ -89,13 +89,6 @@ function createWindow(): BrowserWindow {
   win.webContents.on("will-attach-webview", (_event, webPreferences, params) => {
     delete webPreferences.preload
     webPreferences.nodeIntegration = false
-
-    // La vue d'accueil des outils de développement n'est pas une page inconnue :
-    // c'est le front-end de Chromium, qu'Electron dessine lui-même dedans. Elle
-    // garde sa propre session et on ne lui impose ni bac à sable ni politique de
-    // page, qui l'empêcheraient de faire son travail.
-    if (params.partition === DEVTOOLS_PARTITION) return
-
     webPreferences.contextIsolation = true
     webPreferences.sandbox = true
     webPreferences.webSecurity = true

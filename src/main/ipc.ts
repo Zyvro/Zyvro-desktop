@@ -12,13 +12,14 @@ import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type BrowserHost } from "./shots"
 import {
-  attachDevTools,
   guestForWindow,
   hideDevTools,
   noteVisit,
   openViews,
+  placeTools,
   registerGuest,
   showDevTools,
+  toolsOpen,
   waitForGuest,
   type Guest,
 } from "./browser"
@@ -335,26 +336,26 @@ export function registerIpc(onRecents?: () => void): void {
 
   // Ce que la personne a ouvert elle-même : un accord explicite, pour cette
   // origine et pour cette session. C'est l'une des trois portes de la politique.
-  // La vue d'accueil des outils : le rendu la monte sous la page et l'annonce
-  // ici. Elle est séparée de la page parce qu'elle n'existe qu'au moment où
-  // quelqu'un demande les outils.
-  ipcMain.handle("browser:devtools-host", async (event, pageId: number, hostId: number) => {
-    requireWorkspace(event)
-    const host = webContents.fromId(Number(hostId))
-    if (!host || host.getType() !== "webview") throw new Error("that is not a devtools view")
-    attachDevTools(Number(pageId), host)
-    return true
-  })
+  // Les outils se dessinent dans une vue posée sur la fenêtre, à l'emplacement
+  // que le rendu leur réserve sous la page. C'est donc le rendu qui mesure, et
+  // il le refait à chaque changement de taille — y compris quand l'onglet
+  // disparaît, ce qui mesure zéro et fait disparaître la vue avec lui.
+  ipcMain.handle(
+    "browser:devtools",
+    async (event, contentsId: number, open: boolean, bounds: Electron.Rectangle | null) => {
+      requireWorkspace(event)
+      const guest = openViews().find((g) => g.id === Number(contentsId))
+      if (!guest) throw new Error("no such browser view")
+      if (open) showDevTools(guest, bounds ?? null)
+      else hideDevTools(guest)
+      return toolsOpen(guest)
+    }
+  )
 
-  // Ouvrir et fermer, pour le bouton de la barre du navigateur : le clic droit
-  // n'est pas le seul chemin, et un panneau qu'on ne sait pas refermer est un
-  // panneau qui reste ouvert.
-  ipcMain.handle("browser:devtools", async (event, contentsId: number, open: boolean) => {
+  ipcMain.handle("browser:devtools-bounds", async (event, contentsId: number, bounds: Electron.Rectangle | null) => {
     requireWorkspace(event)
     const guest = openViews().find((g) => g.id === Number(contentsId))
-    if (!guest) throw new Error("no such browser view")
-    if (open) await showDevTools(guest)
-    else hideDevTools(guest)
+    if (guest) placeTools(guest, bounds ?? null)
     return true
   })
 
