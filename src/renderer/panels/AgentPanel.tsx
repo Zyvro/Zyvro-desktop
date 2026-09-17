@@ -22,13 +22,53 @@ import type { StoredTool } from "../../preload"
 
 export type ChatRole = "user" | "assistant"
 
+// Un morceau de message : ce que l'agent a dit, ou ce qu'il a fait.
+//
+// Une seule liste, et dans l'ordre d'arrivée. Le panneau en tenait deux — le
+// texte d'un côté, les outils de l'autre — et les affichait l'une après
+// l'autre : tous les appels d'outil en haut, toute la prose en dessous. Quand
+// l'agent parle, appelle un outil, puis reparle, l'écran montrait l'outil
+// d'abord et les deux phrases collées après, dans un ordre que personne n'a
+// vécu. L'ordre n'était pas perdu à l'affichage mais à l'écriture, donc aucune
+// mise en forme ne pouvait le rattraper.
+export type Part = { kind: "text"; text: string } | { kind: "tool"; call: ToolCall }
+
 export type ChatMessage = {
   id: string
   role: ChatRole
-  text: string
-  tools: ToolCall[]
+  parts: Part[]
   error?: string
   streaming: boolean
+}
+
+// textOf : tout ce que le message a dit, sans ce qu'il a fait.
+//
+// Pour ce qui n'a pas besoin de l'ordre — la sauvegarde d'un message
+// d'utilisateur, le titre d'un onglet, savoir si quelque chose a été dit.
+export function textOf(message: ChatMessage): string {
+  return message.parts
+    .filter((part): part is { kind: "text"; text: string } => part.kind === "text")
+    .map((part) => part.text)
+    .join("")
+}
+
+export function toolsOf(message: ChatMessage): ToolCall[] {
+  return message.parts
+    .filter((part): part is { kind: "tool"; call: ToolCall } => part.kind === "tool")
+    .map((part) => part.call)
+}
+
+// addText ajoute au dernier morceau parlé, ou en ouvre un nouveau.
+//
+// Ouvrir un morceau par fragment reçu donnerait des centaines de morceaux pour
+// une phrase, et un rendu Markdown par fragment : un paragraphe se réassemble
+// tant que rien ne s'est passé entre-temps.
+export function addText(parts: Part[], text: string): Part[] {
+  const last = parts[parts.length - 1]
+  if (last && last.kind === "text") {
+    return [...parts.slice(0, -1), { kind: "text", text: last.text + text }]
+  }
+  return [...parts, { kind: "text", text }]
 }
 
 // A thread is one conversation: its own transcript, its own CLI session, its
@@ -87,7 +127,7 @@ type ChatState = {
 // Events for a turn can reach the renderer before `agent:send` resolves with
 // that turn's id, so anything that arrives for an unbound turn is parked here
 // and replayed the moment the binding lands.
-type Orphan = { text: string; tools: ToolCall[]; error: string; done: boolean }
+type Orphan = { parts: Part[]; error: string; done: boolean }
 
 const WORKFLOWS_KEY = ["local", "workflows"] as const
 
@@ -182,10 +222,11 @@ function ensureAttached(): void {
   window.zyvro.agent.onText(({ id, text }) => {
     const bound = turnToMessage.get(id)
     if (bound === undefined) {
-      orphanFor(id).text += text
+      const orphan = orphanFor(id)
+      orphan.parts = addText(orphan.parts, text)
       return
     }
-    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, text: message.text + text }))
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, parts: addText(message.parts, text) }))
   })
 
   window.zyvro.agent.onTool(({ id, callId, running, done, shape, detail, plan }) => {
@@ -202,10 +243,14 @@ function ensureAttached(): void {
     }
     const bound = turnToMessage.get(id)
     if (bound === undefined) {
-      orphanFor(id).tools.push(call)
+      const orphan = orphanFor(id)
+      orphan.parts = [...orphan.parts, { kind: "tool", call }]
       return
     }
-    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, tools: [...message.tools, call] }))
+    mapMessage(bound.threadId, bound.messageId, (message) => ({
+      ...message,
+      parts: [...message.parts, { kind: "tool", call }],
+    }))
   })
 
   // A result is paired by the call's own id and never by arrival: two commands
@@ -213,14 +258,21 @@ function ensureAttached(): void {
   // happening in a real stream rather than guessed at.
   window.zyvro.agent.onToolResult(({ id, callId, output, isError }) => {
     const bound = turnToMessage.get(id)
-    const settle = (calls: ToolCall[]) =>
-      calls.map((call) => (call.callId === callId ? { ...call, output, isError, finished: true } : call))
+    // Le résultat retrouve son appel par son identifiant, jamais par l'ordre
+    // d'arrivée : deux commandes lancées ensemble reviennent dans l'ordre où
+    // elles finissent. La place du morceau, elle, ne bouge pas.
+    const settle = (parts: Part[]): Part[] =>
+      parts.map((part) =>
+        part.kind === "tool" && part.call.callId === callId
+          ? { kind: "tool", call: { ...part.call, output, isError, finished: true } }
+          : part
+      )
     if (bound === undefined) {
       const orphan = orphanFor(id)
-      orphan.tools = settle(orphan.tools)
+      orphan.parts = settle(orphan.parts)
       return
     }
-    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, tools: settle(message.tools) }))
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, parts: settle(message.parts) }))
   })
 
   // The model is reported for the thread that ran it, whichever tab is on
@@ -254,7 +306,7 @@ function ensureAttached(): void {
 function orphanFor(id: string): Orphan {
   let orphan = orphans.get(id)
   if (!orphan) {
-    orphan = { text: "", tools: [], error: "", done: false }
+    orphan = { parts: [], error: "", done: false }
     orphans.set(id, orphan)
   }
   return orphan
@@ -318,15 +370,21 @@ function beginTurn(threadId: string, prompt: string, images: string[] = []): str
     // The names go into the transcript so the message still says what was sent
     // once the chips are gone. The files are not kept in the transcript: they
     // live beside the conversation and go when it does.
-    text: images.length > 0 ? `${prompt}${prompt ? "\n\n" : ""}${images.map((n) => `📎 ${n}`).join("\n")}` : prompt,
-    tools: [],
+    parts: [
+      {
+        kind: "text",
+        text:
+          images.length > 0
+            ? `${prompt}${prompt ? "\n\n" : ""}${images.map((n) => `📎 ${n}`).join("\n")}`
+            : prompt,
+      },
+    ],
     streaming: false,
   }
   const assistant: ChatMessage = {
     id: assistantId,
     role: "assistant",
-    text: "",
-    tools: [],
+    parts: [],
     streaming: true,
   }
   mapThread(threadId, (thread) => ({
@@ -354,8 +412,9 @@ function bindTurn(threadId: string, messageId: string, turnId: string): void {
   }
   mapMessage(threadId, messageId, (message) => ({
     ...message,
-    text: message.text + orphan.text,
-    tools: orphan.tools.length > 0 ? [...message.tools, ...orphan.tools] : message.tools,
+    // Ce qui est arrivé avant que le tour ait un nom arrive maintenant, dans
+    // l'ordre où c'est arrivé.
+    parts: [...message.parts, ...orphan.parts],
     error: orphan.error || message.error,
     streaming: !orphan.done && orphan.error === "",
   }))
@@ -385,19 +444,27 @@ function persist(threadId: string): void {
   if (!thread) return
 
   const messages = thread.messages
-    .filter((m) => m.text !== "" || m.tools.length > 0 || m.error)
+    .filter((m) => textOf(m) !== "" || toolsOf(m).length > 0 || m.error)
     .map((m) => ({
       role: m.role,
-      text: m.text,
-      tools: m.tools.map((call) => ({
-        callId: call.callId,
-        done: call.done,
-        shape: call.shape,
-        detail: call.detail,
-        output: call.output,
-        isError: call.isError,
-        plan: call.plan,
-      })),
+      // L'ordre est ce qu'on écrit : une conversation rouverte demain doit se
+      // relire comme elle s'est déroulée.
+      parts: m.parts.map((part) =>
+        part.kind === "text"
+          ? { kind: "text" as const, text: part.text }
+          : {
+              kind: "tool" as const,
+              call: {
+                callId: part.call.callId,
+                done: part.call.done,
+                shape: part.call.shape,
+                detail: part.call.detail,
+                output: part.call.output,
+                isError: part.call.isError,
+                plan: part.call.plan,
+              },
+            }
+      ),
       error: m.error,
     }))
   if (messages.length === 0) return
@@ -429,6 +496,33 @@ function titleFrom(prompt: string): string {
   return clean.length > 48 ? `${clean.slice(0, 47)}…` : clean || "New chat"
 }
 
+// restoreParts relit un message, ancien ou nouveau.
+//
+// `parts` est la forme d'aujourd'hui. Avant elle, un message portait son texte
+// d'un côté et ses outils de l'autre, et l'écran les montrait dans cet
+// ordre-là : les outils, puis la prose. C'est donc ainsi qu'on relit un
+// transcript ancien — pas pour lui inventer un ordre qu'il n'a pas gardé, mais
+// pour le rendre tel qu'il a été vu.
+export function restoreParts(m: {
+  parts?: ({ kind: "text"; text: string } | { kind: "tool"; call: unknown })[]
+  text?: string
+  tools?: unknown[]
+}): Part[] {
+  if (Array.isArray(m.parts)) {
+    return m.parts.map((part) =>
+      part.kind === "text"
+        ? { kind: "text" as const, text: part.text }
+        : { kind: "tool" as const, call: restoreTool(part.call as Parameters<typeof restoreTool>[0]) }
+    )
+  }
+  const parts: Part[] = (m.tools ?? []).map((call) => ({
+    kind: "tool" as const,
+    call: restoreTool(call as Parameters<typeof restoreTool>[0]),
+  }))
+  if (m.text) parts.push({ kind: "text", text: m.text })
+  return parts
+}
+
 // restore loads this project's conversations back into their tabs.
 //
 // All of them, in the order the store keeps — most recently touched first —
@@ -446,11 +540,7 @@ export async function restore(): Promise<void> {
     messages: c.messages.map((m) => ({
       id: nextMessageId(),
       role: m.role,
-      text: m.text,
-      // A transcript written before tools carried their detail holds a list of
-      // names. Read rather than migrated: a conversation from last week is
-      // worth reopening even if its rows can only say what they knew then.
-      tools: (m.tools ?? []).map(restoreTool),
+      parts: restoreParts(m),
       error: m.error,
       streaming: false,
     })),
@@ -460,9 +550,9 @@ export async function restore(): Promise<void> {
     ranWith: c.ranWith ?? null,
     kind: c.kind,
     images: [],
-    saved: JSON.stringify(
-      c.messages.map((m) => ({ role: m.role, text: m.text, tools: m.tools, error: m.error }))
-    ),
+    // L'empreinte de ce qui est sur le disque, dans la forme où on l'écrirait :
+    // sans ça, le premier tour réécrirait un transcript identique.
+    saved: "",
   }))
   commit({ threads, activeId: threads[0].id, asks: state.asks })
 }
@@ -1115,7 +1205,7 @@ function Bubble({ message, kind }: { message: ChatMessage; kind: AgentKind }): J
     return (
       <div className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
         <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">You</div>
-        <div className="whitespace-pre-wrap break-words">{message.text}</div>
+        <div className="whitespace-pre-wrap break-words">{textOf(message)}</div>
       </div>
     )
   }
@@ -1124,22 +1214,24 @@ function Bubble({ message, kind }: { message: ChatMessage; kind: AgentKind }): J
     <div className="px-0.5 text-xs leading-relaxed">
       <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{kind}</div>
 
-      {message.tools.length > 0 ? (
-        <div className="mb-1 space-y-px">
-          {message.tools.map((call, index) => (
-            <ToolRow key={`${call.callId}-${index}`} call={call} />
-          ))}
-        </div>
-      ) : null}
+      {/* Dans l'ordre où c'est arrivé. Il parle, il appelle un outil, il
+          reparle — et c'est ce qu'on lit. L'affichage n'a plus rien à décider :
+          la liste est déjà dans le bon ordre.
 
-      {/* The assistant writes Markdown, so it is rendered as Markdown. The user's
-          own message is left as plain text: they typed it, and reflowing their
-          asterisks back at them as emphasis would be wrong. */}
-      {message.text !== "" ? (
-        <Markdown text={message.text} className="text-foreground" compact />
-      ) : null}
+          The assistant writes Markdown, so it is rendered as Markdown. The
+          user's own message is left as plain text: they typed it, and reflowing
+          their asterisks back at them as emphasis would be wrong. */}
+      {message.parts.map((part, index) =>
+        part.kind === "tool" ? (
+          <div key={`t${part.call.callId}-${index}`} className="my-1 space-y-px">
+            <ToolRow call={part.call} />
+          </div>
+        ) : part.text !== "" ? (
+          <Markdown key={`x${index}`} text={part.text} className="text-foreground" compact />
+        ) : null
+      )}
 
-      {message.streaming && message.text === "" && message.tools.length === 0 ? (
+      {message.streaming && message.parts.length === 0 ? (
         <div className="text-muted-foreground">Thinking…</div>
       ) : null}
 

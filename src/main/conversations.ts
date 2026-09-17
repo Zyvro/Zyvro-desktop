@@ -35,13 +35,30 @@ export type StoredTool = {
   plan?: { title: string; status: string }[]
 }
 
+// Un message assistant est une suite de morceaux, dans l'ordre où ils sont
+// arrivés : il parle, il appelle un outil, il reparle.
+//
+// Une seule liste, et c'est le point. Le panneau en tenait deux — le texte d'un
+// côté, les outils de l'autre — et les affichait l'une après l'autre : tous les
+// outils en haut, toute la prose en dessous. L'ordre réel était perdu à
+// l'écriture, pas à l'affichage, donc aucune mise en forme ne pouvait le
+// rattraper.
+export type StoredPart =
+  | { kind: "text"; text: string }
+  | { kind: "tool"; call: StoredTool }
+
 export type StoredMessage = {
   role: "user" | "assistant"
-  text: string
+  // `parts` est la forme d'aujourd'hui. `text` et `tools` sont celle d'hier :
+  // elles restent lues — une conversation de la semaine dernière vaut d'être
+  // rouverte — et ne sont plus écrites. Un transcript ancien se relit dans
+  // l'ordre qu'il avait à l'époque : les outils, puis le texte.
+  parts?: StoredPart[]
+  text?: string
   // Old transcripts hold a list of names. Read rather than migrated: a
   // conversation from last week is worth reopening even if its tool rows can
   // only say what they knew then.
-  tools: (StoredTool | string)[]
+  tools?: (StoredTool | string)[]
   error?: string
 }
 
