@@ -219,7 +219,44 @@ jobs:
           # Anything with a suffix after the patch number is a pre-release.
           PRERELEASE=""
           case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease";; esac
-          gh release create "${GITHUB_REF_NAME}" $PRERELEASE \
-            --title "Zyvro Studio ${GITHUB_REF_NAME}" \
-            --notes-file /tmp/notes.md \
-            artifacts/*
+
+          # La page d'abord, les fichiers ensuite, et en deux temps pour une
+          # raison vécue : `gh release create` qui reçoit ses fichiers abandonne
+          # tout dès que l'un d'eux échoue, et GitHub rend un 500 sur ces envois
+          # — « Error creating asset temp dir » sur un zip de 120 Mo, après deux
+          # constructions réussies de six minutes chacune. Perdre les deux
+          # constructions parce qu'un envoi a hoqueté n'est pas une façon de
+          # publier.
+          #
+          # Créée seulement si elle n'existe pas : relancer ce travail après un
+          # échec de téléversement doit reprendre là où il s'est arrêté, pas
+          # buter sur « release already exists ».
+          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release create "${GITHUB_REF_NAME}" $PRERELEASE \
+              --title "Zyvro Studio ${GITHUB_REF_NAME}" \
+              --notes-file /tmp/notes.md
+          fi
+
+          for f in artifacts/*; do
+            for attempt in 1 2 3; do
+              if gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; then
+                break
+              fi
+              if [ "$attempt" = "3" ]; then
+                echo "::error::$(basename "$f") could not be uploaded after three attempts"
+                exit 1
+              fi
+              echo "$(basename "$f") failed to upload; trying again in 15s"
+              sleep 15
+            done
+          done
+
+          # Une page sans ses fichiers est pire qu'une page absente : elle a
+          # l'air d'une release.
+          published=$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets | length')
+          expected=$(ls artifacts | wc -l | tr -d ' ')
+          if [ "$published" != "$expected" ]; then
+            echo "::error::$published files on the release, $expected were built"
+            exit 1
+          fi
+          echo "$published files published"
