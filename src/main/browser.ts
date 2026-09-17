@@ -653,8 +653,13 @@ export async function waitFor(
 // demande à la page elle-même. Elle rend ce que JSON sait porter, parce qu'un
 // nœud du DOM ne traverse pas le pont et reviendrait en objet vide.
 export async function evalInPage(guest: Guest, expression: string): Promise<unknown> {
-  const script = `(() => {
-    const answer = (() => { return (${expression}) })()
+  // Attendue, et pas seulement évaluée : la moitié de ce qu'on veut demander à
+  // une page est une promesse — `navigator.gpu.requestAdapter()`,
+  // `fetch(...).then(r => r.json())`, `caches.keys()`. Sérialisée sans être
+  // attendue, une promesse revient en objet vide, et l'agent en conclut que la
+  // page ne sait pas faire.
+  const script = `(async () => {
+    const answer = await (${expression})
     try {
       return JSON.parse(JSON.stringify(answer ?? null))
     } catch {

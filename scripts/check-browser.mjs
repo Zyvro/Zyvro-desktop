@@ -388,6 +388,11 @@ function fakeContents(id, page = {}) {
   const answer = await browser.evalInPage(guest, "innerWidth")
   check("**une expression rend ce que JSON sait porter**", answer.width === 1280, JSON.stringify(answer))
   check(
+    "**et une promesse est attendue, pas sérialisée telle quelle**",
+    contents.scripts.at(-1).startsWith("(async") && contents.scripts.at(-1).includes("await ("),
+    contents.scripts.at(-1)?.slice(0, 60)
+  )
+  check(
     "et l'expression part telle quelle",
     contents.scripts.some((x) => x.includes("innerWidth")),
     contents.scripts.at(-1)?.slice(0, 60)
