@@ -35,6 +35,8 @@ export type SearchQuery = {
   regex?: boolean
   include?: string
   exclude?: string
+  /** Le dossier où chercher, relatif à la racine. Vide = le projet entier. */
+  scope?: string
 }
 export type SearchMatch = { line: number; column: number; length: number; text: string }
 export type SearchResult = {

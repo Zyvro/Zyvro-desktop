@@ -74,7 +74,7 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
 
 // ---- ce qu'il propose est ce que l'application sait faire -----------------
 {
-  for (const entree of ["New file…", "New folder…", "Open", "Add to agent", "Open in terminal", "Reveal in Finder", "Copy path", "Copy relative path", "Rename…"]) {
+  for (const entree of ["New file…", "New folder…", "Open", "Add to agent", "Open in terminal", "Find in folder…", "Reveal in Finder", "Copy path", "Copy relative path", "Rename…"]) {
     check(`il propose « ${entree} »`, menu.includes(entree))
   }
   // Et pas ce qui n'existe pas ici : un menu qui propose « Open to the Side »
@@ -87,6 +87,32 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
   for (const absent of ["Open to the Side", "Select for Compare", "Open Timeline", "Find File References"]) {
     check(`**il ne promet pas « ${absent} »**`, !rendu.includes(absent))
   }
+}
+
+// ---- chercher dans ce dossier --------------------------------------------
+{
+  // Sur un dossier seulement : « chercher dans ce fichier » est ⌘F, et une
+  // entrée qui rétrécit la recherche à un seul fichier depuis l'arbre ne veut
+  // rien dire de plus.
+  check(
+    "**« Find in folder… » ne s'offre que sur un dossier**",
+    /\{dossier && \(\s*<Menu\.Item[\s\S]{0,800}?Find in folder…/.test(menu),
+    "l'entrée s'offre aussi sur un fichier"
+  )
+  // Le panneau compte ses chemins depuis la racine, comme l'arbre : lui donner
+  // l'absolu ne trouverait rien, et le chercher ailleurs ne se voit pas.
+  check(
+    "**le dossier part en relatif**",
+    menu.includes('handTo("search", entry.path)'),
+    "la portée part en absolu, le panneau compte depuis la racine"
+  )
+  // Remettre sans ouvrir, c'est une portée posée dans un panneau que personne
+  // ne regarde — et la recherche suivante part restreinte sans le dire.
+  check(
+    "**et le panneau s'ouvre, le curseur dedans**",
+    menu.includes('setPanel("search", true)') && menu.includes("askSearchFocus()"),
+    "la portée est remise à un panneau fermé"
+  )
 }
 
 // ---- supprimer va à la corbeille, et demande ------------------------------
@@ -140,9 +166,15 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
   check("**deux fois le même chemin réveille deux fois**", tokenOf("agent") > premier)
   takeHandoff("agent")
 
-  // Et les deux cibles ne se mélangent pas.
+  // Et les trois cibles ne se mélangent pas.
   handTo("terminal", "cd /projet\n")
-  check("**le terminal et l'agent ont chacun leur boîte**", takeHandoff("agent") === null && takeHandoff("terminal") === "cd /projet\n")
+  handTo("search", "src/renderer")
+  check(
+    "**le terminal, l'agent et la recherche ont chacun leur boîte**",
+    takeHandoff("agent") === null &&
+      takeHandoff("terminal") === "cd /projet\n" &&
+      takeHandoff("search") === "src/renderer"
+  )
   check("un texte vide ne remet rien", (handTo("agent", ""), takeHandoff("agent")) === null)
 
   // Et c'est bien par là que les deux panneaux écoutent.
@@ -150,6 +182,22 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
   const terminal = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
   check("l'agent écoute sa boîte", panel.includes('takeHandoff("agent")'))
   check("le terminal la sienne", terminal.includes('takeHandoff("terminal")'))
+  const recherche = readFileSync(path.join(ROOT, "src/renderer/panels/SearchPanel.tsx"), "utf8")
+  check("la recherche la sienne", recherche.includes('takeHandoff("search")'))
+  // La portée voyage avec la recherche ET avec le remplacement : remplacer plus
+  // large que ce qu'on a montré est ce qu'on ne peut pas rattraper.
+  check(
+    "**et remplacer part avec la même portée**",
+    /search\.replace\(\s*\n[\s\S]{0,400}?scope\s*\}/.test(recherche),
+    "la liste est restreinte, le remplacement ne l'est pas"
+  )
+  // Une portée qu'on ne peut pas retirer est un panneau qui ment sur ce qu'il
+  // n'a pas trouvé.
+  check(
+    "**et la portée s'affiche et se retire**",
+    recherche.includes('scope !== ""') && recherche.includes('setScope("")'),
+    "la recherche reste restreinte sans le dire"
+  )
   // Sans shell vivant il n'y a nulle part où écrire.
   check(
     "**et le terminal n'écrit que s'il a un shell**",

@@ -31,6 +31,20 @@ export type SearchQuery = {
   /** Des motifs séparés par des virgules : `*.ts, src/**`. Vide = tout. */
   include?: string
   exclude?: string
+  /**
+   * Le dossier où chercher, relatif à la racine. Vide = le projet entier.
+   *
+   * Une portée, et pas un motif d'inclusion de plus : « chercher dans ce
+   * dossier » désigne un chemin littéral, et le faire passer par `include`
+   * casse sur le nom que personne ne teste. Un dossier nommé « Notes, old »
+   * donne deux motifs — `Notes` et `old/**` — qui cherchent ailleurs sans rien
+   * dire ; un nom qui contient `*` ou `?` en ratisse plus large.
+   *
+   * Elle est aussi le point de départ du parcours plutôt qu'un filtre posé
+   * après : chercher dans `src/` ne traverse pas `node_modules` pour le
+   * rejeter ensuite.
+   */
+  scope?: string
 }
 
 export type Match = {
@@ -60,6 +74,17 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024
 const MAX_LINE = 400
 
 export class BadPattern extends Error {}
+
+/** Une portée qui n'est pas un dossier où l'on peut chercher. */
+export class BadScope extends Error {}
+
+// normalizeScope réduit la portée à ce que le parcours sait manger : un chemin
+// relatif, sans barre de tête ni de queue. « . » et « / » veulent dire le
+// projet entier, comme une portée absente.
+export function normalizeScope(scope: string | undefined): string {
+  const propre = (scope ?? "").trim().replace(/^\/+/, "").replace(/\/+$/, "")
+  return propre === "." ? "" : propre
+}
 
 // matcherFor traduit ce que la barre de recherche propose en une expression.
 //
@@ -164,16 +189,37 @@ async function* walk(root: string, relative = ""): AsyncGenerator<string> {
   }
 }
 
+// scopeStart : d'où part le parcours, vérifié avant de partir.
+//
+// Le portail habituel, parce qu'une portée vient du rendu comme le reste. Et
+// une portée qui n'est pas un dossier lisible est dite, pas avalée : sans ça
+// elle rend zéro résultat, ce qui se lit « le texte n'y est pas » — le plus
+// trompeur des deux silences.
+async function scopeStart(root: string, asked: string | undefined): Promise<string> {
+  const scope = normalizeScope(asked)
+  if (!scope) return ""
+  const full = await resolveInside(root, scope)
+  try {
+    const info = await fs.stat(full)
+    if (!info.isDirectory()) throw new BadScope(`${scope} is a file, not a folder to search in.`)
+  } catch (err) {
+    if (err instanceof BadScope) throw err
+    throw new BadScope(`There is no folder named ${scope} to search in.`)
+  }
+  return scope
+}
+
 export async function search(root: string, query: SearchQuery): Promise<SearchResult> {
   const matcher = matcherFor(query)
   const include = listOf(query.include)
   const exclude = listOf(query.exclude)
+  const scope = await scopeStart(root, query.scope)
 
   const files: FileHits[] = []
   let matches = 0
   let truncated = false
 
-  for await (const relative of walk(root)) {
+  for await (const relative of walk(root, scope)) {
     if (matches >= MAX_MATCHES) {
       truncated = true
       break

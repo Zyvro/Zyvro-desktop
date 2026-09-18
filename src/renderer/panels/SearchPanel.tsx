@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useRef, useState, useSyncExternalStore } from "react"
 import { CaseSensitive, ChevronDown, ChevronRight, Loader2, Regex, Replace, ReplaceAll, WholeWord, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { revealAt, subscribeSearchFocus } from "~/state/reveal"
 import { history, remember } from "~/state/searchHistory"
+import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import type { ReplaceTarget, SearchMatch, SearchResult } from "../../preload"
 
 // Chercher dans le projet, et remplacer.
@@ -27,6 +28,12 @@ const IDLE_MS = 250
 
 type Mode = { matchCase: boolean; wholeWord: boolean; regex: boolean }
 
+// Tout ce qui décide d'une recherche, passé de la main à la main plutôt que lu
+// dans l'état : ce qu'on vient de taper n'est pas encore dans l'état au moment
+// où on lance la recherche, et une recherche qui part avec la valeur d'avant
+// est une liste qui a toujours une frappe de retard.
+type Ask = { query: string; mode: Mode; include: string; exclude: string; scope: string }
+
 export function SearchPanel() {
   const project = useWorkspace((s) => s.project)
   const projectDir = project?.project ?? null
@@ -39,6 +46,10 @@ export function SearchPanel() {
   const [showFilters, setShowFilters] = useState(false)
   const [include, setInclude] = useState("")
   const [exclude, setExclude] = useState("")
+  // Où chercher. Vide = le projet. Rempli par « Find in folder… » dans l'arbre,
+  // et effaçable ici — une portée qu'on ne peut pas retirer est un panneau qui
+  // ment sur ce qu'il n'a pas trouvé.
+  const [scope, setScope] = useState("")
 
   const [result, setResult] = useState<SearchResult | null>(null)
   const [busy, setBusy] = useState(false)
@@ -73,7 +84,7 @@ export function SearchPanel() {
   }, [])
 
   const ask = useCallback(
-    async (next: { query: string; mode: Mode; include: string; exclude: string }) => {
+    async (next: Ask) => {
       if (next.query.trim() === "") {
         setResult(null)
         setError("")
@@ -89,6 +100,7 @@ export function SearchPanel() {
           regex: next.mode.regex,
           include: next.include,
           exclude: next.exclude,
+          scope: next.scope,
         })
         if (mine !== run.current) return
         setResult(found)
@@ -105,16 +117,41 @@ export function SearchPanel() {
   )
 
   // Un silence avant de chercher, et le silence repart à chaque frappe.
-  const later = (next: { query: string; mode: Mode; include: string; exclude: string }): void => {
+  const later = (next: Ask): void => {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => void ask(next), IDLE_MS)
+  }
+
+  // « Find in folder… », depuis le clic droit de l'arbre.
+  //
+  // Le dossier arrive par la boîte que l'agent et le terminal utilisent déjà —
+  // c'est le même geste : l'arbre désigne, un autre panneau reçoit. Pris une
+  // fois : un deuxième rendu ne doit pas relancer la recherche.
+  //
+  // On relance tout de suite quand il y a déjà quelque chose à chercher :
+  // restreindre une recherche visible sans rafraîchir la liste laisserait à
+  // l'écran des résultats venus d'ailleurs, sous une étiquette qui dit le
+  // contraire.
+  const remis = useSyncExternalStore(subscribeHandoff("search"), () => tokenOf("search"), () => 0)
+  const attendait = useRef(0)
+  if (remis !== attendait.current) {
+    attendait.current = remis
+    const dossier = takeHandoff("search")
+    if (dossier) {
+      setScope(dossier)
+      setNote("")
+      if (query.trim() !== "") {
+        if (timer.current) clearTimeout(timer.current)
+        window.queueMicrotask(() => void ask({ query, mode, include, exclude, scope: dossier }))
+      }
+    }
   }
 
   const onQuery = (value: string): void => {
     setQuery(value)
     setNote("")
     recall.current = -1
-    later({ query: value, mode, include, exclude })
+    later({ query: value, mode, include, exclude, scope })
   }
 
   // Les flèches remontent les recherches précédentes, comme dans un terminal.
@@ -129,7 +166,7 @@ export function SearchPanel() {
       remember(projectDir, query)
       recall.current = -1
       if (timer.current) clearTimeout(timer.current)
-      void ask({ query, mode, include, exclude })
+      void ask({ query, mode, include, exclude, scope })
       return
     }
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
@@ -144,13 +181,13 @@ export function SearchPanel() {
     if (next >= past.length) return
     recall.current = next
     setQuery(past[next])
-    void ask({ query: past[next], mode, include, exclude })
+    void ask({ query: past[next], mode, include, exclude, scope })
   }
 
   const toggle = (key: keyof Mode): void => {
     const next = { ...mode, [key]: !mode[key] }
     setMode(next)
-    void ask({ query, mode: next, include, exclude })
+    void ask({ query, mode: next, include, exclude, scope })
   }
 
   const replaceThese = async (targets: ReplaceTarget[] | null): Promise<void> => {
@@ -158,7 +195,9 @@ export function SearchPanel() {
     setBusy(true)
     try {
       const done = await window.zyvro.search.replace(
-        { query, matchCase: mode.matchCase, wholeWord: mode.wholeWord, regex: mode.regex, include, exclude },
+        // La même portée que la recherche affichée : remplacer plus large que
+        // ce qu'on a montré est exactement ce qu'on ne peut pas rattraper.
+        { query, matchCase: mode.matchCase, wholeWord: mode.wholeWord, regex: mode.regex, include, exclude, scope },
         replacement,
         targets
       )
@@ -166,7 +205,7 @@ export function SearchPanel() {
         `${done.matches} replaced in ${done.files} file${done.files === 1 ? "" : "s"}` +
           (done.skipped > 0 ? ` · ${done.skipped} skipped, the file had changed` : "")
       )
-      await ask({ query, mode, include, exclude })
+      await ask({ query, mode, include, exclude, scope })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -251,10 +290,32 @@ export function SearchPanel() {
             </div>
           )}
 
+          {/* La portée est écrite, pas rangée dans les filtres repliés : une
+              recherche qui ne regarde qu'un dossier et ne le dit pas fait
+              conclure que le texte n'existe nulle part. */}
+          {scope !== "" && (
+            <div className="flex items-center gap-1 rounded border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[11px]">
+              <span className="shrink-0 text-muted-foreground">in</span>
+              <span className="min-w-0 flex-1 truncate font-mono" title={scope}>
+                {scope}
+              </span>
+              <button
+                className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+                title="Search the whole project again"
+                onClick={() => {
+                  setScope("")
+                  void ask({ query, mode, include, exclude, scope: "" })
+                }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
           {showFilters && (
             <div className="space-y-1 pb-1">
-              <Filter value={include} onChange={setInclude} placeholder="files to include" onDone={() => void ask({ query, mode, include, exclude })} />
-              <Filter value={exclude} onChange={setExclude} placeholder="files to exclude" onDone={() => void ask({ query, mode, include, exclude })} />
+              <Filter value={include} onChange={setInclude} placeholder="files to include" onDone={() => void ask({ query, mode, include, exclude, scope })} />
+              <Filter value={exclude} onChange={setExclude} placeholder="files to exclude" onDone={() => void ask({ query, mode, include, exclude, scope })} />
             </div>
           )}
         </div>

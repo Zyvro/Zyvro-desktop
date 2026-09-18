@@ -151,6 +151,74 @@ plant({
   check("et un motif sans dossier vise le nom", search.globToRegExp("*.ts").test("deep/nested/a.ts"))
 }
 
+// ---- chercher dans un dossier -------------------------------------------
+//
+// « Find in folder… » du clic droit. Une portée, et pas un motif d'inclusion de
+// plus : `include` est une liste séparée par des virgules dont les `*` comptent,
+// donc un dossier littéral qu'on y colle se casse sur le nom que personne ne
+// teste — et se casse en silence, en cherchant ailleurs.
+{
+  plant({
+    "src/a.ts": "const thing = 1\n",
+    "notes/readme.md": "a thing\n",
+    "notes/deep/inside.md": "a thing\n",
+    "Notes, old/kept.md": "a thing\n",
+    "old/elsewhere.md": "a thing\n",
+    "node_modules/dep/index.js": "thing\n",
+  })
+
+  const dedans = await search.search(project, { query: "thing", scope: "notes" })
+  const chemins = dedans.files.map((f) => f.path).sort()
+  check(
+    "**la portée ne rend que ce dossier**",
+    chemins.length === 2 && chemins.every((p) => p.startsWith("notes/")),
+    chemins.join(", ")
+  )
+  check("et ses sous-dossiers", chemins.includes("notes/deep/inside.md"), chemins.join(", "))
+
+  // Le nom qui casse un motif d'inclusion. `Notes, old/**` serait lu comme deux
+  // motifs — `Notes` et `old/**` — et trouverait `old/elsewhere.md`, qui est un
+  // autre dossier. Une portée est un chemin, pas un motif.
+  const virgule = await search.search(project, { query: "thing", scope: "Notes, old" })
+  const vus = virgule.files.map((f) => f.path).sort()
+  check(
+    "**un dossier dont le nom a une virgule reste un seul dossier**",
+    vus.length === 1 && vus[0] === "Notes, old/kept.md",
+    vus.join(", ")
+  )
+
+  // La portée s'ajoute aux filtres, elle ne les remplace pas.
+  const croise = await search.search(project, { query: "thing", scope: "notes", include: "*.md" })
+  check("elle se combine avec « include »", croise.files.every((f) => f.path.startsWith("notes/") && f.path.endsWith(".md")))
+
+  check("« . » veut dire tout le projet", (await search.search(project, { query: "thing", scope: "." })).files.length > 3)
+  check("une barre de trop ne change rien", (await search.search(project, { query: "thing", scope: "/notes/" })).files.length === 2)
+
+  // Zéro résultat se lit « le texte n'y est pas ». Une portée qui n'est pas un
+  // dossier doit donc le dire, pas rendre une liste vide.
+  const refuse = async (scope) => {
+    try {
+      await search.search(project, { query: "thing", scope })
+      return null
+    } catch (err) {
+      return err.message
+    }
+  }
+  check("**une portée qui n'existe pas est dite, pas avalée**", (await refuse("nulle-part")) !== null)
+  check("**un fichier n'est pas un dossier où chercher**", (await refuse("src/a.ts")) !== null)
+  check("et une portée hors du projet est refusée", (await refuse("../..")) !== null)
+
+  // Remplacer suit la portée de ce qui est affiché : remplacer plus large que
+  // ce qu'on a montré est exactement ce qu'on ne peut pas rattraper.
+  const done = await search.replaceAll(project, { query: "thing", scope: "notes" }, "widget")
+  check("**remplacer tout ne sort pas de la portée**", done.files === 2, JSON.stringify(done))
+  check(
+    "et le dossier voisin est intact",
+    readFileSync(path.join(project, "old/elsewhere.md"), "utf8").includes("thing"),
+    readFileSync(path.join(project, "old/elsewhere.md"), "utf8")
+  )
+}
+
 // ---- remplacer tout ------------------------------------------------------
 {
   plant({ "a.txt": "thing thing\n", "b.txt": "a thing here\n" })

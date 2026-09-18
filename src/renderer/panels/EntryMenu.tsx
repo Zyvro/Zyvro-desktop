@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import type { DirEntry } from "../../preload"
 import { askConfirm, askName } from "~/state/prompt"
 import { handTo } from "~/state/handoff"
+import { askSearchFocus } from "~/state/reveal"
 import { quotePath } from "../../shared/dropped"
 import { useWorkspace } from "~/state/workspace"
 
@@ -159,6 +160,26 @@ export function EntryMenu({
           >
             Open in terminal
           </Menu.Item>
+          {/* Le dossier passe en relatif : le panneau de recherche compte ses
+              chemins depuis la racine du projet, comme l'arbre. C'est la seule
+              entrée d'ici qui ne sorte pas de l'application, donc la seule qui
+              n'ait pas besoin d'un chemin absolu. */}
+          {dossier && (
+            <Menu.Item
+              className={item}
+              onSelect={fermerPuis(() => {
+                handTo("search", entry.path)
+                useWorkspace.getState().setPanel("search", true)
+                // Le panneau s'ouvre et la frappe suivante atterrit dans son
+                // champ : on vient de choisir où chercher, il reste à dire
+                // quoi. S'il n'était pas monté, il se met au point tout seul
+                // en apparaissant.
+                askSearchFocus()
+              })}
+            >
+              Find in folder…
+            </Menu.Item>
+          )}
           <Menu.Item className={item} onSelect={fermerPuis(() => void window.zyvro.files.reveal(entry.path))}>
             Reveal in Finder
           </Menu.Item>

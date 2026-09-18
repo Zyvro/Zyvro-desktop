@@ -1,18 +1,21 @@
 // Passer un texte à un panneau depuis un autre.
 //
-// « Ajouter à l'agent », « ouvrir dans le terminal » : dans les deux cas
-// quelqu'un désigne un fichier dans l'arbre et le texte doit atterrir ailleurs.
-// Le glisser-déposer faisait déjà exactement ça, mais il ne marche qu'entre
-// deux endroits visibles en même temps, et un menu contextuel n'a pas cette
-// contrainte.
+// « Ajouter à l'agent », « ouvrir dans le terminal », « chercher dans ce
+// dossier » : à chaque fois quelqu'un désigne un fichier dans l'arbre et le
+// texte doit atterrir ailleurs. Le glisser-déposer faisait déjà exactement ça,
+// mais il ne marche qu'entre deux endroits visibles en même temps, et un menu
+// contextuel n'a pas cette contrainte.
 //
-// Un seul module pour les deux cibles plutôt qu'un canal par panneau : ce sont
+// Un seul module pour les trois cibles plutôt qu'un canal par panneau : ce sont
 // les mêmes trois lignes, et deux copies finiraient par différer sur le détail
 // qui compte — celui de la consommation. Un texte remis doit être pris UNE
 // fois : deux panneaux qui lisent la même boîte, ou un panneau qui relit après
 // un rendu, et le chemin s'écrit deux fois dans la question.
 
-export type Target = "agent" | "terminal"
+// La recherche reçoit un dossier — un chemin relatif à la racine, celui que le
+// panneau prendra pour portée. Elle passe par la même boîte parce que c'est le
+// même geste : l'arbre désigne, un autre panneau reçoit.
+export type Target = "agent" | "terminal" | "search"
 
 const boites = new Map<Target, string>()
 const listeners = new Map<Target, Set<() => void>>()
