@@ -15,6 +15,7 @@ import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
 import { subscribeFiles, unwatchDir, versionOf, watchDir } from "~/state/fileWatch"
 import { ZYVRO_PATH } from "../../shared/dropped"
+import { EntryMenu, useEntryMenu } from "~/panels/EntryMenu"
 
 // The file tree loads one directory at a time. Reading the whole project up
 // front would be fine for a small folder and unusable for a real repository,
@@ -72,6 +73,10 @@ type RowProps = {
 
 function Row({ entry, depth, expanded, onToggle, root }: RowProps) {
   const openFile = useWorkspace((s) => s.openFile)
+  // Le clic droit sur cette ligne. Son état vit ici — une ligne par menu —
+  // parce qu'un menu partagé par tout l'arbre devrait retenir sur QUELLE ligne
+  // on a cliqué, ce qui est une deuxième vérité à côté de celle-ci.
+  const menu = useEntryMenu()
   const activeTabId = useWorkspace((s) => s.activeTabId)
   const isOpen = expanded.has(entry.path)
   const isActive = activeTabId === `file:${entry.path}`
@@ -87,6 +92,7 @@ function Row({ entry, depth, expanded, onToggle, root }: RowProps) {
         style={{ paddingLeft: 8 + depth * 12 }}
         onClick={() => (entry.kind === "directory" ? onToggle(entry.path) : openFile(entry.path))}
         title={entry.path}
+        onContextMenu={menu.onContextMenu}
         // Attraper un fichier ici et le lâcher sur le chat ou sur le terminal y
         // écrit son chemin. En absolu : il part vers un shell ou vers un agent,
         // et ni l'un ni l'autre ne sait d'où l'arbre compte ses chemins.
@@ -113,6 +119,8 @@ function Row({ entry, depth, expanded, onToggle, root }: RowProps) {
         <span className="truncate">{entry.name}</span>
         {children.isFetching && <Loader2 className="ml-auto h-3 w-3 shrink-0 zy-spin opacity-60" />}
       </button>
+
+      <EntryMenu entry={entry} root={root} open={menu.open} at={menu.at} onOpenChange={menu.onOpenChange} />
 
       {entry.kind === "directory" &&
         isOpen &&

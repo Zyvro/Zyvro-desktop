@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { shell } from "electron"
 import { MAX_INLINE_BYTES, dataUri, kindOf } from "../shared/image"
 
 // Everything the renderer can touch on disk goes through this module. The
@@ -170,12 +171,22 @@ export async function renameEntry(root: string, from: string, to: string): Promi
   await fs.rename(source, target)
 }
 
-// deleteEntry removes a file or folder. The renderer is expected to confirm
-// with the user first; this function does not second-guess it, but it does
-// refuse to delete the project root itself.
+// deleteEntry met un fichier ou un dossier à la corbeille.
+//
+// À la corbeille et pas au néant, et c'est le changement qui compte : « Delete »
+// dans un arbre de fichiers veut dire ce qu'il veut dire dans le Finder — on
+// peut revenir. `fs.rm` d'un dossier récursif, sur un clic mal visé, c'est du
+// travail perdu qu'aucune confirmation ne rattrape vraiment : on confirme ce
+// qu'on croit avoir visé.
+//
+// Le rendu demande confirmation avant d'appeler ; cette fonction ne le refait
+// pas, mais elle refuse toujours la racine du projet.
 export async function deleteEntry(root: string, relative: string): Promise<void> {
   const target = await resolveInside(root, relative)
   const rootReal = await fs.realpath(root)
   if (target === rootReal) throw new Error("Refused to delete the project root.")
-  await fs.rm(target, { recursive: true, force: true })
+  // `trashItem` échoue là où il n'y a pas de corbeille — un volume réseau, un
+  // conteneur. Mieux vaut alors le dire que supprimer pour de bon derrière le
+  // dos de quelqu'un qui a lu « mettre à la corbeille ».
+  await shell.trashItem(target)
 }

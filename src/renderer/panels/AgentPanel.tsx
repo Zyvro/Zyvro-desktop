@@ -17,6 +17,7 @@ import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
+import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import type { StoredTool } from "../../preload"
 
 // This panel runs the agent CLI that is already signed in on this machine, so
@@ -1190,6 +1191,18 @@ export function AgentPanel(): JSX.Element {
   // le projet, c'est une désignation — « regarde celui-là ». Le contenu, il
   // sait aller le chercher, et un dossier n'a de toute façon pas de contenu à
   // coller.
+  // Ce que l'arbre nous remet par le menu contextuel. Même écriture que pour un
+  // dépôt — c'est le même geste dit autrement, et deux façons de citer un
+  // chemin, c'est une des deux qui se trompe le jour où un dossier a un espace.
+  const remis = useSyncExternalStore(subscribeHandoff("agent"), () => tokenOf("agent"), () => 0)
+  const attendait = useRef(0)
+  if (remis !== attendait.current) {
+    attendait.current = remis
+    const texte = takeHandoff("agent")
+    // Pris, pas lu : un deuxième rendu ne doit pas le réécrire.
+    if (texte) window.queueMicrotask(() => insertPaths([texte]))
+  }
+
   const insertPaths = (paths: string[]): void => {
     const text = droppedText(paths, window.zyvro.platform)
     if (!text) return

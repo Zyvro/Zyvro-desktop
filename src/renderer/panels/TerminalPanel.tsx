@@ -6,6 +6,7 @@ import { Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { droppedText } from "../../shared/dropped"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
+import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
@@ -331,6 +332,25 @@ export function TerminalPanel(): JSX.Element {
   const [sessions, setSessions] = useState<string[]>([])
   const [activeKey, setActiveKey] = useState("")
   const [boundProject, setBoundProject] = useState<string | null>(null)
+
+  // Ce que l'arbre nous remet : « ouvrir dans le terminal », c'est un `cd` écrit
+  // dans le shell actif.
+  //
+  // Écrit, et pas exécuté à sa place : la ligne arrive avec son retour à la
+  // ligne parce que c'est ce qu'on demande — mais elle arrive dans le shell de
+  // quelqu'un, qui la voit, qui a son historique, et qui peut remonter dessus.
+  // Un `cd` est ce qu'il y a de plus inoffensif à envoyer ainsi ; rien d'autre
+  // ne passe par ce canal.
+  const remis = useSyncExternalStore(subscribeHandoff("terminal"), () => tokenOf("terminal"), () => 0)
+  const attendait = useRef(0)
+  if (remis !== attendait.current) {
+    attendait.current = remis
+    const ligne = takeHandoff("terminal")
+    const ptyId = readStatus(activeKey).ptyId
+    // Sans shell vivant il n'y a nulle part où écrire : mieux vaut ne rien
+    // faire que d'en ouvrir un qui surprendrait.
+    if (ligne && ptyId) window.queueMicrotask(() => void window.zyvro.terminal.write(ptyId, ligne))
+  }
 
   // Adjusting state during render, not in an effect. A pty's cwd is fixed when
   // it spawns, so every shell belongs to exactly one project: opening or
