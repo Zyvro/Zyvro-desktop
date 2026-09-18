@@ -59,6 +59,16 @@ export type StoredMessage = {
   // conversation from last week is worth reopening even if its tool rows can
   // only say what they knew then.
   tools?: (StoredTool | string)[]
+  // Ce que le tour a dépensé, tel que le CLI l'a rapporté. Gardé avec le
+  // transcript : rouvrir une conversation demain doit pouvoir dire ce qu'elle a
+  // coûté, et personne ne le recalculera.
+  spent?: {
+    input: number
+    output: number
+    cacheRead: number
+    cacheWrite: number
+    costUsd: number | null
+  }
   error?: string
 }
 

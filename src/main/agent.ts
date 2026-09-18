@@ -243,6 +243,64 @@ export function modelIn(event: Record<string, unknown>): string | null {
   return null
 }
 
+// Ce qu'un tour a dépensé.
+//
+// Les chiffres arrivent tout seuls, dans l'événement `result` que claude émet à
+// la fin : rien n'est demandé en plus, et il n'y a donc rien à payer pour les
+// afficher.
+//
+// Ce qui mérite attention, c'est le mot « entrée ». Avec le cache de prompt,
+// `input_tokens` vaut deux ou trois : ce sont les jetons frais, ceux que le
+// modèle n'avait jamais vus. Le reste du contexte — dix mille, trente mille —
+// arrive par `cache_read_input_tokens`, et ce qui vient d'être mis en cache par
+// `cache_creation_input_tokens`. Afficher `input_tokens` seul annoncerait « 2 »
+// pour un tour qui en a fait traverser vingt-sept mille. Les trois sont donc
+// additionnés pour l'entrée, et gardés séparément pour qui veut savoir d'où ça
+// vient — la lecture de cache ne coûte pas le même prix que le reste.
+//
+// Codex n'est pas lu ici. Son flux n'a jamais pu être observé sur cette
+// machine : le CLI installé refuse son propre modèle par défaut et demande une
+// mise à jour. Écrire un analyseur pour une forme qu'on n'a pas vue, c'est
+// écrire du code qui a l'air de marcher.
+export type Spent = {
+  /** Les jetons d'entrée, cache compris : ce que le tour a fait traverser. */
+  input: number
+  output: number
+  /** Relu depuis le cache — la part la moins chère de l'entrée. */
+  cacheRead: number
+  /** Écrit dans le cache pour les tours suivants. */
+  cacheWrite: number
+  /** Ce que le CLI en dit, quand il le dit. Null sur un abonnement. */
+  costUsd: number | null
+}
+
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+}
+
+export function usageIn(event: Record<string, unknown>): Spent | null {
+  const usage = event.usage
+  if (!usage || typeof usage !== "object") return null
+  const u = usage as Record<string, unknown>
+
+  const fresh = count(u.input_tokens)
+  const cacheWrite = count(u.cache_creation_input_tokens)
+  const cacheRead = count(u.cache_read_input_tokens)
+  const output = count(u.output_tokens)
+  // Un événement sans un seul jeton n'est pas une dépense : ne rien afficher
+  // vaut mieux qu'afficher des zéros sous chaque réponse.
+  if (fresh + cacheWrite + cacheRead + output === 0) return null
+
+  const cost = event.total_cost_usd
+  return {
+    input: fresh + cacheWrite + cacheRead,
+    output,
+    cacheRead,
+    cacheWrite,
+    costUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
+  }
+}
+
 // aliasesFrom pulls the model aliases out of a CLI's own --help text.
 //
 // There is no machine-readable list to ask for — neither CLI has one — so the
@@ -522,6 +580,8 @@ export class AgentRunner {
         return
       }
       if (type === "result") {
+        const spent = usageIn(parsed)
+        if (spent) target.send("agent:usage", { id, ...spent })
         const result = parsed.result
         if (parsed.is_error && typeof result === "string") {
           target.send("agent:error", { id, message: result })

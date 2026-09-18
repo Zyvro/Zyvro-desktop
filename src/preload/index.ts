@@ -44,6 +44,8 @@ export type ReplaceResult = { files: number; matches: number; skipped: number }
 // importe `electron`, et le prendre pour une constante ferait entrer electron
 // dans le paquet du rendu.
 import type { Permission } from "../shared/permission"
+import type { Spent } from "../main/agent"
+export type { Spent }
 export type { Permission }
 export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
@@ -299,6 +301,9 @@ const api = {
     ): Unsubscribe => on("agent:tool-result", cb),
     onModel: (cb: (p: { id: string; conversationId: string; model: string }) => void): Unsubscribe =>
       on("agent:model", cb),
+    // Ce qu'un tour a dépensé, tel que le CLI le rapporte à la fin. Il arrive
+    // avec le flux : rien n'est demandé en plus pour l'obtenir.
+    onUsage: (cb: (p: { id: string } & Spent) => void): Unsubscribe => on("agent:usage", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),
   },

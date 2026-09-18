@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ArrowDown, ArrowUp, Check, CircleSlash, Cpu, GitBranch, Loader2, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { CompletionToggle } from "~/panels/CompletionToggle"
+import { UsageToggle } from "~/panels/UsageToggle"
 import { ShotButton } from "~/panels/ShotPicker"
 import { useWorkspace } from "~/state/workspace"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
@@ -129,6 +130,7 @@ export function StatusBar() {
       </span>
 
       <CompletionToggle />
+      <UsageToggle />
       <ShotButton />
 
       {status.data && (

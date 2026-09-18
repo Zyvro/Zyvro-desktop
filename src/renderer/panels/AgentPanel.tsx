@@ -4,8 +4,9 @@ import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, X } 
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
-import type { AgentKind, WorkflowRef } from "../../preload"
+import type { AgentKind, Spent, WorkflowRef } from "../../preload"
 import { droppedText, insertAt } from "../../shared/dropped"
+import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permissionFor, setPermissionFor, subscribePermission } from "~/state/permission"
 import { useWorkspace } from "../state/workspace"
@@ -39,6 +40,10 @@ export type ChatMessage = {
   parts: Part[]
   error?: string
   streaming: boolean
+  // Ce que le tour a dépensé, tel que le CLI le rapporte à la fin. Hors des
+  // morceaux : ce n'est pas une chose que l'agent a dite ou faite, c'est un
+  // reçu sur le tour entier.
+  spent?: Spent
 }
 
 // textOf : tout ce que le message a dit, sans ce qu'il a fait.
@@ -127,7 +132,7 @@ type ChatState = {
 // Events for a turn can reach the renderer before `agent:send` resolves with
 // that turn's id, so anything that arrives for an unbound turn is parked here
 // and replayed the moment the binding lands.
-type Orphan = { parts: Part[]; error: string; done: boolean }
+type Orphan = { parts: Part[]; error: string; done: boolean; spent?: Spent }
 
 const WORKFLOWS_KEY = ["local", "workflows"] as const
 
@@ -284,6 +289,18 @@ function ensureAttached(): void {
     mapThread(conversationId, (t) => ({ ...t, ranWith: model }))
   })
 
+  // Le reçu du tour. Il arrive à la fin, avant `done`, et se pose sur le
+  // message auquel il appartient — pas sur le fil : deux tours dans le même
+  // onglet ont deux dépenses.
+  window.zyvro.agent.onUsage(({ id, ...spent }) => {
+    const bound = turnToMessage.get(id)
+    if (bound === undefined) {
+      orphanFor(id).spent = spent
+      return
+    }
+    mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, spent }))
+  })
+
   window.zyvro.agent.onError(({ id, message }) => {
     // A turn the user stopped exits non-zero, so main reports it as an error.
     // Showing "exited with code null" for a deliberate Stop would be noise.
@@ -415,6 +432,7 @@ function bindTurn(threadId: string, messageId: string, turnId: string): void {
     // Ce qui est arrivé avant que le tour ait un nom arrive maintenant, dans
     // l'ordre où c'est arrivé.
     parts: [...message.parts, ...orphan.parts],
+    spent: orphan.spent ?? message.spent,
     error: orphan.error || message.error,
     streaming: !orphan.done && orphan.error === "",
   }))
@@ -447,6 +465,7 @@ function persist(threadId: string): void {
     .filter((m) => textOf(m) !== "" || toolsOf(m).length > 0 || m.error)
     .map((m) => ({
       role: m.role,
+      spent: m.spent,
       // L'ordre est ce qu'on écrit : une conversation rouverte demain doit se
       // relire comme elle s'est déroulée.
       parts: m.parts.map((part) =>
@@ -541,6 +560,7 @@ export async function restore(): Promise<void> {
       id: nextMessageId(),
       role: m.role,
       parts: restoreParts(m),
+      spent: m.spent,
       error: m.error,
       streaming: false,
     })),
@@ -778,6 +798,9 @@ export function AgentPanel(): JSX.Element {
     subscribePermission,
     useCallback(() => permissionFor(projectDir), [projectDir])
   )
+  // Lu une fois ici plutôt que dans chaque bulle : le réglage est le même pour
+  // toute la fenêtre, et cent messages n'ont pas à s'abonner cent fois.
+  const showSpent = useSyncExternalStore(subscribeUsage, usageShown, () => true)
   const [draft, setDraft] = useState("")
 
   const composer = useRef<HTMLTextAreaElement | null>(null)
@@ -1058,7 +1081,7 @@ export function AgentPanel(): JSX.Element {
         ) : (
           <div className="space-y-3">
             {thread.messages.map((message) => (
-              <Bubble key={message.id} message={message} kind={kind} />
+              <Bubble key={message.id} message={message} kind={kind} showSpent={showSpent} />
             ))}
           </div>
         )}
@@ -1200,7 +1223,15 @@ export function AgentPanel(): JSX.Element {
   )
 }
 
-function Bubble({ message, kind }: { message: ChatMessage; kind: AgentKind }): JSX.Element {
+function Bubble({
+  message,
+  kind,
+  showSpent,
+}: {
+  message: ChatMessage
+  kind: AgentKind
+  showSpent: boolean
+}): JSX.Element {
   if (message.role === "user") {
     return (
       <div className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
@@ -1233,6 +1264,18 @@ function Bubble({ message, kind }: { message: ChatMessage; kind: AgentKind }): J
 
       {message.streaming && message.parts.length === 0 ? (
         <div className="text-muted-foreground">Thinking…</div>
+      ) : null}
+
+      {/* Ce que le tour a dépensé. Discret et sous la réponse : c'est une
+          information qu'on va chercher, pas une qu'on subit — et elle
+          s'éteint d'un clic dans la barre du bas. */}
+      {message.spent && showSpent ? (
+        <div
+          className="mt-1 font-mono text-[10px] text-muted-foreground/70"
+          title={detail(message.spent)}
+        >
+          ↑ {compact(message.spent.input)} in · ↓ {compact(message.spent.output)} out
+        </div>
       ) : null}
 
       {/* An error is a message, not a crash: the panel keeps working and the
