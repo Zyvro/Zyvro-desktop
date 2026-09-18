@@ -353,21 +353,37 @@ export function TerminalPanel(): JSX.Element {
   }
 
   // Adjusting state during render, not in an effect. A pty's cwd is fixed when
-  // it spawns, so every shell belongs to exactly one project: opening or
-  // closing a project has to discard the old sessions and start one in the new
-  // directory. Calling setState here re-renders before anything is committed,
-  // which is the supported way to react to a changed input.
-  if (projectDir !== boundProject) {
+  // it spawns, so every shell belongs to exactly one project: opening ANOTHER
+  // project has to discard the old sessions and start one in the new directory.
+  // Calling setState here re-renders before anything is committed, which is the
+  // supported way to react to a changed input.
+  //
+  // **Un autre projet, oui. « On ne sait pas », jamais.**
+  //
+  // Signalé par Jeremy le 18/09 avec un cas précis : kryone2.0 ouvert, trois
+  // shells lancés — le front, le CDN, `sh debug.sh` — et une trentaine de
+  // secondes plus tard les trois fermés ensemble. Trois shells ne meurent pas
+  // chacun de leur côté : c'est ici qu'on les jette, et jeter une session
+  // démonte son composant, dont la fermeture appelle `terminal.dispose` et tue
+  // le pty. Trois programmes perdus, sans un mot.
+  //
+  // La branche d'avant traitait `null` comme « le projet est fermé ». Or `null`
+  // est aussi ce qu'on a quand la requête qui porte le projet cligne — une
+  // invalidation, un rechargement du rendu, une réponse qui arrive vide une
+  // fraction de seconde. Le prix d'une hésitation d'affichage était trois
+  // serveurs de développement.
+  //
+  // Ne rien faire sur `null` est sans danger : les shells vivent dans le
+  // processus principal, leur cwd n'a pas bougé, et si le même projet revient
+  // ce sont encore les bons. On ne retient pas non plus le `null` dans
+  // `boundProject`, sinon le retour du chemin passerait pour un changement de
+  // projet et les remplacerait quand même.
+  if (projectDir !== null && projectDir !== boundProject) {
     for (const key of sessions) forgetStatus(key)
     setBoundProject(projectDir)
-    if (projectDir === null) {
-      setSessions([])
-      setActiveKey("")
-    } else {
-      const key = nextSessionKey()
-      setSessions([key])
-      setActiveKey(key)
-    }
+    const key = nextSessionKey()
+    setSessions([key])
+    setActiveKey(key)
   }
 
   const activate = (key: string): void => {
