@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { ArrowDown, ArrowUp, Check, CircleSlash, Cpu, GitBranch, Loader2, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -6,6 +7,7 @@ import { UsageToggle } from "~/panels/UsageToggle"
 import { ShotButton } from "~/panels/ShotPicker"
 import { useWorkspace } from "~/state/workspace"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
+import { engineDown, subscribeEngine } from "~/state/engine"
 
 // The one line that answers "can this project actually run anything right now".
 // On a desktop app that question is mostly about which CLIs are installed, so
@@ -109,6 +111,7 @@ function GitPill() {
 
 export function StatusBar() {
   const project = useWorkspace((s) => s.project)
+  const stopped = useSyncExternalStore(subscribeEngine, engineDown, () => null)
   const dirtyCount = useWorkspace((s) => Object.keys(s.drafts).length)
 
   const status = useQuery({
@@ -124,9 +127,18 @@ export function StatusBar() {
 
   return (
     <footer className="flex h-6 shrink-0 items-center gap-4 border-t border-white/[0.06] bg-background px-3 text-[11px] text-muted-foreground">
-      <span className="flex items-center gap-1">
+      {/* Le port du moteur, et le cas où il n'y en a plus.
+          Un moteur peut mourir en cours de route — il est un processus enfant,
+          il plante. Continuer d'afficher son port est pire que de ne rien
+          afficher : on cherche la panne du côté de ce qui appelle, pendant que
+          le chiffre est là, à l'écran, l'air vivant. */}
+      <span className={cn("flex items-center gap-1", stopped && "text-amber-300")}>
         <Cpu className="h-3 w-3" />
-        {project ? `Local engine on port ${project.daemon.port}` : "No project open"}
+        {stopped
+          ? `Local engine stopped${stopped.code === null ? "" : ` (code ${stopped.code})`} — reopen the project to start it again`
+          : project
+            ? `Local engine on port ${project.daemon.port}`
+            : "No project open"}
       </span>
 
       <CompletionToggle />

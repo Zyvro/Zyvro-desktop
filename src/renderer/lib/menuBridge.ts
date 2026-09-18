@@ -2,6 +2,7 @@ import { useWorkspace } from "~/state/workspace"
 import { closeProject, createProject, createWorkflow, forgetRecents, openProject } from "./project"
 import { askName } from "~/state/prompt"
 import { askSearchFocus } from "~/state/reveal"
+import { engineStopped } from "~/state/engine"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -78,6 +79,13 @@ window.zyvro.menu.onFindInFile(() => {
 window.zyvro.menu.onFindInProject(() => {
   useWorkspace.getState().setPanel("search", true)
   askSearchFocus()
+})
+
+// Le moteur local est mort sans prévenir. Rien à faire depuis ici — c'est le
+// processus principal qui le relancerait — mais il y a quelque chose à cesser
+// de dire : la barre d'état annonce son port, et ce port ne répond plus.
+window.zyvro.engine.onStopped((reason) => {
+  engineStopped(reason)
 })
 
 // Un agent a demandé une page. Ce n'est pas un élément de menu, mais c'est la

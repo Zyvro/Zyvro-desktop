@@ -113,6 +113,29 @@ export class Daemon {
     const handshake = await this.readHandshake(child, bin)
     this.version = handshake.version || ""
     this.info = { ...handshake, origin: `http://127.0.0.1:${handshake.port}` }
+
+    // Ce que le démarrage ne surveillait pas : la suite.
+    //
+    // `readHandshake` écoute bien `exit`, mais sa promesse est déjà tenue — son
+    // garde `settled` rend ce chemin inerte dès que la poignée de main a
+    // réussi. Donc un moteur qui meurt ensuite ne changeait RIEN : `info`
+    // gardait le port et le jeton d'un processus qui n'existe plus, et
+    // l'application continuait de les distribuer — au panneau, aux outils MCP
+    // d'un agent, à la visée d'un harnais. Chacun échouait à sa manière, loin
+    // de la cause.
+    //
+    // Un arrêt demandé ne passe pas par ici : `stop()` met `this.child` à null
+    // avant de tuer, donc la comparaison ci-dessous l'écarte d'elle-même. Pas
+    // besoin d'un drapeau — et pas d'alerte à chaque fermeture de projet.
+    child.once("exit", (code) => {
+      if (this.child !== child) return
+      this.child = null
+      this.info = null
+      this.version = ""
+      const reason = { code, log: this.recentLog() }
+      for (const listener of this.stoppedListeners) listener(reason)
+    })
+
     return this.info
   }
 
@@ -175,6 +198,19 @@ export class Daemon {
       })
     })
   }
+
+  /**
+   * onStopped : être prévenu quand le moteur meurt sans qu'on le lui demande.
+   *
+   * Effacer l'adresse d'un processus mort évite de mentir, mais ne dit rien à
+   * personne : une fenêtre qui affiche « moteur local sur le port 50829 »
+   * continuerait de l'afficher. C'est par là qu'elle l'apprend.
+   */
+  onStopped(listener: (reason: { code: number | null; log: string }) => void): void {
+    this.stoppedListeners.push(listener)
+  }
+
+  private stoppedListeners: ((reason: { code: number | null; log: string }) => void)[] = []
 
   async stop(): Promise<void> {
     const child = this.child

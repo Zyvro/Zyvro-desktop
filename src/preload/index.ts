@@ -350,6 +350,18 @@ const api = {
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),
   },
 
+  engine: {
+    /**
+     * Le moteur local est mort sans qu'on le lui demande.
+     *
+     * Il n'y a rien à faire depuis le rendu — c'est le processus principal qui
+     * le relancerait — mais il y a quelque chose à ne plus dire : la barre
+     * d'état annonce « moteur local sur le port 50829 », et ce port ne répond
+     * plus. Un chiffre faux est pire qu'un chiffre absent.
+     */
+    onStopped: (cb: (p: { code: number | null; log: string }) => void): Unsubscribe => on("engine:stopped", cb),
+  },
+
   account: {
     current: (): Promise<Account | null> => invoke("account:current"),
     signIn: (email: string, password: string): Promise<Account> =>

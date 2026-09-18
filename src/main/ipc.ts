@@ -139,6 +139,12 @@ export function workspaceFor(win: BrowserWindow): Workspace {
   let ws = workspaces.get(win)
   if (!ws) {
     ws = new Workspace()
+    // Le moteur de ce projet peut mourir sans prévenir. La fenêtre doit
+    // l'apprendre : elle affiche son port, et un port qui ne répond plus est
+    // un chiffre faux — pire qu'un chiffre absent.
+    ws.daemon.onStopped((reason) => {
+      if (!win.isDestroyed()) win.webContents.send("engine:stopped", reason)
+    })
     workspaces.set(win, ws)
   }
   return ws

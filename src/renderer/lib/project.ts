@@ -5,6 +5,7 @@ import type { OpenResult } from "../../preload"
 import { attachDaemon, detachDaemon } from "./daemon"
 import { queryClient } from "./queryClient"
 import { useWorkspace } from "~/state/workspace"
+import { engineStarted } from "~/state/engine"
 
 // Opening a project is the operation that changes everything: it starts a
 // daemon, points the shared API client at it, and gives the file tree a root.
@@ -17,6 +18,10 @@ export const nodesKey = ["local", "nodes"] as const
 export const recentsKey = ["project", "recents"] as const
 
 function adopt(result: OpenResult | null): OpenResult | null {
+  // Un projet qui s'ouvre, c'est un démon qui vient de répondre : l'annonce
+  // d'une panne précédente n'a plus lieu d'être. Sans ça, la barre garderait le
+  // souvenir d'un moteur mort réparé depuis.
+  if (result) engineStarted()
   if (result) attachDaemon(result.daemon.origin, result.daemon.token)
   else detachDaemon()
   // Node packs belong to a project. Closing one has to take its nodes with it,
