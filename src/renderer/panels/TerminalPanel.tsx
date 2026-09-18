@@ -32,6 +32,11 @@ type SessionStatus = {
   pty: boolean
   exitCode: number | null
   generation: number
+  /**
+   * Ce que ce shell avait écrit la dernière fois, à réafficher au-dessus de
+   * l'invite neuve. Vide dans le cas courant.
+   */
+  history?: string
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -215,8 +220,18 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
 
   handles.set(key, { fit: pushSize, focus: () => term.focus() })
 
-  void window.zyvro.terminal
-    .create(term.cols, term.rows)
+  // Adopter plutôt que créer, quand ce shell existe déjà.
+  //
+  // Après un rechargement du rendu, les ptys sont toujours là — ce sont des
+  // enfants du processus principal, une page qui recharge ne les tue pas, elle
+  // les oublie. Le panneau a repris leurs identifiants avant de monter ces
+  // composants ; il ne reste qu'à s'y brancher et à redemander ce qui a défilé.
+  const dejaLa = readStatus(key).ptyId
+  const ouvrir = dejaLa
+    ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
+    : window.zyvro.terminal.create(term.cols, term.rows).then((session) => ({ ...session, reprise: false }))
+
+  void ouvrir
     .then((session) => {
       if (disposed) {
         // The tab was closed while the shell was still being spawned. Nothing
@@ -229,7 +244,21 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       // Ce que ce shell a de branché, écrit avant tout le reste : la sortie du
       // shell attend dans `early`, donc le bandeau reste au-dessus de la
       // première invite au lieu de tomber au milieu.
+      // Le défilement d'avant, tout en haut : au-dessus du bandeau et de la
+      // première invite, comme il l'était à l'écran la dernière fois.
+      const avant = readStatus(key).history
+      if (avant) {
+        term.write(avant)
+        // Une ligne qui dit franchement que ce qui précède est du passé : sans
+        // elle, on relit une compilation d'hier en croyant qu'elle tourne.
+        term.write("\r\n\u001b[2m— session précédente, les programmes ont été arrêtés —\u001b[0m\r\n")
+        patchStatus(key, { history: undefined })
+      }
       if (session.banner) term.write(session.banner)
+      // Lié d'abord, rejoué ensuite : les données portent l'identifiant du
+      // shell, et une page qui ne l'a pas encore adopté les mettrait dans
+      // `early` une seconde fois.
+      if (session.reprise) void window.zyvro.terminal.replay(session.id)
       for (const payload of early) {
         if (payload.id === session.id) term.write(payload.data)
       }
@@ -381,9 +410,58 @@ export function TerminalPanel(): JSX.Element {
   if (projectDir !== null && projectDir !== boundProject) {
     for (const key of sessions) forgetStatus(key)
     setBoundProject(projectDir)
-    const key = nextSessionKey()
-    setSessions([key])
-    setActiveKey(key)
+    // La liste reste vide le temps de demander au processus principal s'il lui
+    // reste des shells de ce projet : en ouvrir un tout de suite en ferait un
+    // de trop à côté de ceux qu'on s'apprête à reprendre. C'est un aller-retour
+    // sur la boucle locale, pas une attente.
+    setSessions([])
+    setActiveKey("")
+    // Hors du rendu : appeler quelque chose d'asynchrone pendant qu'on dessine
+    // est la porte d'entrée des rendus en boucle.
+    window.queueMicrotask(() => void reprendre(projectDir))
+  }
+
+  // reprendre : adopter les shells que le processus principal a gardés.
+  //
+  // Trouvé en creusant tmux avec Jeremy : un rechargement du rendu abandonnait
+  // les shells sans les tuer. Ils continuaient d'écrire dans le vide,
+  // injoignables jusqu'à la fermeture de la fenêtre, pendant que la page neuve
+  // en ouvrait un de plus à côté — une fuite, et un serveur de développement
+  // qu'on croyait perdu alors qu'il tournait toujours.
+  //
+  // Le statut est semé AVANT que les composants montent : c'est lui qui dit à
+  // la référence de rappel d'adopter au lieu de créer.
+  const reprendre = async (dir: string): Promise<void> => {
+    const vivants = await window.zyvro.terminal.running().catch(() => [])
+    // Le projet a pu changer pendant l'aller-retour. Adopter les shells d'un
+    // dossier qu'on ne regarde plus donnerait des invites qui mentent sur
+    // l'endroit où l'on se trouve.
+    if ((useWorkspace.getState().project?.project ?? null) !== dir) return
+    if (vivants.length === 0) {
+      // Aucun shell vivant : la fenêtre a été fermée entre-temps et les
+      // programmes sont morts avec elle — mesuré, un `npm run dev` est bien tué
+      // avec tout son arbre. Ce qui reste, c'est ce qu'ils ont dit, et Jeremy
+      // l'a demandé ainsi : « on rouvre le projet, bam, on a toujours nos
+      // shells, avec nos programmes tués mais au moins une partie de
+      // l'historique ».
+      const passe = await window.zyvro.terminal.saved().catch(() => [])
+      if ((useWorkspace.getState().project?.project ?? null) !== dir) return
+      const keys = (passe.length > 0 ? passe : [""]).map((history) => {
+        const key = nextSessionKey()
+        if (history) patchStatus(key, { history })
+        return key
+      })
+      setSessions(keys)
+      setActiveKey(keys[0])
+      return
+    }
+    const keys = vivants.map((vivant) => {
+      const key = nextSessionKey()
+      patchStatus(key, { ptyId: vivant.id, pty: vivant.pty })
+      return key
+    })
+    setSessions(keys)
+    setActiveKey(keys[0])
   }
 
   const activate = (key: string): void => {

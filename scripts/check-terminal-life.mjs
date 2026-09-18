@@ -89,7 +89,9 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
 {
   // `disposeAll` ne doit être appelé que par `dispose()` du plan de travail, et
   // ce plan de travail ne doit être jeté que par trois chemins.
-  check("tout fermer passe par le plan de travail", ipc.includes("this.terminals.disposeAll()"))
+  // Le dossier passe avec, depuis le 19/09 : c'est lui qui dit sous quel nom
+  // garder le défilement pour la prochaine ouverture.
+  check("tout fermer passe par le plan de travail", ipc.includes("this.terminals.disposeAll(this.root ?? undefined)"))
 
   // Trois chemins, comptés là où ils sont écrits. `disposeWorkspace` est une
   // aide : son propre `ws.dispose()` n'est pas un quatrième appelant, et le
@@ -114,6 +116,74 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
     "**et ouvrir un projet ne ferme rien tout seul**",
     !ouvre.includes("disposeAll") && !ouvre.includes("ws.dispose()"),
     "rouvrir le même projet tuerait les shells en cours"
+  )
+}
+
+// ---- un rechargement n'abandonne plus les shells --------------------------
+//
+// Trouvé en creusant tmux avec Jeremy : les ptys sont des enfants du processus
+// principal, donc une page qui recharge ne les tue pas — elle les oublie. Ils
+// écrivaient dans le vide, injoignables jusqu'à la fermeture de la fenêtre,
+// pendant que la page neuve en ouvrait un de plus à côté.
+{
+  const term = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
+
+  check(
+    "**le principal sait dire quels shells vivent encore**",
+    /running\(cwd: string\): \{ id: string; pty: boolean \}\[\]/.test(term),
+    "une page rechargée n'a aucun moyen de les retrouver"
+  )
+  // Filtré par dossier : un pty a le cwd de sa naissance, et reprendre dans un
+  // projet le shell d'un autre donnerait une invite qui ment.
+  check("et seulement ceux de ce projet", /session\.cwd === lieu/.test(term))
+  check(
+    "**et il garde ce qu'ils ont écrit**",
+    term.includes("SHELL_MAX_BYTES") && /session\.seen \+= data/.test(term),
+    "se raccrocher rendrait une invite vivante sous un écran vide"
+  )
+  // Coupé de préférence à une fin de ligne : un flux de terminal est plein de
+  // séquences d'échappement.
+  check("borné, et coupé à une fin de ligne", /session\.seen\.indexOf\("\\n", trop\)/.test(term))
+
+  check(
+    "**le panneau adopte au lieu de créer**",
+    panel.includes("const dejaLa = readStatus(key).ptyId") && panel.includes("reprise: true"),
+    "un shell de plus s'ouvre à côté de celui qui tournait déjà"
+  )
+  // Lié d'abord, rejoué ensuite — la même règle que pour les tours d'agent.
+  const rappel = panel.slice(panel.indexOf("const dejaLa = readStatus(key).ptyId"))
+  check(
+    "**et il lie avant de redemander le défilement**",
+    rappel.indexOf("patchStatus(key, { ptyId: session.id") < rappel.indexOf("terminal.replay(session.id)"),
+    "les données rejouées seraient mises de côté une seconde fois"
+  )
+}
+
+// ---- et la fermeture laisse quelque chose derrière ------------------------
+//
+// Demandé par Jeremy : « on rouvre le projet, bam, on a toujours nos shells,
+// avec nos programmes tués mais au moins une partie de l'historique ».
+{
+  const term = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
+  check(
+    "**fermer la fenêtre garde le défilement**",
+    /async disposeAll\(cwd\?: string\)/.test(term) && term.includes("await this.keepHistory(cwd, vivants)"),
+    "tout est perdu à la fermeture, y compris ce qui aurait tenu"
+  )
+  // Écrit par un temporaire puis renommé : une fenêtre qui se ferme pendant
+  // l'écriture laisserait sinon un JSON tronqué.
+  check("écrit sans pouvoir être tronqué", term.includes("await fs.rename(temp, file)"))
+  // Fermer un onglet à la main dit « je n'en veux plus » : ça ne doit pas
+  // écrire d'historique.
+  check(
+    "**et fermer un seul shell n'en garde rien**",
+    !/dispose\(id: string\): void \{[\s\S]{0,200}?keepHistory/.test(term),
+    "fermer un onglet ressusciterait son défilement à la prochaine ouverture"
+  )
+  check(
+    "**et le panneau le réaffiche, en disant que c'est du passé**",
+    panel.includes("session précédente, les programmes ont été arrêtés"),
+    "on relit une compilation d'hier en croyant qu'elle tourne"
   )
 }
 

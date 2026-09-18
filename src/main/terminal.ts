@@ -1,5 +1,9 @@
 import { spawn as spawnPipe, type ChildProcess } from "node:child_process"
 import os from "node:os"
+import path from "node:path"
+import fs from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { app } from "electron"
 import { randomUUID } from "node:crypto"
 import type { WebContents } from "electron"
 import { shellMcp, type McpTarget } from "./mcp"
@@ -112,7 +116,28 @@ function makePty(
   }
 }
 
-type Session = { id: string; pty: PtyLike; dispose?: () => void }
+type Session = {
+  id: string
+  pty: PtyLike
+  dispose?: () => void
+  /** Le dossier où ce shell est né. Un pty ne change jamais de cwd : c'est ce
+   *  qui dit à quel projet il appartient, et donc qui a le droit de le
+   *  reprendre. */
+  cwd: string
+  /**
+   * Ce que le shell a déjà écrit, pour le rendre à une fenêtre qui s'est
+   * rechargée.
+   *
+   * Sans lui, se raccrocher rendait une invite vivante sous un écran vide :
+   * `pty.onData` partait droit vers la fenêtre, et rien n'était gardé.
+   */
+  seen: string
+}
+
+// Ce qu'on garde de chaque shell. Un demi-mégaoctet : de quoi retrouver
+// plusieurs écrans de défilement sans faire grossir le processus principal
+// quand une compilation bavarde tourne depuis une heure.
+const SHELL_MAX_BYTES = 512 * 1024
 
 // Terminals owns every shell the window opened. It holds the WebContents so it
 // can push output, and drops every session when the window goes away: an
@@ -133,10 +158,12 @@ export class Terminals {
   ): { id: string; pty: boolean; banner?: string } {
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
-    const pty = makePty(cwd || os.homedir(), cols, rows, wired?.env)
-    this.sessions.set(id, { id, pty, dispose: wired?.dispose })
+    const lieu = cwd || os.homedir()
+    const pty = makePty(lieu, cols, rows, wired?.env)
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: "" })
 
     pty.onData((data) => {
+      this.remember(id, data)
       if (target.isDestroyed()) return
       target.send("terminal:data", { id, data })
     })
@@ -150,6 +177,51 @@ export class Terminals {
     // l'écrit lui-même avant de vider ce qu'il a mis de côté, et il est donc
     // toujours au-dessus de la première invite, pas au milieu.
     return { id, pty: ptyAvailable(), banner: wired?.banner }
+  }
+
+  // remember garde ce que le shell a écrit, borné.
+  //
+  // On jette par le début quand le plafond est atteint, en coupant de
+  // préférence à une fin de ligne : un flux de terminal est plein de séquences
+  // d'échappement, et couper au milieu de l'une d'elles rendrait un écran
+  // bariolé. Couper après un saut de ligne ne garantit rien — une séquence peut
+  // enjamber — mais c'est le point le moins mauvais, et le pire des cas est
+  // cosmétique sur les premières lignes rejouées.
+  private remember(id: string, data: string): void {
+    const session = this.sessions.get(id)
+    if (!session) return
+    session.seen += data
+    if (session.seen.length <= SHELL_MAX_BYTES) return
+    const trop = session.seen.length - SHELL_MAX_BYTES
+    const saut = session.seen.indexOf("\n", trop)
+    session.seen = session.seen.slice(saut === -1 ? trop : saut + 1)
+  }
+
+  /**
+   * Les shells encore vivants dans ce dossier de projet.
+   *
+   * Ce que le rendu demande au démarrage. En développement, `electron-vite`
+   * recharge la page à chaque fichier sauvé, et les ptys — qui sont des enfants
+   * du processus principal — lui survivent : ils continuaient d'écrire dans le
+   * vide, injoignables, jusqu'à la fermeture de la fenêtre. Une page neuve
+   * ouvrait un shell de plus à côté.
+   *
+   * Filtré par dossier parce qu'un pty a le cwd de sa naissance : reprendre
+   * dans un projet le shell d'un autre donnerait une invite qui ment sur l'endroit
+   * où l'on se trouve.
+   */
+  running(cwd: string): { id: string; pty: boolean }[] {
+    const lieu = cwd || os.homedir()
+    return [...this.sessions.values()]
+      .filter((session) => session.cwd === lieu)
+      .map((session) => ({ id: session.id, pty: ptyAvailable() }))
+  }
+
+  /** Rendre à une fenêtre ce qu'un shell a déjà écrit. */
+  replay(id: string, target: WebContents): void {
+    const session = this.sessions.get(id)
+    if (!session || target.isDestroyed() || session.seen === "") return
+    target.send("terminal:data", { id, data: session.seen })
   }
 
   // drop oublie une session et efface ce qui n'avait de sens que pour elle : le
@@ -175,7 +247,69 @@ export class Terminals {
     this.drop(id)?.pty.kill()
   }
 
-  disposeAll(): void {
+  /**
+   * Fermer tous les shells, et garder ce qu'ils ont dit.
+   *
+   * Le processus meurt avec la fenêtre — mesuré : un `npm run dev` lancé dans
+   * un shell est bien tué par ce chemin, avec tout son arbre. Ce qui peut
+   * survivre, c'est le défilement, et c'est ce que Jeremy a demandé : « on
+   * rouvre le projet, bam, on a toujours nos shells, avec nos programmes tués
+   * mais au moins une partie de l'historique ».
+   *
+   * Écrit ici et pas dans `dispose` : fermer un onglet de shell à la main est
+   * un geste qui dit « je n'en veux plus », alors que fermer la fenêtre dit
+   * « à tout à l'heure ».
+   */
+  async disposeAll(cwd?: string): Promise<void> {
+    const vivants = [...this.sessions.values()]
+    if (cwd) await this.keepHistory(cwd, vivants)
     for (const id of [...this.sessions.keys()]) this.dispose(id)
+  }
+
+  // ---- l'historique qui survit à la fermeture ------------------------------
+
+  private historyFile(projectDir: string): string {
+    // Haché comme les conversations, et pour les mêmes raisons : un chemin
+    // n'est pas un nom de fichier — il a des séparateurs, il peut être plus
+    // long qu'un nom ne peut l'être, et macOS normalise certains caractères
+    // derrière votre dos.
+    const key = createHash("sha256").update(path.resolve(projectDir)).digest("hex").slice(0, 16)
+    return path.join(app.getPath("userData"), "shells", `${key}.json`)
+  }
+
+  private async keepHistory(projectDir: string, sessions: Session[]): Promise<void> {
+    const shells = sessions.filter((session) => session.cwd === path.resolve(projectDir) || session.cwd === projectDir)
+    try {
+      const file = this.historyFile(projectDir)
+      await fs.mkdir(path.dirname(file), { recursive: true })
+      // Un fichier temporaire puis un renommage : une fenêtre qui se ferme
+      // pendant l'écriture laisserait sinon un JSON tronqué, et la réouverture
+      // suivante perdrait tout l'historique au lieu d'en perdre la fin.
+      const temp = `${file}.${process.pid}.tmp`
+      await fs.writeFile(temp, JSON.stringify({ shells: shells.map((session) => session.seen) }), "utf8")
+      await fs.rename(temp, file)
+    } catch {
+      // Un historique qu'on ne sait pas écrire n'est pas une raison de refuser
+      // de fermer la fenêtre.
+    }
+  }
+
+  /**
+   * Ce que les shells de ce projet avaient écrit la dernière fois.
+   *
+   * Un tableau, un élément par shell ouvert alors : la réouverture en refait
+   * autant, chacun avec son défilement au-dessus d'une invite neuve. Les
+   * programmes, eux, sont morts avec la fenêtre — on ne fait pas semblant du
+   * contraire.
+   */
+  async saved(projectDir: string): Promise<string[]> {
+    try {
+      const raw = await fs.readFile(this.historyFile(projectDir), "utf8")
+      const parsed = JSON.parse(raw) as { shells?: unknown }
+      if (!Array.isArray(parsed.shells)) return []
+      return parsed.shells.filter((s): s is string => typeof s === "string")
+    } catch {
+      return []
+    }
   }
 }

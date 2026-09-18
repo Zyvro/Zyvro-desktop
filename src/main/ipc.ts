@@ -51,7 +51,9 @@ export class Workspace {
 
   async dispose(): Promise<void> {
     this.agent.cancelAll()
-    this.terminals.disposeAll()
+    // Le dossier passe avec : c'est lui qui dit sous quel nom garder le
+    // défilement des shells, pour que rouvrir ce projet le retrouve.
+    await this.terminals.disposeAll(this.root ?? undefined)
     this.watcher?.dispose()
     this.watcher = null
     await this.daemon.stop()
@@ -501,6 +503,33 @@ export function registerIpc(onRecents?: () => void): void {
       daemonOrigin: ws.daemon.current?.origin,
       daemonToken: ws.daemon.current?.token,
     })
+  })
+
+  // Reprendre les shells d'un projet après un rechargement du rendu.
+  //
+  // Les ptys sont des enfants du processus principal : une page qui recharge ne
+  // les tue pas, elle les oublie. Ils continuaient donc d'écrire dans le vide,
+  // injoignables jusqu'à la fermeture de la fenêtre, pendant que la page neuve
+  // en ouvrait un de plus à côté.
+  ipcMain.handle("terminal:running", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return ws.terminals.running(requireRoot(ws))
+  })
+
+  // Ce que les shells de ce projet avaient écrit la dernière fois. Demandé
+  // quand il n'en reste aucun de vivant : la fenêtre a été fermée entre-temps,
+  // les programmes sont morts avec elle, et il ne reste que ce qu'ils ont dit.
+  ipcMain.handle("terminal:saved", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return ws.terminals.saved(requireRoot(ws))
+  })
+
+  // Et leur défilement. En deux temps comme pour les tours d'agent : la page
+  // adopte l'identifiant, puis demande ce qui a déjà été écrit.
+  ipcMain.handle("terminal:replay", async (event, id: string) => {
+    const { ws } = requireWorkspace(event)
+    ws.terminals.replay(id, event.sender)
+    return true
   })
 
   ipcMain.handle("terminal:write", async (event, id: string, data: string) => {

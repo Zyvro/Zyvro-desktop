@@ -237,6 +237,22 @@ const api = {
   terminal: {
     create: (cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
       invoke("terminal:create", cols, rows),
+    /**
+     * Les shells de ce projet qui tournent encore.
+     *
+     * Demandé au démarrage : un rechargement du rendu ne tue pas les ptys, il
+     * les oublie — ce sont des enfants du processus principal.
+     */
+    running: (): Promise<{ id: string; pty: boolean }[]> => invoke("terminal:running"),
+    /** Ce qu'un shell a déjà écrit. À demander une fois l'identifiant adopté. */
+    replay: (id: string): Promise<boolean> => invoke("terminal:replay", id),
+    /**
+     * Le défilement des shells de la dernière session de ce projet.
+     *
+     * Les programmes, eux, sont morts avec la fenêtre — mesuré. On ne rend que
+     * ce qu'ils ont dit, au-dessus d'une invite neuve.
+     */
+    saved: (): Promise<string[]> => invoke("terminal:saved"),
     write: (id: string, data: string): Promise<boolean> => invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number): Promise<boolean> =>
       invoke("terminal:resize", id, cols, rows),
