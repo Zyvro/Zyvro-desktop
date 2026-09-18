@@ -74,9 +74,54 @@ export function mcpServers(ctx: McpTarget): Record<string, ServerEntry> {
 //
 // Hors du projet, délibérément : `.zyvro/` est fait pour être commité, et un
 // jeton n'a rien à faire dans un dépôt.
-export function writeMcpConfig(ctx: McpTarget): { path: string; dispose: () => void } {
-  const written = mcpDirectory(ctx)
+export function writeMcpConfig(ctx: McpTarget, dialecte: McpDialect = "claude"): { path: string; dispose: () => void } {
+  const written = mcpDirectory(ctx, dialecte)
   return { path: written.file, dispose: written.dispose }
+}
+
+// Les deux façons d'écrire la même chose.
+//
+// La liste des serveurs reste une, celle de `mcpServers`. Ce qui diffère est le
+// nom du champ qui porte l'adresse, et c'est un piège complet : Qwen Code lit
+// `url` comme un point d'accès SSE et `httpUrl` comme du HTTP en flux. Lui
+// donner la forme de claude ne produit pas d'erreur de configuration — il
+// essaie de parler SSE à un serveur qui n'en fait pas, et rend un avertissement
+// au milieu de sa sortie : « MCP server(s) failed to start: zyvro, zyvro-app.
+// Continuing with built-in tools ».
+//
+// Continuing, justement. Le tour se déroule, l'agent répond, et il n'a
+// simplement aucun des outils de ce projet. Trouvé en regardant pourquoi une
+// session qwen ne savait rien de nos workflows.
+export type McpDialect = "claude" | "qwen"
+
+function serversFor(ctx: McpTarget, dialecte: McpDialect): Record<string, unknown> {
+  const servers = mcpServers(ctx)
+  if (dialecte !== "qwen") return servers
+  const out: Record<string, unknown> = {}
+  for (const [name, server] of Object.entries(servers)) {
+    const { type: _ignore, url, ...reste } = server
+    out[name] = { ...reste, httpUrl: avecChemin(url) }
+  }
+  return out
+}
+
+// avecChemin : une adresse nue ne suffit pas à Qwen Code.
+//
+// Les deux serveurs sont écrits pareil et un seul démarrait : `zyvro` porte
+// `/mcp` et se branche, `zyvro-app` est une origine sans chemin et échouait.
+// Le serveur de l'application, lui, répond sur n'importe quel chemin — il lit
+// le corps JSON-RPC et ignore l'adresse — donc lui en donner un ne coûte rien
+// et le rend joignable.
+//
+// Seulement pour ce dialecte : claude s'accommode de l'origine nue, et changer
+// ce qui marche pour aligner deux écritures serait la façon la plus sûre de
+// casser celle qui allait bien.
+function avecChemin(url: string): string {
+  try {
+    return new URL(url).pathname === "/" ? `${url.replace(/\/$/, "")}/mcp` : url
+  } catch {
+    return url
+  }
 }
 
 // mcpDirectory écrit le fichier là où le système protège déjà les secrets.
@@ -87,10 +132,10 @@ export function writeMcpConfig(ctx: McpTarget): { path: string; dispose: () => v
 // session. C'est la même phrase de deux façons, et il faut les deux : le mode
 // seul ne protège rien sous Windows, le dossier seul ne protège rien sur une
 // machine Unix partagée où /tmp est ouvert.
-function mcpDirectory(ctx: McpTarget): { dir: string; file: string; dispose: () => void } {
+function mcpDirectory(ctx: McpTarget, dialecte: McpDialect = "claude"): { dir: string; file: string; dispose: () => void } {
   const dir = mkdtempSync(path.join(tmpdir(), "zyvro-mcp-"))
   const file = path.join(dir, "mcp.json")
-  writeFileSync(file, JSON.stringify({ mcpServers: mcpServers(ctx) }, null, 2), { mode: 0o600 })
+  writeFileSync(file, JSON.stringify({ mcpServers: serversFor(ctx, dialecte) }, null, 2), { mode: 0o600 })
   return { dir, file, dispose: () => rmSync(dir, { recursive: true, force: true }) }
 }
 

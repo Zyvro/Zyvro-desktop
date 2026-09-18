@@ -3,10 +3,11 @@ import { installed as cliInstalled, launchPiped } from "./cli"
 import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
 import { commandsIn, remember as rememberCommands } from "./commands"
+import { type Goal, goalIn, sameGoal } from "./goal"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
-import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
+import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect } from "./mcp"
 import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
 import { AGENT_KINDS, type Aim, type AgentKind, harness } from "../shared/harness"
@@ -76,8 +77,8 @@ function preamble(ctx: AgentContext): string {
 // claudeMcpConfig est le fichier que l'agent reçoit pour ce tour. La liste des
 // serveurs vit dans mcp.ts, avec celle du shell : deux listes finiraient par
 // différer, et la différence serait un outil manquant que rien ne signale.
-export function claudeMcpConfig(ctx: AgentContext): { path: string; dispose: () => void } {
-  return writeMcpConfig(ctx)
+export function claudeMcpConfig(ctx: AgentContext, dialecte: McpDialect = "claude"): { path: string; dispose: () => void } {
+  return writeMcpConfig(ctx, dialecte)
 }
 
 // argsFor builds the command line for one turn.
@@ -458,6 +459,10 @@ export class AgentRunner {
   // Basculer d'un harnais à l'autre repart donc de zéro chez le nouveau, et
   // revenir au premier retrouve son fil. C'est ce que « changer d'agent »
   // devrait vouloir dire.
+  // Le dernier but connu de chaque conversation, pour ne prévenir la fenêtre
+  // que quand il bouge.
+  private goals = new Map<string, Goal>()
+
   private sessions = new Map<string, string>()
 
   private static key(kind: AgentKind, conversationId: string): string {
@@ -568,7 +573,7 @@ export class AgentRunner {
         // les noms lus dans son `--help`, pas les noms devinés depuis l'autre :
         // un drapeau mal orthographié n'est pas refusé, il est ignoré, et les
         // outils de Zyvro manquent sans que rien ne le dise.
-        const config = claudeMcpConfig(ctx)
+        const config = claudeMcpConfig(ctx, "qwen")
         disposeConfig = config.dispose
         const servers = Object.keys(mcpServers(ctx))
         args.push(
@@ -674,6 +679,16 @@ export class AgentRunner {
     // own default instead of a name we made up.
     const ranWith = modelIn(parsed)
     if (turn && ranWith) target.send("agent:model", { id, conversationId: turn.conversationId, model: ranWith })
+
+    // Le but de la session, quand le harnais en dit quelque chose. Les deux
+    // formes sont lues au même endroit ; seul un changement traverse, parce que
+    // qwen réémet la sienne à chaque événement du flux.
+    const dit = turn ? goalIn(parsed) : null
+    if (dit && !sameGoal(this.goals.get(turn!.conversationId) ?? null, dit.goal)) {
+      if (dit.goal) this.goals.set(turn!.conversationId, dit.goal)
+      else this.goals.delete(turn!.conversationId)
+      target.send("agent:goal", { conversationId: turn!.conversationId, goal: dit.goal })
+    }
 
     // Ce que ce harnais sait faire, annoncé par lui à l'ouverture du flux. On
     // le garde : la liste n'arrive qu'avec un tour, et le moment où l'on

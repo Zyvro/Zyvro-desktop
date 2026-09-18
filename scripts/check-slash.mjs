@@ -151,6 +151,14 @@ const check = (name, ok, detail = "") => {
     "Entrée envoie une commande à moitié tapée : un tour payé pour rien"
   )
   check("Tab aussi", /event\.key === "Tab"/.test(clavier))
+  // `/goal` est un nom entier autant qu'un préfixe de lui-même. Compléter n'y
+  // changerait rien et mangerait la touche : la commande ne partirait jamais.
+  // Vu en l'essayant, pas en relisant.
+  check(
+    "**mais une commande déjà entière part au lieu d'être « complétée »**",
+    /!dejaComplet/.test(clavier),
+    "Entrée mange la touche sur une commande complète : elle ne part jamais"
+  )
   check("les flèches parcourent", /ArrowDown/.test(clavier) && /ArrowUp/.test(clavier))
   check("et Échap ferme sans effacer", /event\.key === "Escape"/.test(clavier) && !/setDraft\(""\)/.test(clavier))
 }

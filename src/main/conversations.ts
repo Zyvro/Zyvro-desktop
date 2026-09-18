@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import { createHash } from "node:crypto"
 import path from "node:path"
 import type { AgentKind } from "./agent"
+import type { Goal } from "./goal"
 
 // What the agent panel remembers between runs.
 //
@@ -109,6 +110,10 @@ export type Conversation = {
   // pour claude, et le lui passer lui fait répondre « that model may not
   // exist » au lieu du tour qu'on lui demandait.
   models?: Partial<Record<AgentKind, string | null>>
+  /** Ce vers quoi cette session travaille, tel que le harnais l'a rapporté.
+   *  Gardé parce que le but survit dans la session du harnais : une
+   *  conversation rouverte demain travaille toujours vers la même chose. */
+  goal?: Goal | null
   // What the CLI reported actually running, so the picker can show the default
   // by name instead of the word "default".
   ranWith?: string | null

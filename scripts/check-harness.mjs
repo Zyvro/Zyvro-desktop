@@ -43,6 +43,7 @@ writeFileSync(
   `export * from "${from("src/shared/harness")}"\n` +
     `export { argsFor, promptWith, qwenPermission, aimArgs, aimEnv, AgentRunner } from "${from("src/main/agent")}"\n` +
     `export { startShotsServer } from "${from("src/main/shots")}"\n` +
+    `export { writeMcpConfig, mcpServers } from "${from("src/main/mcp")}"\n` +
     `export { launch } from "${from("src/main/cli")}"\n`
 )
 await build({
@@ -378,6 +379,60 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
     "**et une liste vide se dit au lieu de ressembler à une panne**",
     picker.includes("No local server is answering"),
     "un menu vide n'explique pas pourquoi"
+  )
+}
+
+// ---- les outils du projet arrivent vraiment au harnais ---------------------
+//
+// Le piège complet : Qwen Code lit `url` comme un point d'accès SSE et
+// `httpUrl` comme du HTTP en flux. Lui donner la forme de claude ne produit
+// aucune erreur de configuration — il essaie de parler SSE à un serveur qui
+// n'en fait pas, imprime « MCP server(s) failed to start: zyvro, zyvro-app.
+// Continuing with built-in tools » au milieu de sa sortie, et continue.
+//
+// Continue, justement : le tour se déroule, l'agent répond, et il n'a aucun des
+// outils de ce projet. Trouvé en regardant pourquoi une session qwen ne savait
+// rien de nos workflows.
+{
+  const cible = { daemonOrigin: "http://127.0.0.1:1234", daemonToken: "jeton" }
+  const lire = (dialecte) => {
+    const { path: fichier, dispose } = mod.writeMcpConfig(cible, dialecte)
+    const contenu = JSON.parse(readFileSync(fichier, "utf8"))
+    dispose()
+    return contenu.mcpServers
+  }
+
+  const pourClaude = lire("claude")
+  check("**claude reçoit `url`**", pourClaude.zyvro.url === "http://127.0.0.1:1234/mcp", JSON.stringify(pourClaude.zyvro))
+  check("et son `type: http`", pourClaude.zyvro.type === "http")
+
+  const pourQwen = lire("qwen")
+  check("**qwen reçoit `httpUrl`, sinon il croit parler SSE**", pourQwen.zyvro.httpUrl === "http://127.0.0.1:1234/mcp", JSON.stringify(pourQwen.zyvro))
+  check("et pas `url`, qui voudrait dire autre chose", pourQwen.zyvro.url === undefined)
+  check("le jeton passe dans les deux", pourQwen.zyvro.headers.Authorization === "Bearer jeton")
+
+  // Une adresse sans chemin ne suffit pas à Qwen Code : des deux serveurs
+  // écrits pareil, seul celui qui portait `/mcp` démarrait.
+  const nue = mod.writeMcpConfig({ daemonOrigin: "http://127.0.0.1:1234", daemonToken: "j" }, "qwen")
+  const contenuNu = JSON.parse(readFileSync(nue.path, "utf8"))
+  nue.dispose()
+  for (const [nom, entree] of Object.entries(contenuNu.mcpServers)) {
+    check(`**${nom} reçoit une adresse avec un chemin**`, new URL(entree.httpUrl).pathname !== "/", entree.httpUrl)
+  }
+
+  // La liste des serveurs reste une : seule l'écriture diffère.
+  check(
+    "**les deux dialectes servent les mêmes serveurs**",
+    JSON.stringify(Object.keys(pourClaude)) === JSON.stringify(Object.keys(mod.mcpServers(cible))) &&
+      JSON.stringify(Object.keys(pourQwen)) === JSON.stringify(Object.keys(pourClaude)),
+    "un dialecte a sa propre liste de serveurs"
+  )
+
+  const agentSrc = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
+  check(
+    "et le harnais qwen demande le sien",
+    agentSrc.includes('claudeMcpConfig(ctx, "qwen")'),
+    "qwen reçoit la configuration de claude : ses outils ne démarrent pas"
   )
 }
 

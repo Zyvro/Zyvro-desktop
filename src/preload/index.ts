@@ -50,6 +50,8 @@ export type ReplaceResult = { files: number; matches: number; skipped: number }
 // importe `electron`, et le prendre pour une constante ferait entrer electron
 // dans le paquet du rendu.
 import type { Permission } from "../shared/permission"
+import type { Goal } from "../main/goal"
+export type { Goal }
 import type { Spent } from "../main/agent"
 export type { Spent }
 export type { Permission }
@@ -293,6 +295,10 @@ const api = {
     commands: (kind: AgentKind): Promise<string[]> => invoke("agent:commands", kind),
     onCommands: (cb: (p: { kind: AgentKind; commands: string[] }) => void): Unsubscribe =>
       on("agent:commands", cb),
+    // Ce vers quoi la session travaille. `goal: null` veut dire « il n'y en a
+    // plus », ce qui n'est pas la même chose que ne rien envoyer.
+    onGoal: (cb: (p: { conversationId: string; goal: Goal | null }) => void): Unsubscribe =>
+      on("agent:goal", cb),
     conversations: (): Promise<Conversation[]> => invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
       invoke("agent:remember", conversation),

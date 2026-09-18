@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, X } from "lucide-react"
+import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, Target, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -14,6 +14,7 @@ import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
+import type { Goal } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import type { StoredTool } from "../../preload"
@@ -122,6 +123,8 @@ type Thread = {
   ranWith: string | null
   /** Which CLI this thread is talking to. */
   kind: AgentKind
+  /** Ce vers quoi cette session travaille, tel que le harnais le rapporte. */
+  goal: Goal | null
   /** What has already been written down, so a save can be skipped. */
   saved: string
   /**
@@ -165,6 +168,7 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     busy: false,
     model,
     models: { [kind]: model },
+    goal: null,
     ranWith: null,
     kind,
     saved: "",
@@ -282,6 +286,12 @@ function ensureAttached(): void {
   // Ce que le harnais vient d'annoncer savoir faire. Il le dit à l'ouverture de
   // chaque flux ; on le garde pour le menu de la barre oblique.
   window.zyvro.agent.onCommands(({ kind, commands }) => noteCommands(kind, commands))
+
+  // Ce vers quoi la session travaille. `goal: null` efface : il n'y en a plus,
+  // ce qui est une nouvelle en soi.
+  window.zyvro.agent.onGoal(({ conversationId, goal }) => {
+    mapThread(conversationId, (thread) => ({ ...thread, goal }))
+  })
 
   window.zyvro.agent.onToolResult(({ id, callId, output, isError, images }) => {
     const bound = turnToMessage.get(id)
@@ -522,6 +532,7 @@ function persist(threadId: string): void {
     id: thread.id,
     kind: thread.kind,
     title: thread.title,
+    goal: thread.goal,
     // Main overwrites this with what the CLI actually reported; sending what we
     // last knew keeps a conversation whose session has not changed intact.
     sessionId: null,
@@ -601,6 +612,9 @@ export async function restore(): Promise<void> {
     // Un fichier écrit avant que les modèles soient séparés n'en porte qu'un :
     // il appartient au harnais que la conversation portait alors.
     models: c.models ?? (c.model ? { [c.kind]: c.model } : {}),
+    // Le but survit à la fermeture parce qu'il survit dans la session du
+    // harnais : vérifié sur claude, une reprise le rapporte toujours actif.
+    goal: c.goal ?? null,
     ranWith: c.ranWith ?? null,
     kind: c.kind,
     images: [],
@@ -609,6 +623,43 @@ export async function restore(): Promise<void> {
     saved: "",
   }))
   commit({ threads, activeId: threads[0].id, asks: state.asks })
+}
+
+// GoalBanner : ce vers quoi la session travaille.
+//
+// Ce qu'il montre est ce que le harnais donne, et rien de plus : l'objectif
+// toujours, le statut et l'avancement quand il les compte. qwen compte les
+// tours et les jetons sur un budget ; claude dit « not yet evaluated ».
+// Inventer une barre de progression là où il n'y a pas de chiffre serait
+// dessiner une certitude que personne n'a.
+function GoalBanner({ goal }: { goal: Goal }): JSX.Element {
+  const atteint = /achiev|done|complete|réussi/i.test(goal.status)
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-start gap-2 border-b px-3 py-1.5 text-[11px] leading-snug",
+        atteint
+          ? "border-emerald-400/20 bg-emerald-400/[0.06]"
+          : "border-white/[0.06] bg-primary/[0.05]"
+      )}
+    >
+      <Target className={cn("mt-px h-3 w-3 shrink-0", atteint ? "text-emerald-300" : "text-primary")} />
+      <div className="min-w-0 flex-1">
+        <div className="break-words text-foreground">{goal.objective}</div>
+        {(goal.status || goal.turns !== undefined || goal.tokens) && (
+          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+            {[
+              goal.status,
+              goal.turns !== undefined ? `${goal.turns} turn${goal.turns === 1 ? "" : "s"}` : null,
+              goal.tokens ? `${compact(goal.tokens.used)} / ${compact(goal.tokens.budget)} tokens` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // AskCard : ce que l'agent veut faire, et les deux boutons.
@@ -973,6 +1024,9 @@ export function AgentPanel(): JSX.Element {
   const tape = slashPrefix(draft, caret)
   const proposees = tape === null ? [] : matching(toutes, tape)
   const menuOuvert = proposees.length > 0
+  // Ce qu'on a tapé est déjà un nom de commande entier : il n'y a plus rien à
+  // compléter, seulement à envoyer.
+  const dejaComplet = tape !== null && proposees.some((nom) => nom.toLowerCase() === tape.toLowerCase())
   const [choisi, setChoisi] = useState(0)
   const surligne = Math.min(choisi, Math.max(0, proposees.length - 1))
 
@@ -1006,9 +1060,19 @@ export function AgentPanel(): JSX.Element {
         setDraft(`${draft} `)
         return
       }
-      if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
-        // Entrée complète au lieu d'envoyer : envoyer `/lo` à la CLI, c'est
+      if (event.key === "Tab") {
+        event.preventDefault()
+        completer(proposees[surligne])
+        return
+      }
+      if (event.key === "Enter" && !event.shiftKey && !dejaComplet) {
+        // Entrée complète au lieu d'envoyer : expédier `/lo` à la CLI, c'est
         // une commande inconnue et un tour perdu.
+        //
+        // Mais seulement tant qu'il reste quelque chose à compléter. `/goal`
+        // est un nom entier autant qu'un préfixe de lui-même : « compléter »
+        // n'y changerait rien et mangerait la touche, et la commande ne
+        // partirait jamais. Vu en l'essayant.
         event.preventDefault()
         completer(proposees[surligne])
         return
@@ -1246,6 +1310,13 @@ export function AgentPanel(): JSX.Element {
           ))}
         </div>
       )}
+
+      {/* Le but, épinglé.
+          Au-dessus du défilement et pas dedans : une session qui travaille vers
+          quelque chose doit le dire en permanence, et un but tapé au troisième
+          message a disparu de l'écran au dixième. C'est la différence entre un
+          chat et un atelier. */}
+      {thread.goal && <GoalBanner goal={thread.goal} />}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {!started ? (
