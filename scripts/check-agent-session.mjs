@@ -88,6 +88,22 @@ check(
 // Le piège : un identifiant mis avant --json serait lu comme le prompt.
 check("aucune option ne suit l'identifiant", codexResumed.slice(codexResumed.indexOf(ID)).length === 1)
 
+// L'autre piège, trouvé à l'écran : `codex exec resume` n'accepte PAS les mêmes
+// options que `codex exec`. Une session répondait au premier message et rendait
+// « error: unexpected argument '--sandbox' found » à tous les suivants — donc
+// tout sauf le premier. Ce qui n'est pas dans le `--help` de la sous-commande
+// n'a rien à faire sur cette ligne.
+//
+// La liste est celle qu'on a vue refuser, pas une liste devinée : le jour où un
+// autre drapeau y entre, c'est le même symptôme et le même endroit.
+for (const inconnu of ["--sandbox", "--full-auto", "--ask-for-approval"]) {
+  check(
+    `**une reprise ne porte pas ${inconnu}, que resume refuse**`,
+    !codexResumed.includes(inconnu),
+    `${codexResumed.join(" ")} — le deuxième tour de chaque session meurt dessus`
+  )
+}
+
 // ---- ce que l'agent a le droit de faire ---------------------------------
 //
 // Un tour en mode impression ne peut poser aucune question tout seul. Sans ces
@@ -132,7 +148,15 @@ check("aucune option ne suit l'identifiant", codexResumed.slice(codexResumed.ind
     claudeArgs(undefined).includes("--permission-prompts none"),
     claudeArgs(undefined)
   )
-  check("**et codex écrit dans le dossier du projet**", codexArgs(undefined).includes("--sandbox workspace-write"), codexArgs(undefined))
+  // Par `-c` et pas par `--sandbox` : `codex exec resume` refuse le drapeau, et
+  // le deuxième tour de chaque session mourait dessus — « error: unexpected
+  // argument '--sandbox' found ». Vu à l'écran avant d'être lu dans le `--help`.
+  check("**et codex écrit dans le dossier du projet**", codexArgs(undefined).includes("-c sandbox_mode=workspace-write"), codexArgs(undefined))
+  check(
+    "**et il le dit d'une façon que `resume` accepte**",
+    !codexArgs(undefined).includes("--sandbox "),
+    "le deuxième tour d'une session meurt sur un drapeau que resume ne connaît pas"
+  )
   check("sans bac à sable désactivé pour autant", !codexArgs(undefined).includes("--dangerously-bypass"))
 
   // « Ask » : la question remonte dans le panneau par l'outil MCP de
@@ -156,7 +180,7 @@ check("aucune option ne suit l'identifiant", codexResumed.slice(codexResumed.ind
   check("**en lecture seule, les outils d'écriture sont interdits**", reading.includes("--disallowedTools Write,Edit,MultiEdit,NotebookEdit,Bash"), reading)
   check("et personne n'est censé répondre", reading.includes("--permission-prompts none"))
   check("dans le mode qui demande, donc tout le reste est refusé", reading.includes("--permission-mode manual"))
-  check("codex y est en lecture seule aussi", codexArgs("read").includes("--sandbox read-only"))
+  check("codex y est en lecture seule aussi", codexArgs("read").includes("-c sandbox_mode=read-only"))
 
   // YOLO : aucune limite, et c'est le seul niveau où le bac à sable de codex
   // tombe.

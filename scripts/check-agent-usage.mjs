@@ -20,7 +20,7 @@
 //
 //     node scripts/check-agent-usage.mjs
 import { build } from "esbuild"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { createRequire } from "node:module"
 
@@ -31,7 +31,7 @@ mkdirSync(dir, { recursive: true })
 writeFileSync(path.join(dir, "electron.js"), `module.exports = { app: {}, BrowserWindow: {} }\n`)
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export { usageIn } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
+  `export { usageIn, codexUsageIn } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
     `export { compact, detail } from "${path.join(ROOT, "src/renderer/lib/usage").replace(/\\/g, "/")}"\n`
 )
 await build({
@@ -88,6 +88,69 @@ const RESULT = {
     "**un tour de vingt-sept mille jetons ne s'annonce pas comme deux**",
     spent.input > 26000,
     `${spent.input} annoncés`
+  )
+}
+
+// ---- codex ne dit rien pareil -------------------------------------------
+//
+// Le panneau n'a jamais montré de reçu pour codex, et la note du carnet disait
+// que ça viendrait tout seul « le jour où il tourne — elle lit le même champ ».
+// Elle avait tort deux fois : `usageIn` n'est appelée que sur `result`, que
+// codex n'émet pas, et les noms diffèrent. Relevé sur un vrai tour, par la
+// passerelle, contre un modèle local.
+{
+  const TURN = {
+    type: "turn.completed",
+    usage: {
+      input_tokens: 52580,
+      cached_input_tokens: 0,
+      cache_write_input_tokens: 0,
+      output_tokens: 417,
+      reasoning_output_tokens: 0,
+    },
+  }
+  const spent = mod.codexUsageIn(TURN)
+  check("**un tour de codex se compte**", spent !== null && spent.input === 52580, JSON.stringify(spent))
+  check("et sa sortie aussi", spent.output === 417)
+  check("il ne s'invente pas de prix", spent.costUsd === null)
+
+  // Le piège, et il est l'inverse de celui de claude : chez OpenAI
+  // `input_tokens` est le TOTAL, et le cache en est un détail. Additionner
+  // comme pour claude compterait le cache deux fois.
+  const AVEC_CACHE = {
+    type: "turn.completed",
+    usage: { input_tokens: 10000, cached_input_tokens: 8000, cache_write_input_tokens: 0, output_tokens: 100 },
+  }
+  const cache = mod.codexUsageIn(AVEC_CACHE)
+  check(
+    "**le cache de codex n'est pas ajouté au total, il en fait partie**",
+    cache.input === 10000,
+    `${cache.input} au lieu de 10000 : le cache est compté deux fois`
+  )
+  check("mais il reste lisible à part", cache.cacheRead === 8000)
+
+  // `reasoning_output_tokens` est déjà dans `output_tokens`, pour la même
+  // raison : l'ajouter doublerait la sortie d'un modèle qui réfléchit.
+  const RAISONNE = {
+    type: "turn.completed",
+    usage: { input_tokens: 10, output_tokens: 500, reasoning_output_tokens: 400 },
+  }
+  check(
+    "**les jetons de raisonnement ne sont pas comptés une seconde fois**",
+    mod.codexUsageIn(RAISONNE).output === 500,
+    "la sortie double pour un modèle qui réfléchit"
+  )
+
+  check("un tour sans usage ne rend rien", mod.codexUsageIn({ type: "turn.completed" }) === null)
+  check("des zéros non plus", mod.codexUsageIn({ usage: { input_tokens: 0, output_tokens: 0 } }) === null)
+
+  // Et c'est bien branché sur l'événement que codex émet : la fonction seule ne
+  // sert à rien si personne ne l'appelle, ce qui était exactement le défaut.
+  const agent = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
+  check(
+    "**et `turn.completed` est lu par le flux**",
+    /parsed\.type === "turn\.completed"[\s\S]{0,200}codexUsageIn\(parsed\)/.test(agent),
+    "la fonction existe mais rien ne l'appelle"
   )
 }
 

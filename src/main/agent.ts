@@ -265,15 +265,34 @@ function askFlags(): string[] {
 // codex ne sait pas demander en cours de tour : `codex exec` n'a pas de crochet
 // d'approbation qu'on puisse brancher sur l'interface. Son bac à sable est donc
 // la réponse — il décide d'avance de ce qui est possible, au lieu de demander.
+//
+// **Par `-c` et pas par `--sandbox`**, et ce n'est pas un détail de style : le
+// deuxième tour d'une session codex mourait dessus.
+//
+//   error: unexpected argument '--sandbox' found
+//   Usage: codex exec resume --json --skip-git-repo-check [SESSION_ID] [PROMPT]
+//
+// `codex exec resume` n'accepte pas ce drapeau — relevé dans son `--help`, et
+// vu d'abord à l'écran : une session répondait au premier message et refusait
+// tous les suivants. Le réglage existe sous forme de configuration, que les
+// deux sous-commandes acceptent, donc une seule écriture sert les deux chemins.
+// Deux formes pour le même réglage, c'est celle qu'on écrit le moins souvent
+// qui se trompe — ici, c'était la reprise, c'est-à-dire tout sauf le premier
+// message.
+//
+// Éprouvé, pas déduit : `-c sandbox_mode=workspace-write` refuse
+// « echo sorti > ../DEHORS.txt » au premier tour comme à la reprise, et
+// `-c sandbox_mode=read-only` refuse aussi d'écrire DANS le projet.
 export function codexPermission(permission: Permission): string[] {
   switch (permission) {
     case "read":
-      return ["--sandbox", "read-only"]
+      return ["-c", "sandbox_mode=read-only"]
     case "yolo":
+      // Celui-là, `resume` l'accepte : c'est un drapeau des deux.
       return ["--dangerously-bypass-approvals-and-sandbox"]
     default:
       // Le dossier du projet, et nulle part ailleurs.
-      return ["--sandbox", "workspace-write"]
+      return ["-c", "sandbox_mode=workspace-write"]
   }
 }
 
@@ -453,6 +472,13 @@ function count(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
 }
 
+/**
+ * usageIn : ce qu'un tour a coûté, dans l'enveloppe de claude — et de qwen, qui
+ * imprime la même. Lu sur l'événement `result`.
+ *
+ * Chez eux, `input_tokens` est l'entrée NEUVE : ce qui vient du cache est
+ * compté à part. Le total traversé est donc la somme des trois.
+ */
 export function usageIn(event: Record<string, unknown>): Spent | null {
   const usage = event.usage
   if (!usage || typeof usage !== "object") return null
@@ -473,6 +499,54 @@ export function usageIn(event: Record<string, unknown>): Spent | null {
     cacheRead,
     cacheWrite,
     costUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
+  }
+}
+
+/**
+ * codexUsageIn : la même chose dans l'enveloppe de codex, qui ne dit rien
+ * pareil. Lu sur `turn.completed`.
+ *
+ * Le panneau n'a jamais montré de reçu pour codex, et la note disait que ça
+ * viendrait tout seul « le jour où il tourne — elle lit le même champ ». Elle
+ * avait tort deux fois : `usageIn` n'est appelée que sur `result`, que codex
+ * n'émet pas, et les noms diffèrent. Relevé sur un vrai tour :
+ *
+ *   {"type":"turn.completed","usage":{"input_tokens":52580,
+ *    "cached_input_tokens":0,"cache_write_input_tokens":0,
+ *    "output_tokens":417,"reasoning_output_tokens":0}}
+ *
+ * Deux pièges dans ces cinq nombres :
+ *
+ * · **`input_tokens` est le TOTAL**, pas l'entrée neuve — c'est la convention
+ *   d'OpenAI, où les jetons relus du cache sont un détail de ce total. Les
+ *   additionner comme on le fait pour claude compterait le cache deux fois et
+ *   gonflerait la facture affichée.
+ * · **`reasoning_output_tokens` est déjà dans `output_tokens`**, pour la même
+ *   raison. L'ajouter doublerait la sortie d'un modèle qui réfléchit.
+ *
+ * Aucun des deux ne se voit sur un serveur local, qui ne met rien en cache :
+ * ils sont restés à zéro sur tous les tours mesurés ici. C'est justement
+ * pourquoi la règle est écrite plutôt que devinée plus tard.
+ */
+export function codexUsageIn(event: Record<string, unknown>): Spent | null {
+  const usage = event.usage
+  if (!usage || typeof usage !== "object") return null
+  const u = usage as Record<string, unknown>
+
+  const total = count(u.input_tokens)
+  const cacheRead = Math.min(count(u.cached_input_tokens), total)
+  const cacheWrite = count(u.cache_write_input_tokens)
+  const output = count(u.output_tokens)
+  if (total + output === 0) return null
+
+  return {
+    input: total,
+    output,
+    cacheRead,
+    cacheWrite,
+    // codex ne chiffre pas ses tours : il tourne sur un abonnement, ou — ici —
+    // sur un serveur local qui ne facture rien.
+    costUsd: null,
   }
 }
 
@@ -1048,6 +1122,14 @@ export class AgentRunner {
     const codexItem = parsed.item as
       | { type?: string; text?: string; id?: string; name?: string; arguments?: unknown; output?: unknown; command?: string }
       | undefined
+    // Le reçu du tour, côté codex. Avant le reste : `turn.completed` ne porte
+    // rien d'autre, et le panneau pose la dépense sur le message auquel elle
+    // appartient.
+    if (parsed.type === "turn.completed") {
+      const spent = codexUsageIn(parsed)
+      if (spent) target.send("agent:usage", { id, ...spent })
+      return
+    }
     if (parsed.type === "item.started" && codexItem?.type === "command_execution") {
       started(codexItem.id ?? "codex", "Bash", { command: codexItem.command })
       return
