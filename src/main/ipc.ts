@@ -660,6 +660,14 @@ export function registerIpc(onRecents?: () => void): void {
     return agentModule.aliasesFrom(helpOf(harness(kind).bin))
   })
 
+  // Arrêter une session qui se réveille toute seule. Le bouton du panneau, et
+  // ce que `ScheduleWakeup {stop:true}` demande depuis le flux.
+  ipcMain.handle("agent:unschedule", async (event, conversationId: string) => {
+    const { ws } = requireWorkspace(event)
+    ws.agent.unschedule(String(conversationId))
+    return true
+  })
+
   ipcMain.handle("agent:cancel", async (event, id: string) => {
     const { ws } = requireWorkspace(event)
     ws.agent.cancel(id)

@@ -51,7 +51,8 @@ export type ReplaceResult = { files: number; matches: number; skipped: number }
 // dans le paquet du rendu.
 import type { Permission } from "../shared/permission"
 import type { Goal } from "../main/goal"
-export type { Goal }
+import type { Pending } from "../main/schedule"
+export type { Goal, Pending }
 import type { Spent } from "../main/agent"
 export type { Spent }
 export type { Permission }
@@ -299,6 +300,15 @@ const api = {
     // plus », ce qui n'est pas la même chose que ne rien envoyer.
     onGoal: (cb: (p: { conversationId: string; goal: Goal | null }) => void): Unsubscribe =>
       on("agent:goal", cb),
+    // Une session qui a rendez-vous avec elle-même. `pending: null` veut dire
+    // qu'il n'y en a plus — le réveil est parti, ou on l'a arrêté.
+    onScheduled: (cb: (p: { conversationId: string; pending: Pending | null }) => void): Unsubscribe =>
+      on("agent:scheduled", cb),
+    unschedule: (conversationId: string): Promise<boolean> => invoke("agent:unschedule", conversationId),
+    // Un tour parti tout seul, à la fin d'un compte à rebours. La fenêtre n'a
+    // rien envoyé : c'est par là qu'elle l'apprend et lui fait une place.
+    onWoke: (cb: (p: { conversationId: string; turnId: string; prompt: string }) => void): Unsubscribe =>
+      on("agent:woke", cb),
     conversations: (): Promise<Conversation[]> => invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
       invoke("agent:remember", conversation),

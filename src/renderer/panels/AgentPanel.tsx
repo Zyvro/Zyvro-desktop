@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Square, Target, X } from "lucide-react"
+import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Repeat, Square, Target, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -14,7 +14,7 @@ import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
-import type { Goal } from "../../preload"
+import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import type { StoredTool } from "../../preload"
@@ -125,6 +125,8 @@ type Thread = {
   kind: AgentKind
   /** Ce vers quoi cette session travaille, tel que le harnais le rapporte. */
   goal: Goal | null
+  /** Le rendez-vous que cette session a avec elle-même, quand elle boucle. */
+  pending: Pending | null
   /** What has already been written down, so a save can be skipped. */
   saved: string
   /**
@@ -169,6 +171,7 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     model,
     models: { [kind]: model },
     goal: null,
+    pending: null,
     ranWith: null,
     kind,
     saved: "",
@@ -291,6 +294,18 @@ function ensureAttached(): void {
   // ce qui est une nouvelle en soi.
   window.zyvro.agent.onGoal(({ conversationId, goal }) => {
     mapThread(conversationId, (thread) => ({ ...thread, goal }))
+  })
+
+  // Une session qui a rendez-vous avec elle-même.
+  window.zyvro.agent.onScheduled(({ conversationId, pending }) => {
+    mapThread(conversationId, (thread) => ({ ...thread, pending }))
+  })
+
+  // Un tour parti tout seul. Il lui faut ses deux bulles comme à n'importe quel
+  // autre, sinon il tourne, il dépense, et rien ne bouge à l'écran.
+  window.zyvro.agent.onWoke(({ conversationId, turnId, prompt }) => {
+    if (!state.threads.some((thread) => thread.id === conversationId)) return
+    bindTurn(conversationId, beginTurn(conversationId, prompt), turnId)
   })
 
   window.zyvro.agent.onToolResult(({ id, callId, output, isError, images }) => {
@@ -615,6 +630,10 @@ export async function restore(): Promise<void> {
     // Le but survit à la fermeture parce qu'il survit dans la session du
     // harnais : vérifié sur claude, une reprise le rapporte toujours actif.
     goal: c.goal ?? null,
+    // Les réveils vivent en mémoire : une boucle tient tant que la fenêtre
+    // tient. Une conversation rouverte n'en a donc pas, et c'est la vérité
+    // plutôt qu'un décompte qui ne réveillerait personne.
+    pending: null,
     ranWith: c.ranWith ?? null,
     kind: c.kind,
     images: [],
@@ -660,6 +679,72 @@ function GoalBanner({ goal }: { goal: Goal }): JSX.Element {
       </div>
     </div>
   )
+}
+
+// ScheduleBanner : la session a rendez-vous avec elle-même.
+//
+// Ce qu'il doit dire tient en trois choses : dans combien de temps, pour faire
+// quoi, et comment arrêter. La troisième est la plus importante — une boucle
+// qu'on ne peut pas arrêter depuis l'endroit où on la voit n'est pas une
+// fonctionnalité, c'est une fuite.
+//
+// Le décompte se recalcule à chaque seconde depuis une date absolue, et pas en
+// retranchant un : une fenêtre restée en arrière-plan reçoit ses minuteries en
+// retard, et un compteur qui décrémente dériverait de tout ce temps-là.
+function ScheduleBanner({ pending, onStop }: { pending: Pending; onStop: () => void }): JSX.Element {
+  const maintenant = useSyncExternalStore(everySecond, () => Math.floor(Date.now() / 1000), () => 0)
+  const reste = Math.max(0, pending.at - maintenant * 1000)
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-amber-400/20 bg-amber-400/[0.06] px-3 py-1.5 text-[11px] leading-snug">
+      <Repeat className="h-3 w-3 shrink-0 text-amber-300" />
+      <div className="min-w-0 flex-1">
+        <span className="text-foreground">
+          {reste === 0 ? "Running now" : `Next run in ${duree(reste)}`}
+          {pending.cron ? ` · ${pending.cron}` : ""}
+        </span>
+        <div className="truncate font-mono text-[10px] text-muted-foreground" title={pending.prompt}>
+          {pending.prompt}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onStop}
+        title="Stop this loop"
+        className="shrink-0 rounded border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[11px] text-foreground hover:bg-white/[0.08]"
+      >
+        Stop
+      </button>
+    </div>
+  )
+}
+
+// duree : « 4 min », « 1 h 20 min », « 12 s ». Pas de secondes au-delà d'une
+// minute — elles défilent sans rien apprendre — et pas de « 0 h » non plus.
+function duree(ms: number): string {
+  const secondes = Math.round(ms / 1000)
+  if (secondes < 60) return `${secondes} s`
+  const minutes = Math.round(secondes / 60)
+  if (minutes < 60) return `${minutes} min`
+  const heures = Math.floor(minutes / 60)
+  const reste = minutes % 60
+  return reste === 0 ? `${heures} h` : `${heures} h ${reste} min`
+}
+
+// everySecond : un abonnement que tout le panneau partage, plutôt qu'une
+// minuterie par bannière. Il n'y en a qu'une à l'écran, mais c'est la forme qui
+// évite d'écrire un effet — ce dépôt n'en écrit pas.
+const tics = new Set<() => void>()
+let horloge: ReturnType<typeof setInterval> | null = null
+function everySecond(listener: () => void): () => void {
+  tics.add(listener)
+  if (horloge === null) horloge = setInterval(() => tics.forEach((t) => t()), 1000)
+  return () => {
+    tics.delete(listener)
+    if (tics.size === 0 && horloge !== null) {
+      clearInterval(horloge)
+      horloge = null
+    }
+  }
 }
 
 // AskCard : ce que l'agent veut faire, et les deux boutons.
@@ -1317,6 +1402,18 @@ export function AgentPanel(): JSX.Element {
           message a disparu de l'écran au dixième. C'est la différence entre un
           chat et un atelier. */}
       {thread.goal && <GoalBanner goal={thread.goal} />}
+
+      {/* Le rendez-vous, s'il y en a un. Sous le but, parce que le but dit vers
+          quoi on va et celui-ci seulement quand on y retourne. */}
+      {thread.pending && (
+        <ScheduleBanner
+          pending={thread.pending}
+          onStop={() => {
+            mapThread(thread.id, (t) => ({ ...t, pending: null }))
+            void window.zyvro.agent.unschedule(thread.id)
+          }}
+        />
+      )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {!started ? (

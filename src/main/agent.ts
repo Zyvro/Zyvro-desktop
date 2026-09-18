@@ -4,6 +4,7 @@ import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
 import { commandsIn, remember as rememberCommands } from "./commands"
 import { type Goal, goalIn, sameGoal } from "./goal"
+import { nextRunIn, type Pending, type Wake, wakeIn } from "./schedule"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
@@ -427,6 +428,9 @@ type Turn = {
   conversationId: string
   // Quel harnais tourne : c'est lui que la session apprise concerne.
   kind: AgentKind
+  // Ce que ce tour a demandé pour la suite, lu au vol et honoré à la fin : au
+  // milieu, il peut encore changer d'avis.
+  wake: Wake | null
   child: ChildProcess
   // Whether any assistant text has gone out for this turn yet. The CLI emits
   // one assistant message per stretch of thinking, and between two of them
@@ -462,6 +466,19 @@ export class AgentRunner {
   // Le dernier but connu de chaque conversation, pour ne prévenir la fenêtre
   // que quand il bouge.
   private goals = new Map<string, Goal>()
+
+  // Ce qu'il faut pour refaire un tour de cette conversation sans que personne
+  // ne tape : où l'envoyer, avec quel harnais, dans quel projet, sur quel
+  // modèle. Retenu au moment de l'envoi plutôt que reconstruit plus tard —
+  // reconstruire, ce serait deviner, et un réveil qui repart sur le mauvais
+  // modèle n'a aucune raison d'être remarqué.
+  private repeats = new Map<string, { target: WebContents; kind: AgentKind; ctx: AgentContext; model: string | null; aim: Aim | null }>()
+
+  // Les réveils armés, par conversation. En mémoire : une boucle vit tant que
+  // la fenêtre vit, ce qui est déjà infiniment plus que « tant que le processus
+  // du tour vit », et ce que promet le panneau — une session en cours, avec de
+  // quoi l'arrêter.
+  private waking = new Map<string, { timer: NodeJS.Timeout; pending: Pending }>()
 
   private sessions = new Map<string, string>()
 
@@ -531,6 +548,7 @@ export class AgentRunner {
     aim: Aim | null = null
   ): string {
     const id = randomUUID()
+    this.repeats.set(conversationId, { target, kind, ctx, model, aim })
     const resume = this.sessionFor(kind, conversationId)
     const bin = this.available(kind)
     const env: NodeJS.ProcessEnv = { ...process.env }
@@ -604,7 +622,7 @@ export class AgentRunner {
     // déjà : l'écrire une seconde fois dans le message d'erreur serait la
     // deuxième liste qui a tort le jour où le paquet change de nom.
     const child = launchPiped(bin, args, { cwd: ctx.projectDir, env }, harness(kind).install)
-    this.turns.set(id, { id, conversationId, kind, child, sentText: false })
+    this.turns.set(id, { id, conversationId, kind, wake: null, child, sentText: false })
 
     child.stdin.write(text)
     child.stdin.end()
@@ -659,6 +677,91 @@ export class AgentRunner {
   // emitEvent normalizes the two CLIs' stream formats into one shape. Neither
   // format is contractual, so anything unrecognized is forwarded as raw text
   // rather than dropped: a silent panel is worse than an ugly one.
+  // honorWake tient ce que le tour a demandé.
+  //
+  // C'est ici que « le tour ne se termine pas quand le processus sort » devient
+  // vrai : le processus sort bel et bien — c'est sa nature, `-p` est un
+  // aller-retour — mais la session, elle, a un rendez-vous.
+  private honorWake(turn: Turn): void {
+    const demande = turn.wake
+    if (!demande) return
+    turn.wake = null
+    if (demande.stop === true) {
+      this.unschedule(turn.conversationId)
+      return
+    }
+    // Le cron voyage avec le rendez-vous : le prochain passage se recalcule à
+    // chaque fois, sinon tous les suivants dérivent de la durée du premier tour.
+    this.schedule(turn.conversationId, demande.delaySeconds, demande.prompt, demande.recurring ? demande.cron ?? null : null)
+  }
+
+  // schedule arme un réveil, et n'en arme jamais deux.
+  //
+  // Un tour qui redemande écrase le précédent : deux minuteries pour une
+  // conversation, c'est la boucle qui se dédouble à chaque passage, et la
+  // troisième fois personne ne comprend pourquoi l'agent répond quatre fois.
+  private schedule(conversationId: string, delaySeconds: number, prompt: string, cron: string | null): void {
+    const repeat = this.repeats.get(conversationId)
+    if (!repeat || repeat.target.isDestroyed()) return
+    this.clearTimer(conversationId)
+
+    const pending: Pending = { conversationId, at: Date.now() + delaySeconds * 1000, prompt, cron }
+    const timer = setTimeout(() => {
+      this.waking.delete(conversationId)
+      const encore = this.repeats.get(conversationId)
+      if (!encore || encore.target.isDestroyed()) return
+      // Le rythme se réarme avant de partir, et sur la prochaine occurrence
+      // recalculée : si le tour dure trois minutes, la minute suivante doit
+      // déjà être comptée, sinon « toutes les minutes » veut dire « toutes les
+      // quatre minutes » et personne ne l'a demandé.
+      const suivant = cron === null ? null : nextRunIn(cron, Date.now())
+      if (cron !== null && suivant !== null) {
+        this.schedule(conversationId, Math.max(1, Math.round(suivant / 1000)), prompt, cron)
+      } else {
+        encore.target.send("agent:scheduled", { conversationId, pending: null })
+      }
+      // La fenêtre doit savoir qu'un tour est parti sans elle.
+      //
+      // Elle ne dessine une bulle que pour ce qu'ELLE a envoyé : un tour né
+      // d'une minuterie n'a pas de message, ses événements arrivent sans
+      // destination et sont garés indéfiniment. Vu en éprouvant la boucle — le
+      // décompte repartait, de vrais tours tournaient, et l'écran ne bougeait
+      // pas d'une ligne. Une boucle invisible qui dépense est pire qu'une
+      // boucle qui ne tourne pas.
+      const turnId = this.send(encore.target, encore.kind, prompt, encore.ctx, conversationId, encore.model, [], encore.aim)
+      encore.target.send("agent:woke", { conversationId, turnId, prompt })
+    }, delaySeconds * 1000)
+    // Une minuterie ne doit pas retenir le processus : quitter l'application
+    // quitte, elle ne s'attarde pas jusqu'au prochain réveil.
+    timer.unref?.()
+
+    this.waking.set(conversationId, { timer, pending })
+    repeat.target.send("agent:scheduled", { conversationId, pending })
+  }
+
+  private clearTimer(conversationId: string): void {
+    const en_cours = this.waking.get(conversationId)
+    if (!en_cours) return
+    clearTimeout(en_cours.timer)
+    this.waking.delete(conversationId)
+  }
+
+  // unschedule : le bouton d'arrêt, et ce que `stop: true` demande.
+  unschedule(conversationId: string): void {
+    const avait = this.waking.has(conversationId)
+    this.clearTimer(conversationId)
+    if (!avait) return
+    const repeat = this.repeats.get(conversationId)
+    if (repeat && !repeat.target.isDestroyed()) {
+      repeat.target.send("agent:scheduled", { conversationId, pending: null })
+    }
+  }
+
+  // pendingWake : ce qui est armé, pour une fenêtre qui vient de se rouvrir.
+  pendingWake(conversationId: string): Pending | null {
+    return this.waking.get(conversationId)?.pending ?? null
+  }
+
   private emitEvent(target: WebContents, id: string, kind: AgentKind, line: string): void {
     if (target.isDestroyed()) return
     let parsed: Record<string, unknown> | null = null
@@ -679,6 +782,13 @@ export class AgentRunner {
     // own default instead of a name we made up.
     const ranWith = modelIn(parsed)
     if (turn && ranWith) target.send("agent:model", { id, conversationId: turn.conversationId, model: ranWith })
+
+    // Ce que ce tour demande pour la suite. Retenu et non honoré tout de suite :
+    // au milieu d'un tour, il peut encore l'annuler.
+    if (turn) {
+      const demande = wakeIn(parsed)
+      if (demande) turn.wake = demande
+    }
 
     // Le but de la session, quand le harnais en dit quelque chose. Les deux
     // formes sont lues au même endroit ; seul un changement traverse, parce que
@@ -808,6 +918,8 @@ export class AgentRunner {
         if (parsed.is_error && typeof result === "string") {
           target.send("agent:error", { id, message: result })
         }
+        // Le tour est fini : c'est maintenant qu'on tient ce qu'il a demandé.
+        if (turn) this.honorWake(turn)
         return
       }
       return
