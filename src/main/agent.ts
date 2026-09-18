@@ -268,19 +268,28 @@ export function qwenPermission(permission: Permission, canAsk = true): string[] 
 // Le modèle et l'adresse sortent du même choix — « lmstudio/qwen3-coder-next »
 // nomme les deux — parce que les tenir séparés laisserait exister l'état « le
 // modèle de LM Studio, demandé à Ollama », qui répond 404 et n'apprend rien.
+//
+// Ce qui n'est PAS ici : l'adresse et la clef. Elles passent par
+// l'environnement, `aimEnv` — une clef sur la ligne de commande se lit dans
+// `ps`, pour tout ce qui tourne sur la machine. Le nom du modèle, lui, n'est
+// pas un secret et reste visible, ce qui aide quand on regarde ce que fait
+// l'application.
 export function aimArgs(aim: Aim): string[] {
-  return [
-    "--auth-type",
-    "openai",
-    "--openai-base-url",
-    aim.url,
+  return ["--auth-type", "openai", "-m", aim.model]
+}
+
+// aimEnv est l'autre moitié : ce que Qwen Code lit dans son environnement.
+//
+// Vérifié à la sonde plutôt que supposé — avec ces deux variables et aucun
+// drapeau d'adresse, la CLI poste bien sur `/v1/chat/completions` avec
+// `Authorization: Bearer …`.
+export function aimEnv(aim: Aim): Record<string, string> {
+  return {
+    OPENAI_BASE_URL: aim.url,
     // Un serveur local n'en demande pas, mais le client en exige une : sans
     // valeur, Qwen Code réclame une connexion au lieu d'appeler.
-    "--openai-api-key",
-    aim.key.trim() || "local",
-    "-m",
-    aim.model,
-  ]
+    OPENAI_API_KEY: aim.key.trim() || "local",
+  }
 }
 
 // directoriesOf is the set of folders a batch of images sits in, without
@@ -521,6 +530,9 @@ export class AgentRunner {
     let disposeConfig: (() => void) | null = null
 
     const args: string[] = argsFor(kind, ctx, resume ?? null, model, images, aim)
+    // La clef du point d'accès arrive ici et pas dans `args` : la table des
+    // processus est lisible par tout ce qui tourne sur cette machine.
+    if (aim) Object.assign(env, aimEnv(aim))
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {

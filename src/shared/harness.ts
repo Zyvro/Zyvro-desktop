@@ -93,6 +93,10 @@ export function isAgentKind(value: unknown): value is AgentKind {
 
 // Aim est l'endroit où le harnais va chercher son modèle : une adresse et, si
 // le serveur en demande une, une clef.
+//
+// La clef ne voyage jamais dans les arguments — voir `aimEnv`. Elle ne descend
+// pas non plus dans le rendu : le processus principal la lit et la passe au
+// sous-processus, la fenêtre ne la voit pas.
 export type Aim = { provider: string; url: string; key: string; model: string }
 
 // Un modèle visé s'écrit « fournisseur/modèle » — « lmstudio/qwen3-coder-next ».

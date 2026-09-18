@@ -41,7 +41,7 @@ const from = (rel) => path.join(ROOT, rel).replace(/\\/g, "/")
 writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${from("src/shared/harness")}"\n` +
-    `export { argsFor, promptWith, qwenPermission, aimArgs, AgentRunner } from "${from("src/main/agent")}"\n` +
+    `export { argsFor, promptWith, qwenPermission, aimArgs, aimEnv, AgentRunner } from "${from("src/main/agent")}"\n` +
     `export { startShotsServer } from "${from("src/main/shots")}"\n`
 )
 await build({
@@ -200,11 +200,41 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 
   const aim = { provider: "lmstudio", url: "http://127.0.0.1:1234/v1", key: "", model: "qwen3-coder-next" }
   const flags = mod.aimArgs(aim).join(" ")
-  check("**la visée porte l'adresse et le modèle**", flags.includes("--openai-base-url http://127.0.0.1:1234/v1") && flags.includes("-m qwen3-coder-next"), flags)
+  check("**la visée nomme le modèle**", flags.includes("-m qwen3-coder-next"), flags)
   check("et un type d'authentification", flags.includes("--auth-type openai"), flags)
   // Un serveur local n'en demande pas, mais le client en exige une : sans
   // valeur, Qwen Code réclame une connexion au lieu d'appeler.
-  check("**une clef de remplissage plutôt qu'une demande de connexion**", flags.includes("--openai-api-key local"), flags)
+  // Le fond de l'affaire : une clef sur la ligne de commande se lit dans `ps`,
+  // pour tout ce qui tourne sur la machine. Ce panneau écrit déjà la question
+  // sur stdin pour cette raison exacte.
+  const secret = { provider: "custom", url: "https://exemple.test/v1", key: "sk-tres-secrete", model: "m" }
+  const ligne = mod.argsFor("qwen", ctx, null, "custom/m", [], secret).join(" ")
+  check("**la clef ne passe jamais par la ligne de commande**", !ligne.includes("sk-tres-secrete"), ligne)
+  check("ni l'adresse", !ligne.includes("exemple.test"), ligne)
+  check(
+    "**elle arrive par l'environnement**",
+    mod.aimEnv(secret).OPENAI_API_KEY === "sk-tres-secrete" &&
+      mod.aimEnv(secret).OPENAI_BASE_URL === "https://exemple.test/v1",
+    JSON.stringify(mod.aimEnv(secret))
+  )
+  // Un serveur local n'en demande pas, mais le client en exige une : sans
+  // valeur, Qwen Code réclame une connexion au lieu d'appeler.
+  check("**une clef de remplissage plutôt qu'une demande de connexion**", mod.aimEnv(aim).OPENAI_API_KEY === "local")
+
+  // Et c'est le processus principal qui la pose, pas le rendu.
+  const agentSrc = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
+  check(
+    "et c'est le processus principal qui la pose",
+    agentSrc.includes("if (aim) Object.assign(env, aimEnv(aim))"),
+    "personne ne met la visée dans l'environnement du sous-processus"
+  )
+  // Elle vient du moteur, qui la détient, et pas du catalogue affiché.
+  const aimSrc = readFileSync(path.join(ROOT, "src/main/aim.ts"), "utf8")
+  check(
+    "**et elle est demandée au moteur par son nom**",
+    aimSrc.includes("/endpoint`"),
+    "la clef n'est jamais demandée : un point d'accès distant se ferait refuser"
+  )
 
   // Visé, le modèle vient de la visée : envoyer les deux, c'est `-m` deux fois.
   const both = mod.argsFor("qwen", ctx, null, "lmstudio/qwen3-coder-next", [], aim).join(" ")
@@ -222,7 +252,7 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   check("**qwen, si**", mod.harness("qwen").aimable === true)
   check(
     "et un harnais non visable ignore une visée qu'on lui passerait",
-    !mod.argsFor("claude", ctx, null, null, [], aim).join(" ").includes("--openai-base-url")
+    !mod.argsFor("claude", ctx, null, null, [], aim).join(" ").includes("--auth-type")
   )
 }
 

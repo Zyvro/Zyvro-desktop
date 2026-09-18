@@ -39,14 +39,31 @@ export async function aimFor(
   }
 
   const row = rows.find((p) => p.id === split.provider && p.endpoint === true)
-  const url = typeof row?.endpoint_url === "string" ? row.endpoint_url.trim() : ""
-  if (!url) return null
+  if (!row) return null
 
-  // La clef reste au moteur. Elle n'est pas dans ce que /api/providers rend, et
-  // c'est voulu : les serveurs que l'on vise ici tournent sur cette machine et
-  // n'en demandent pas. Un point d'accès qui en exige une n'est donc pas encore
-  // visable, et il vaut mieux le dire que le faire échouer en silence.
-  return { provider: split.provider, url, key: "local", model: split.model }
+  // L'adresse ET la clef, demandées par leur nom.
+  //
+  // `/api/providers` ne rend pas la clef, et c'est délibéré : ce catalogue est
+  // affiché, et une clef qu'on affiche est une clef qu'on finit par recopier
+  // ailleurs. La route dédiée existe pour ce cas-ci — un agent lancé sur cette
+  // machine qui doit vraiment parler au serveur. Sans elle, un point d'accès
+  // distant à clef se faisait refuser l'accès et rien ne disait pourquoi.
+  //
+  // Elle s'arrête ici : le processus principal la garde, la passe à l'agent par
+  // son environnement, et la fenêtre ne la voit jamais.
+  try {
+    const response = await fetch(`${daemon.origin}/api/providers/${split.provider}/endpoint`, {
+      headers: { Authorization: `Bearer ${daemon.token}` },
+    })
+    if (!response.ok) return null
+    const body = (await response.json()) as { url?: unknown; key?: unknown }
+    const url = typeof body.url === "string" ? body.url.trim() : ""
+    if (!url) return null
+    const key = typeof body.key === "string" ? body.key.trim() : ""
+    return { provider: split.provider, url, key, model: split.model }
+  } catch {
+    return null
+  }
 }
 
 // aimableModels : ce que les serveurs de ce projet disent savoir faire tourner.
