@@ -970,8 +970,72 @@ export function AgentPanel(): JSX.Element {
 
   const disabled = project === null
 
+  // Lâcher un fichier : tout le panneau l'attrape, pas seulement le champ.
+  //
+  // Le champ fait deux centimètres de haut au fond d'une colonne, et viser deux
+  // centimètres avec un fichier au bout du curseur est un geste qu'on rate.
+  // Toute la colonne est donc la cible — et elle seule : le terminal a son
+  // propre dépôt, qui écrit le chemin dans le shell, et le lui prendre serait
+  // échanger une gêne contre une surprise.
+  //
+  // `dragleave` compte les entrées et les sorties plutôt que de croire le
+  // premier venu : sur un conteneur qui a des enfants, il part à chaque fois
+  // que le curseur passe de l'un à l'autre, et le cadre clignoterait tout du
+  // long.
+  const survol = useRef(0)
+  const onDragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesPaths(event)) return
+    event.preventDefault()
+    setDropping(true)
+  }
+  const onDragEnter = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesPaths(event)) return
+    survol.current += 1
+    setDropping(true)
+  }
+  const onDragLeave = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesPaths(event)) return
+    survol.current = Math.max(0, survol.current - 1)
+    if (survol.current === 0) setDropping(false)
+  }
+  const onDrop = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (!carriesPaths(event)) return
+    event.preventDefault()
+    survol.current = 0
+    setDropping(false)
+    // Un fichier venu du Finder peut être une image à joindre ; un fichier venu
+    // de l'arbre est toujours une désignation, et il n'y a rien à lire à son
+    // sujet — le projet est déjà ouvert.
+    const files = [...event.dataTransfer.files]
+    if (files.length > 0) {
+      void take(files)
+      return
+    }
+    insertPaths(droppedPaths(event))
+  }
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div
+      className={cn(
+        "relative flex h-full min-h-0 flex-col bg-background",
+        dropping && "ring-2 ring-inset ring-primary/60"
+      )}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {/* Ce qu'on s'apprête à lâcher, dit en grand plutôt que par un liseré :
+          on arrive avec un fichier au bout du curseur et on veut savoir que
+          c'est ici que ça tombe. Sans `pointer-events`, sinon le voile
+          intercepte le dépôt qu'il annonce. */}
+      {dropping && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-primary/[0.07]">
+          <span className="rounded-md border border-primary/40 bg-background/90 px-3 py-1.5 text-xs text-foreground">
+            Drop to attach an image, or write its path
+          </span>
+        </div>
+      )}
       {/* Rien ne doit sortir de cette barre. Le panneau se redimensionne, et le
           nom du modèle est choisi par la CLI — « claude-opus-5[1m] (default) »
           est plus long que « claude-haiku-4-5 ». Sans de quoi rétrécir, c'est
@@ -1087,29 +1151,7 @@ export function AgentPanel(): JSX.Element {
         )}
       </div>
 
-      <div
-        className="shrink-0 border-t border-white/[0.06] p-2"
-        onDragOver={(event) => {
-          if (!carriesPaths(event)) return
-          event.preventDefault()
-          setDropping(true)
-        }}
-        onDragLeave={() => setDropping(false)}
-        onDrop={(event) => {
-          if (!carriesPaths(event)) return
-          event.preventDefault()
-          setDropping(false)
-          // Un fichier venu du Finder peut être une image à joindre ; un
-          // fichier venu de l'arbre est toujours une désignation, et il n'y a
-          // rien à lire à son sujet — le projet est déjà ouvert.
-          const files = [...event.dataTransfer.files]
-          if (files.length > 0) {
-            void take(files)
-            return
-          }
-          insertPaths(droppedPaths(event))
-        }}
-      >
+      <div className="shrink-0 border-t border-white/[0.06] p-2">
         {/* One chip per image, with its name and a cross — the same shape VS
             Code and Cursor use, and for the same reason: an attachment you
             cannot see is one you send by accident. */}
@@ -1154,8 +1196,7 @@ export function AgentPanel(): JSX.Element {
             texte étroite, et les trois hauteurs ne tombaient jamais juste. */}
         <div
           className={cn(
-            "rounded-lg border border-white/[0.06] bg-white/[0.04] px-2.5 py-2 focus-within:border-white/[0.12]",
-            dropping && "border-primary/60 bg-primary/[0.08]"
+            "rounded-lg border border-white/[0.06] bg-white/[0.04] px-2.5 py-2 focus-within:border-white/[0.12]"
           )}
         >
           <textarea

@@ -170,6 +170,36 @@ const check = (name, ok, detail = "") => {
   }
 }
 
+// ---- où ça tombe ---------------------------------------------------------
+//
+// « quand on drag and drop quelque chose vers l'agent fait que toute la fenêtre
+// le catch pas uniquement l'input c'est trop petit et chiant à viser. »
+//
+// La zone de dépôt était la boîte de saisie : deux centimètres de haut, en bas
+// d'un panneau qui en fait trente. On vise, on rate, le fichier part au
+// navigateur qui l'ouvre à la place. Elle est maintenant la racine du panneau,
+// et c'est ce qui se vérifie ici — un `onDrop` qui redescendrait sur un
+// enfant compilerait tout aussi bien.
+{
+  const source = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+
+  // La balise qui porte le dépôt, prise depuis son `<` : celle du panneau
+  // entier occupe toute la hauteur, celle du composeur non.
+  const avant = source.slice(0, source.indexOf("onDrop={onDrop}"))
+  const balise = avant.slice(avant.lastIndexOf("<div"))
+  check("**le dépôt est attrapé par le panneau entier**", /h-full/.test(balise), balise.trim().slice(0, 200))
+  check("et la boîte de saisie ne le reprend pas pour elle", source.split("onDrop={onDrop}").length === 2)
+
+  // Un conteneur à enfants reçoit un `dragleave` à chaque frontière interne.
+  // Croire le premier, c'est un cadre qui clignote sur toute la traversée.
+  check("**les entrées et les sorties se comptent**", /survol\.current \+= 1/.test(source))
+  check("et le compte revient à zéro au dépôt", /survol\.current = 0/.test(source))
+
+  // Le voile annonce le dépôt ; sans `pointer-events-none` il l'intercepte.
+  const voile = source.slice(source.indexOf("{dropping && ("))
+  check("**le voile ne mange pas le dépôt qu'il annonce**", voile.slice(0, 400).includes("pointer-events-none"))
+}
+
 console.log(
   failures === 0
     ? "\nUn fichier lâché écrit son chemin, cité, là où était le curseur."
