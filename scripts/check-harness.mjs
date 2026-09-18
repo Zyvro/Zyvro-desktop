@@ -42,7 +42,8 @@ writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${from("src/shared/harness")}"\n` +
     `export { argsFor, promptWith, qwenPermission, aimArgs, aimEnv, AgentRunner } from "${from("src/main/agent")}"\n` +
-    `export { startShotsServer } from "${from("src/main/shots")}"\n`
+    `export { startShotsServer } from "${from("src/main/shots")}"\n` +
+    `export { launch } from "${from("src/main/cli")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -302,6 +303,45 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
     "**une vieille conversation rend sa session à son harnais**",
     ipc.includes("conversation.sessions ??") && ipc.includes("[conversation.kind]: conversation.sessionId"),
     "la reprise d'un ancien fichier ne dit pas de quel harnais il parle"
+  )
+}
+
+// ---- « pas trouvé » doit dire par où commencer -----------------------------
+//
+// Ce qu'il a vu à l'écran : « "qwen" was not found on this machine. Install it
+// and sign in, then reopen this panel. » — et pas un mot sur COMMENT. La
+// commande existait pourtant déjà, dans la table des harnais, à trois lignes de
+// là. Une phrase qui constate un manque sans dire par où commencer oblige à
+// aller chercher ailleurs ce que l'application avait sous la main.
+{
+  for (const kind of mod.AGENT_KINDS) {
+    const h = mod.harness(kind)
+    check(`${kind} sait comment on l'installe`, /^npm install -g \S+/.test(h.install), h.install)
+  }
+
+  let message = ""
+  try {
+    mod.launch("zyvro-un-binaire-qui-n-existe-pas", [], {}, "npm install -g @exemple/truc")
+  } catch (err) {
+    message = String(err.message)
+  }
+  check("**et le message le dit**", message.includes("npm install -g @exemple/truc"), message)
+  check("en nommant ce qui manque", message.includes("zyvro-un-binaire-qui-n-existe-pas"), message)
+  // Un appelant qui ne sait pas comment s'installe ce qu'il lance ne doit pas
+  // inventer une commande : mieux vaut la phrase courte que la mauvaise.
+  let sansAide = ""
+  try {
+    mod.launch("zyvro-un-binaire-qui-n-existe-pas", [])
+  } catch (err) {
+    sansAide = String(err.message)
+  }
+  check("et ne l'invente pas quand personne ne la connaît", !sansAide.includes("npm install"), sansAide)
+
+  const agentSrc = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
+  check(
+    "**la commande vient de la table, pas d'une deuxième copie**",
+    agentSrc.includes("harness(kind).install"),
+    "le message d'erreur réécrit la commande d'installation dans son coin"
   )
 }
 

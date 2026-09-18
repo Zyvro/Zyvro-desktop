@@ -16,16 +16,40 @@ body,
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
-  /* A desktop window should not rubber-band or offer text selection on chrome
-     the way a web page does. */
+  /* A desktop window should not rubber-band the way a web page does. */
   overscroll-behavior: none;
+}
+
+/* Ce qu'on lit se copie. C'est la règle, et elle est dans ce sens-là depuis
+   qu'on s'est rendu compte de l'autre.
+
+   Avant, `body` était `user-select: none` — une fenêtre d'application ne se
+   sélectionne pas comme une page web — et ce qui se lit devait le redemander.
+   Sur le papier c'est juste ; en pratique deux endroits l'avaient redemandé sur
+   toute l'application, et donc rien de ce que l'agent dit ne se copiait : ni sa
+   réponse, ni la commande qu'il propose, ni le message d'erreur qu'on voulait
+   justement coller quelque part. « Impossible de copier les textes d'erreur et
+   les prompts dans le chat. »
+
+   Un opt-in que deux composants sur cinquante ont fait n'est pas une règle,
+   c'est une liste qu'on oublie de tenir. Le défaut s'inverse donc : le contenu
+   se sélectionne, et c'est la garniture — boutons, onglets, menus, barres —
+   qui se retire. Le pire qui puisse arriver dans ce sens est un mot surligné
+   sur une barre d'outils ; dans l'autre, c'est une erreur qu'on doit recopier
+   à la main. */
+button,
+[role="tab"],
+[role="menuitem"],
+[role="menu"],
+[role="menubar"],
+[role="separator"],
+.zy-chrome,
+.zy-drag {
   user-select: none;
 }
 
-/* Anything the user reads or edits opts back in. */
-input,
-textarea,
-[contenteditable="true"],
+/* Et ce qui se lit à l'intérieur d'un bouton — le nom d'un modèle, un chemin —
+   reprend le dessus quand on le lui demande explicitement. */
 .zy-selectable {
   user-select: text;
 }

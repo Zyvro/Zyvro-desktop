@@ -593,7 +593,10 @@ export class AgentRunner {
     // launch rather than spawn: it resolves the real file, which on Windows
     // carries an extension and may be a .cmd that Node refuses to start
     // without a shell.
-    const child = launchPiped(bin, args, { cwd: ctx.projectDir, env })
+    // La commande d'installation vient de la table des harnais, qui la porte
+    // déjà : l'écrire une seconde fois dans le message d'erreur serait la
+    // deuxième liste qui a tort le jour où le paquet change de nom.
+    const child = launchPiped(bin, args, { cwd: ctx.projectDir, env }, harness(kind).install)
     this.turns.set(id, { id, conversationId, kind, child, sentText: false })
 
     child.stdin.write(text)

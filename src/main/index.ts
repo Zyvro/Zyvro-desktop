@@ -6,9 +6,11 @@ import { BROWSER_PARTITION, noteRequest } from "./browser"
 import { loadRecents } from "./recents"
 import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath } from "./cli"
+import { appContextTemplate } from "./contextmenu"
 import fs from "node:fs"
 
 const isDev = !app.isPackaged
+
 
 // scripts/dev-app-name.mjs renames the development Electron bundle so the menu
 // bar stops saying "Electron". That rename has a side effect worth blocking:
@@ -114,6 +116,22 @@ function createWindow(): BrowserWindow {
   win.webContents.on("console-message", (event) => {
     if (event.level !== "error" && event.level !== "warning") return
     console.error(`[renderer ${event.level}] ${event.message} (${event.sourceId}:${event.lineNumber})`)
+  })
+
+  // Le clic droit sur la fenêtre de l'application.
+  //
+  // Il n'y en avait pas : seule la vue invitée du navigateur en avait un. Avec
+  // le menu Édition et son raccourci, Cmd+C marchait — mais seulement pour qui
+  // pense à le chercher, et seulement une fois qu'il y a quelque chose de
+  // sélectionné. « Impossible de copier les textes d'erreur et les prompts. »
+  //
+  // Le nécessaire, et rien de plus : ce qu'on vise, et de quoi tout prendre.
+  // Les rôles plutôt que des actions écrites à la main — ils portent les
+  // raccourcis du système et le grisé quand il n'y a rien à coller.
+  win.webContents.on("context-menu", (_event, params) => {
+    const items = appContextTemplate(params.selectionText, params.isEditable)
+    if (items.length === 0) return
+    Menu.buildFromTemplate(items).popup({ window: win })
   })
 
   win.webContents.on("render-process-gone", (_event, details) => {

@@ -202,14 +202,27 @@ export async function prepare(names: string[]): Promise<void> {
 
 // launch runs one of these tools. It exists so the Windows rule — a .cmd needs
 // a shell — lives in one place rather than in every caller that spawns a CLI.
-export function launch(name: string, args: string[], options: SpawnOptions = {}): ChildProcess {
+export function launch(
+  name: string,
+  args: string[],
+  options: SpawnOptions = {},
+  // Comment l'installer, quand l'appelant le sait.
+  //
+  // « Install it and sign in » ne disait pas comment, et l'appelant, lui, le
+  // sait : la table des harnais porte la commande depuis le début. Une phrase
+  // qui constate un manque sans dire par où commencer est une phrase qui oblige
+  // à aller chercher ailleurs ce que l'application avait sous la main.
+  install = ""
+): ChildProcess {
   const found = locate(name)
   if (!found) {
     // Spawning the bare name anyway would fail with ENOENT, which is the same
     // answer with less information. Callers turn this into the sentence the
     // user reads.
     throw new Error(
-      `"${name}" was not found on this machine. Install it and sign in, then reopen this panel.`
+      `"${name}" was not found on this machine.` +
+        (install ? ` Install it with: ${install} —` : "") +
+        ` then sign in and reopen this panel.`
     )
   }
   return spawn(found.file, args, { ...options, shell: found.needsShell })
@@ -222,9 +235,10 @@ export function launch(name: string, args: string[], options: SpawnOptions = {})
 export function launchPiped(
   name: string,
   args: string[],
-  options: Omit<SpawnOptions, "stdio"> = {}
+  options: Omit<SpawnOptions, "stdio"> = {},
+  install = ""
 ): ChildProcessByStdio<Writable, Readable, Readable> {
-  return launch(name, args, { ...options, stdio: ["pipe", "pipe", "pipe"] }) as ChildProcessByStdio<
+  return launch(name, args, { ...options, stdio: ["pipe", "pipe", "pipe"] }, install) as ChildProcessByStdio<
     Writable,
     Readable,
     Readable
