@@ -445,6 +445,21 @@ export function TerminalPanel(): JSX.Element {
     window.queueMicrotask(() => void reprendre(projectDir))
   }
 
+  // poser : installer les onglets repris sans écraser ce qui est arrivé entre-temps.
+  //
+  // `reprendre` demande au processus principal, ce qui prend un aller-retour.
+  // Pendant ce temps, quelqu'un peut cliquer une session persistante dans la
+  // barre latérale — et un `setSessions(keys)` sec effacerait l'onglet qu'on
+  // vient d'ouvrir, sans rien dire. Le clic paraît alors n'avoir aucun effet,
+  // ce qui est exactement ce que Jeremy a décrit.
+  //
+  // Une fusion plutôt qu'un remplacement : ce qui a été repris d'abord, ce qui
+  // est arrivé pendant l'attente ensuite.
+  const poser = (keys: string[]): void => {
+    setSessions((actuelles) => [...keys, ...actuelles.filter((key) => !keys.includes(key))])
+    setActiveKey((actuelle) => (actuelle === "" ? (keys[0] ?? "") : actuelle))
+  }
+
   // reprendre : adopter les shells que le processus principal a gardés.
   //
   // Trouvé en creusant tmux avec Jeremy : un rechargement du rendu abandonnait
@@ -477,17 +492,17 @@ export function TerminalPanel(): JSX.Element {
         if (shell.seen || shell.cwd) patchStatus(key, { history: shell.seen, cwd: shell.cwd })
         return key
       })
-      setSessions(keys)
-      setActiveKey(keys[0])
+      poser(keys)
       return
     }
     const keys = vivants.map((vivant) => {
       const key = nextSessionKey()
-      patchStatus(key, { ptyId: vivant.id, pty: vivant.pty })
+      // L'étiquette suit : un onglet repris doit garder son nom de session,
+      // pas redevenir « Shell 2 ».
+      patchStatus(key, { ptyId: vivant.id, pty: vivant.pty, persistent: vivant.label })
       return key
     })
-    setSessions(keys)
-    setActiveKey(keys[0])
+    poser(keys)
   }
 
   // Ce que la barre latérale demande d'ouvrir.

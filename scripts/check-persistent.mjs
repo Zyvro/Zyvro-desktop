@@ -181,6 +181,50 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   )
 }
 
+// ---- les deux fonctions ne se marchent pas dessus -------------------------
+//
+// Signalé par Jeremy une heure après la première version : « quand je rouvre
+// l'app alors que j'avais un shell persistant, celui-ci est ouvert et visible
+// dans Persistent shells mais le process ne tourne plus ». Deux fonctions
+// écrites coup sur coup — le tampon qui garde le défilement à la fermeture, et
+// les sessions persistantes — et la première avalait la seconde : la session
+// était sauvée comme un shell ordinaire, et la réouverture la recréait morte,
+// avec son ancien défilement. Elle avait l'air ouverte, et rien ne tournait
+// dedans.
+{
+  const term = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
+
+  check(
+    "**une session persistante se sait telle**",
+    /attached: command !== null/.test(term),
+    "rien ne la distingue d'un shell ordinaire"
+  )
+  check(
+    "**et son défilement n'est pas gardé à la fermeture**",
+    /!session\.attached &&/.test(term),
+    "la réouverture recrée un shell mort affichant l'historique d'une session vivante"
+  )
+  // Mais elle reste reprise après un rechargement du rendu : son client est
+  // vivant, et l'oublier le ferait fuir comme n'importe quel shell.
+  const liste = term.slice(term.indexOf("running(cwd: string)"))
+  check(
+    "**mais elle est reprise après un rechargement**",
+    !/session\.cwd === lieu && !session\.attached/.test(liste.slice(0, 600)),
+    "le client d'attachement fuirait, invisible, jusqu'à la fermeture"
+  )
+  check("et l'onglet repris garde son nom", term.includes("label: session.label"))
+
+  // La course : la reprise demande au principal, ce qui prend un aller-retour,
+  // et un `setSessions` sec effacerait l'onglet ouvert entre-temps par un clic
+  // dans la barre latérale. Le clic paraît alors sans effet.
+  const panel = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
+  check(
+    "**et la reprise n'écrase pas un onglet ouvert entre-temps**",
+    panel.includes("setSessions((actuelles) => [...keys, ...actuelles.filter((key) => !keys.includes(key))])"),
+    "cliquer une session pendant la reprise ne fait rien du tout"
+  )
+}
+
 console.log(
   failures === 0
     ? "\nUne session persistante appartient à son projet, se détache quand on ferme, et ne meurt que si on le demande."

@@ -556,7 +556,8 @@ export function registerIpc(onRecents?: () => void): void {
       cols || 80,
       rows || 24,
       { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token },
-      command
+      command,
+      persistent.labelOf(root, name)
     )
     return { ...session, name, label: persistent.labelOf(root, name) }
   })

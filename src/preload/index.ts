@@ -267,7 +267,7 @@ const api = {
      * Demandé au démarrage : un rechargement du rendu ne tue pas les ptys, il
      * les oublie — ce sont des enfants du processus principal.
      */
-    running: (): Promise<{ id: string; pty: boolean }[]> => invoke("terminal:running"),
+    running: (): Promise<{ id: string; pty: boolean; label?: string }[]> => invoke("terminal:running"),
     /** Ce qu'un shell a déjà écrit. À demander une fois l'identifiant adopté. */
     replay: (id: string): Promise<boolean> => invoke("terminal:replay", id),
     /**

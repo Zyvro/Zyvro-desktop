@@ -130,7 +130,7 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
 
   check(
     "**le principal sait dire quels shells vivent encore**",
-    /running\(cwd: string\): \{ id: string; pty: boolean \}\[\]/.test(term),
+    /running\(cwd: string\): \{ id: string; pty: boolean; label\?: string \}\[\]/.test(term),
     "une page rechargée n'a aucun moyen de les retrouver"
   )
   // Filtré par dossier : un pty a le cwd de sa naissance, et reprendre dans un

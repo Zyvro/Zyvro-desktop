@@ -138,6 +138,20 @@ type Session = {
    *  reprendre. */
   cwd: string
   /**
+   * Vrai quand ce shell n'est que le client d'une session persistante.
+   *
+   * Il ne faut alors PAS garder son défilement à la fermeture : la session
+   * survit chez `tmux` ou `screen`, avec son propre historique, et la rouvrir
+   * la réattache. Sans cette distinction, la réouverture recréait un shell
+   * ordinaire affichant l'ancien défilement — il avait l'air ouvert, et rien ne
+   * tournait dedans. Signalé par Jeremy le 19/09, une heure après la première
+   * version : deux fonctions écrites coup sur coup qui se marchaient dessus.
+   */
+  attached: boolean
+  /** L'étiquette de la session persistante, pour que l'onglet garde son nom
+   *  après un rechargement. */
+  label?: string
+  /**
    * Ce que le shell a déjà écrit, pour le rendre à une fenêtre qui s'est
    * rechargée.
    *
@@ -172,13 +186,15 @@ export class Terminals {
     // une session persistante. Le reste — le pty, le tampon, la reprise — est
     // rigoureusement le même, et c'est voulu : une session persistante est un
     // shell de plus dans le panneau, pas un second panneau.
-    command: { file: string; args: string[] } | null = null
+    command: { file: string; args: string[] } | null = null,
+    /** L'étiquette d'une session persistante, retenue pour la reprise. */
+    label?: string
   ): { id: string; pty: boolean; banner?: string } {
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
     const lieu = cwd || os.homedir()
     const pty = makePty(lieu, cols, rows, wired?.env, command)
-    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: "" })
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: "", attached: command !== null, label })
 
     pty.onData((data) => {
       this.remember(id, data)
@@ -228,11 +244,16 @@ export class Terminals {
    * dans un projet le shell d'un autre donnerait une invite qui ment sur l'endroit
    * où l'on se trouve.
    */
-  running(cwd: string): { id: string; pty: boolean }[] {
+  running(cwd: string): { id: string; pty: boolean; label?: string }[] {
     const lieu = cwd || os.homedir()
+    // Les sessions persistantes y sont aussi : après un rechargement du rendu,
+    // leur client d'attachement est bien vivant — il faut le reprendre, sinon
+    // il fuit exactement comme un shell ordinaire. Ce qui les distingue est
+    // qu'on ne garde PAS leur défilement à la fermeture, pas qu'on les oublie
+    // en chemin.
     return [...this.sessions.values()]
       .filter((session) => session.cwd === lieu)
-      .map((session) => ({ id: session.id, pty: ptyAvailable() }))
+      .map((session) => ({ id: session.id, pty: ptyAvailable(), label: session.label }))
   }
 
   /** Rendre à une fenêtre ce qu'un shell a déjà écrit. */
@@ -324,7 +345,13 @@ export class Terminals {
   }
 
   private async keepHistory(projectDir: string, sessions: Session[]): Promise<void> {
-    const shells = sessions.filter((session) => session.cwd === path.resolve(projectDir) || session.cwd === projectDir)
+    const shells = sessions.filter(
+      (session) =>
+        // Pas les sessions persistantes : leur défilement est chez `screen` ou
+        // `tmux`, et le garder ici en ferait un second, plus vieux, affiché
+        // dans un shell mort qu'on croirait vivant.
+        !session.attached && (session.cwd === path.resolve(projectDir) || session.cwd === projectDir)
+    )
     try {
       const file = this.historyFile(projectDir)
       await fs.mkdir(path.dirname(file), { recursive: true })
