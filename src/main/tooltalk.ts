@@ -142,6 +142,41 @@ export function planIn(input: unknown): PlanItem[] {
 // side.
 const MAX_OUTPUT = 4000
 
+// Ce qu'un outil a renvoyé en images.
+//
+// Un bloc `{type:"image", source:{type:"base64", media_type, data}}` n'a pas de
+// champ `text`, donc `outputIn` le réduisait à une chaîne vide et le jetait sans
+// un mot. C'est ce qui rendait invisible tout ce que l'agent montre : une
+// capture qu'il vient de prendre, un rendu qu'il vient de produire. « Si
+// l'agent me donne une image, non plus. »
+//
+// Rendu en octets plutôt qu'en base64 : le reste de l'application travaille en
+// octets — c'est ce que la reconnaissance de format lit, et ce que l'écriture
+// sur disque prend.
+export function imagesIn(content: unknown): { bytes: Uint8Array }[] {
+  if (!Array.isArray(content)) return []
+  const out: { bytes: Uint8Array }[] = []
+  for (const block of content) {
+    const b = (block && typeof block === "object" ? block : {}) as Record<string, unknown>
+    if (b.type !== "image") continue
+    // Deux écritures pour la même chose, et il faut accepter les deux : le bloc
+    // Anthropic range les octets sous `source.data`, le protocole MCP les met à
+    // plat sous `data`. Les outils de cette application parlent MCP, et ce que
+    // la CLI recopie dans son flux dépend d'elle. N'en lire qu'une, c'est
+    // perdre les images d'une moitié des outils sans le savoir.
+    const source = (b.source && typeof b.source === "object" ? b.source : {}) as Record<string, unknown>
+    const data = str(source.data) || str(b.data)
+    if (!data) continue
+    try {
+      out.push({ bytes: new Uint8Array(Buffer.from(data, "base64")) })
+    } catch {
+      // Une donnée qu'on ne sait pas décoder n'est pas une raison de perdre le
+      // reste du résultat.
+    }
+  }
+  return out
+}
+
 export function outputIn(content: unknown): string {
   let text: string
   if (typeof content === "string") text = content

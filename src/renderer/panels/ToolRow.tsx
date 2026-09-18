@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Thumb } from "~/panels/Thumb"
 import {
   ChevronDown,
   ChevronRight,
@@ -35,6 +36,9 @@ export type ToolCall = {
   detail: string
   plan: PlanItem[]
   output: string
+  /** Ce que l'outil a montré : une capture, un rendu. Des identifiants, jamais
+   *  des octets — la vignette se demande au processus principal. */
+  images: { id: string; name: string }[]
   isError: boolean
   finished: boolean
 }
@@ -77,7 +81,7 @@ function Plan({ items }: { items: PlanItem[] }) {
   )
 }
 
-export function ToolRow({ call }: { call: ToolCall }) {
+export function ToolRow({ call, conversationId }: { call: ToolCall; conversationId: string }) {
   const [open, setOpen] = useState(false)
   const Icon = ICONS[call.shape] ?? Wrench
   // Present tense while it runs, past once it has — the distinction VS Code
@@ -87,6 +91,11 @@ export function ToolRow({ call }: { call: ToolCall }) {
 
   // A plan has nothing to fold: it is the thing you want to see.
   const body = call.shape === "plan" ? "plan" : call.detail || call.output ? "text" : "none"
+
+  // Une image que l'agent vient de produire ne se replie pas non plus : c'est la
+  // chose qu'on voulait voir, comme un plan. La replier reviendrait à annoncer
+  // « j'ai pris une capture » et à la garder pour soi.
+  const shown = call.images ?? []
 
   return (
     <div className="text-[11px]">
@@ -118,6 +127,14 @@ export function ToolRow({ call }: { call: ToolCall }) {
       {call.shape === "plan" && call.plan.length > 0 && (
         <div className="ml-[18px] border-l border-white/[0.08] pl-2 pt-0.5 text-foreground/80">
           <Plan items={call.plan} />
+        </div>
+      )}
+
+      {shown.length > 0 && (
+        <div className="ml-[18px] mt-1 flex flex-wrap gap-1.5 border-l border-white/[0.08] pl-2">
+          {shown.map((image) => (
+            <Thumb key={image.id} conversationId={conversationId} image={image} size="h-24 w-24" />
+          ))}
         </div>
       )}
 

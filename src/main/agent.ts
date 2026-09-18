@@ -1,6 +1,7 @@
 import { type ChildProcess } from "node:child_process"
 import { installed as cliInstalled, launchPiped } from "./cli"
-import { describeTool, outputIn, planIn } from "./tooltalk"
+import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
+import { keep as keepImage } from "./attachments"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
@@ -709,8 +710,43 @@ export class AgentRunner {
         plan: talk.shape === "plan" ? planIn(input) : [],
       })
     }
-    const finished = (callId: string, content: unknown, isError: boolean) =>
-      target.send("agent:tool-result", { id, callId, output: outputIn(content), isError })
+    // Le résultat d'un outil, avec ce qu'il montre.
+    //
+    // Les images sont écrites à côté de la conversation avant d'être annoncées,
+    // pour trois raisons qui vont ensemble : le transcript garde un identifiant
+    // et pas quatre mégaoctets de base64 réécrits à chaque sauvegarde ; elles
+    // s'effacent avec la conversation, sans balayeur à écrire ; et elles
+    // s'affichent par le même chemin que les pièces jointes, donc il n'y a
+    // qu'un seul chemin à garder juste.
+    //
+    // L'écriture est attendue avant l'envoi : deux événements pour un seul
+    // résultat obligeraient le rendu à recoller les morceaux, et c'est
+    // exactement le genre de recollage qui laisse une image orpheline.
+    const finished = (callId: string, content: unknown, isError: boolean) => {
+      const output = outputIn(content)
+      // Sans le tour on ne sait pas à quelle conversation ces octets
+      // appartiennent, donc où les écrire ni quand les effacer. Le texte part
+      // quand même : il vaut mieux qu'une moitié de résultat que rien.
+      const shown = turn ? imagesIn(content) : []
+      if (shown.length === 0) {
+        target.send("agent:tool-result", { id, callId, output, isError, images: [] })
+        return
+      }
+      void (async () => {
+        const images: { id: string; name: string }[] = []
+        for (const [index, image] of shown.entries()) {
+          try {
+            const kept = await keepImage(turn!.conversationId, `tool-${callId}-${index}`, image.bytes)
+            images.push({ id: kept.id, name: kept.name })
+          } catch {
+            // Une image qu'on ne sait pas garder ne doit pas emporter le
+            // résultat : le texte, lui, a toujours sa valeur.
+          }
+        }
+        if (target.isDestroyed()) return
+        target.send("agent:tool-result", { id, callId, output, isError, images })
+      })()
+    }
 
     // L'enveloppe décide, pas le nom du harnais. Qwen Code imprime exactement
     // celle de Claude Code — mêmes `type`, même `session_id`, même bloc

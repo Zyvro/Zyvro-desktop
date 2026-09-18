@@ -14,6 +14,7 @@ import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
+import { Thumb, type Attached } from "~/panels/Thumb"
 import type { StoredTool } from "../../preload"
 
 // This panel runs the agent CLI that is already signed in on this machine, so
@@ -39,6 +40,8 @@ export type ChatMessage = {
   id: string
   role: ChatRole
   parts: Part[]
+  /** Les images parties avec ce message. Le fichier vit ailleurs ; ceci le nomme. */
+  images?: Attached[]
   error?: string
   streaming: boolean
   // Ce que le tour a dépensé, tel que le CLI le rapporte à la fin. Hors des
@@ -256,6 +259,7 @@ function ensureAttached(): void {
       detail,
       plan,
       output: "",
+      images: [],
       isError: false,
       finished: false,
     }
@@ -274,7 +278,7 @@ function ensureAttached(): void {
   // A result is paired by the call's own id and never by arrival: two commands
   // running at once come back in whichever order they finish, which was seen
   // happening in a real stream rather than guessed at.
-  window.zyvro.agent.onToolResult(({ id, callId, output, isError }) => {
+  window.zyvro.agent.onToolResult(({ id, callId, output, isError, images }) => {
     const bound = turnToMessage.get(id)
     // Le résultat retrouve son appel par son identifiant, jamais par l'ordre
     // d'arrivée : deux commandes lancées ensemble reviennent dans l'ordre où
@@ -282,7 +286,7 @@ function ensureAttached(): void {
     const settle = (parts: Part[]): Part[] =>
       parts.map((part) =>
         part.kind === "tool" && part.call.callId === callId
-          ? { kind: "tool", call: { ...part.call, output, isError, finished: true } }
+          ? { kind: "tool", call: { ...part.call, output, images, isError, finished: true } }
           : part
       )
     if (bound === undefined) {
@@ -392,23 +396,23 @@ function subscribe(listener: () => void): () => void {
 }
 
 /** Records the prompt and the assistant placeholder, and returns its id. */
-function beginTurn(threadId: string, prompt: string, images: string[] = []): string {
+function beginTurn(threadId: string, prompt: string, images: Attached[] = []): string {
   const assistantId = nextMessageId()
   const user: ChatMessage = {
     id: nextMessageId(),
     role: "user",
-    // The names go into the transcript so the message still says what was sent
-    // once the chips are gone. The files are not kept in the transcript: they
-    // live beside the conversation and go when it does.
-    parts: [
-      {
-        kind: "text",
-        text:
-          images.length > 0
-            ? `${prompt}${prompt ? "\n\n" : ""}${images.map((n) => `📎 ${n}`).join("\n")}`
-            : prompt,
-      },
-    ],
+    // L'image envoyée reste visible dans la conversation.
+    //
+    // Avant, il n'en restait qu'un nom précédé d'un trombone : les puces
+    // disparaissaient avec l'envoi et le transcript ne montrait plus rien. « On
+    // ne la voit pas dans le chat » — non, et c'était le seul endroit où elle
+    // aurait eu du sens, puisque c'est là qu'on relit ce qu'on a demandé.
+    //
+    // Le message garde donc les identifiants, pas les octets : le fichier vit à
+    // côté de la conversation et s'en va avec elle, et la vignette se redemande
+    // au processus principal quand on l'affiche.
+    parts: [{ kind: "text", text: prompt }],
+    images,
     streaming: false,
   }
   const assistant: ChatMessage = {
@@ -421,7 +425,7 @@ function beginTurn(threadId: string, prompt: string, images: string[] = []): str
     ...thread,
     // The tab is named after what was first asked of it, which is what a
     // person recognises in a row of tabs.
-    title: thread.messages.length === 0 ? titleFrom(prompt || images[0] || "") : thread.title,
+    title: thread.messages.length === 0 ? titleFrom(prompt || images[0]?.name || "") : thread.title,
     messages: [...thread.messages, user, assistant],
     turnId: null,
     busy: true,
@@ -475,10 +479,13 @@ function persist(threadId: string): void {
   if (!thread) return
 
   const messages = thread.messages
-    .filter((m) => textOf(m) !== "" || toolsOf(m).length > 0 || m.error)
+    // Une image sans un mot est un message : « regarde ça » se dit très bien
+    // en déposant une capture, et le filtre d'avant la jetait à l'écriture.
+    .filter((m) => textOf(m) !== "" || toolsOf(m).length > 0 || (m.images?.length ?? 0) > 0 || m.error)
     .map((m) => ({
       role: m.role,
       spent: m.spent,
+      images: m.images,
       // L'ordre est ce qu'on écrit : une conversation rouverte demain doit se
       // relire comme elle s'est déroulée.
       parts: m.parts.map((part) =>
@@ -494,6 +501,7 @@ function persist(threadId: string): void {
                 output: part.call.output,
                 isError: part.call.isError,
                 plan: part.call.plan,
+                images: part.call.images,
               },
             }
       ),
@@ -578,6 +586,7 @@ export async function restore(): Promise<void> {
       role: m.role,
       parts: restoreParts(m),
       spent: m.spent,
+      images: m.images,
       error: m.error,
       streaming: false,
     })),
@@ -652,7 +661,18 @@ function summarise(input: Record<string, unknown>): string {
 // may hold.
 function restoreTool(stored: StoredTool | string): ToolCall {
   if (typeof stored === "string") {
-    return { callId: stored, running: stored, done: stored, shape: "other", detail: "", plan: [], output: "", isError: false, finished: true }
+    return {
+      callId: stored,
+      running: stored,
+      done: stored,
+      shape: "other",
+      detail: "",
+      plan: [],
+      output: "",
+      images: [],
+      isError: false,
+      finished: true,
+    }
   }
   return {
     callId: stored.callId,
@@ -661,6 +681,7 @@ function restoreTool(stored: StoredTool | string): ToolCall {
     shape: (stored.shape as ToolCall["shape"]) ?? "other",
     detail: stored.detail ?? "",
     plan: stored.plan ?? [],
+    images: stored.images ?? [],
     output: stored.output ?? "",
     isError: Boolean(stored.isError),
     finished: true,
@@ -880,7 +901,7 @@ export function AgentPanel(): JSX.Element {
     const node = composer.current
     if (node) node.style.height = ""
 
-    const messageId = beginTurn(threadId, text, thread.images.map((i) => i.name))
+    const messageId = beginTurn(threadId, text, thread.images)
     // The chips clear with the message they went with: they belong to what was
     // just sent, not to whatever gets typed next.
     mapThread(threadId, (t) => ({ ...t, images: [] }))
@@ -1231,7 +1252,13 @@ export function AgentPanel(): JSX.Element {
         ) : (
           <div className="space-y-3">
             {thread.messages.map((message) => (
-              <Bubble key={message.id} message={message} kind={kind} showSpent={showSpent} />
+              <Bubble
+                key={message.id}
+                message={message}
+                kind={kind}
+                showSpent={showSpent}
+                conversationId={thread.id}
+              />
             ))}
           </div>
         )}
@@ -1249,7 +1276,7 @@ export function AgentPanel(): JSX.Element {
                 className="group flex max-w-[14rem] items-center gap-1 rounded border border-white/[0.08] bg-white/[0.05] px-1.5 py-0.5 text-[11px] text-muted-foreground"
                 title={image.name}
               >
-                <ImageIcon className="h-3 w-3 shrink-0" />
+                <Thumb conversationId={thread.id} image={image} size="h-6 w-6" />
                 <span className="truncate">{image.name}</span>
                 <button
                   type="button"
@@ -1354,16 +1381,33 @@ function Bubble({
   message,
   kind,
   showSpent,
+  conversationId,
 }: {
   message: ChatMessage
   kind: AgentKind
   showSpent: boolean
+  /** La conversation à laquelle demander les vignettes : un fichier joint
+   *  appartient à une conversation, pas à l'application. */
+  conversationId: string
 }): JSX.Element {
   if (message.role === "user") {
+    const images = message.images ?? []
     return (
       <div className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
         <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">You</div>
-        <div className="whitespace-pre-wrap break-words">{textOf(message)}</div>
+        {textOf(message) ? (
+          <div className="whitespace-pre-wrap break-words">{textOf(message)}</div>
+        ) : null}
+        {/* Ce qu'on a envoyé, montré. Plus grand que dans la puce parce qu'ici
+            on relit ce qu'on a demandé, et qu'une capture de seize pixels de
+            côté ne se relit pas. */}
+        {images.length > 0 && (
+          <div className={cn("flex flex-wrap gap-1.5", textOf(message) ? "mt-1.5" : "")}>
+            {images.map((image) => (
+              <Thumb key={image.id} conversationId={conversationId} image={image} size="h-20 w-20" />
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -1382,7 +1426,7 @@ function Bubble({
       {message.parts.map((part, index) =>
         part.kind === "tool" ? (
           <div key={`t${part.call.callId}-${index}`} className="my-1 space-y-px">
-            <ToolRow call={part.call} />
+            <ToolRow call={part.call} conversationId={conversationId} />
           </div>
         ) : part.text !== "" ? (
           <Markdown key={`x${index}`} text={part.text} className="text-foreground" compact />

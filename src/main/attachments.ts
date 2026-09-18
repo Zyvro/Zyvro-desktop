@@ -3,6 +3,7 @@ import fs from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
+import { IMAGE_EXTENSIONS, dataUri, kindOf } from "../shared/image"
 
 // Images handed to the agent.
 //
@@ -18,18 +19,6 @@ import path from "node:path"
 // app's own folder, and is deleted with it. That also answers the cleanup
 // question without a sweeper: a conversation you close takes its images away.
 
-// What the file actually is, read from its first bytes rather than from the
-// name it arrived with. A renderer that sent `evil.png` holding something else
-// would otherwise get it written with a name that invites opening it.
-const SIGNATURES: { extension: string; mime: string; magic: number[][] }[] = [
-  { extension: "png", mime: "image/png", magic: [[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]] },
-  { extension: "jpg", mime: "image/jpeg", magic: [[0xff, 0xd8, 0xff]] },
-  { extension: "gif", mime: "image/gif", magic: [[0x47, 0x49, 0x46, 0x38]] },
-  // WEBP is RIFF....WEBP: the four bytes at offset 8 are what tell it from a
-  // wav file, so the check has to look past the header rather than at it.
-  { extension: "webp", mime: "image/webp", magic: [[0x52, 0x49, 0x46, 0x46]] },
-]
-
 // A screenshot of a 6K display is a few megabytes; a hundred is somebody's
 // mistake, and both CLIs would choke on it long before this app did.
 const MAX_BYTES = 20 * 1024 * 1024
@@ -42,19 +31,10 @@ export type Attachment = {
   file: string
 }
 
-export function kindOf(bytes: Uint8Array): { extension: string; mime: string } | null {
-  for (const candidate of SIGNATURES) {
-    for (const magic of candidate.magic) {
-      if (magic.every((byte, index) => bytes[index] === byte)) {
-        if (candidate.extension !== "webp") return candidate
-        // RIFF____WEBP
-        const tail = [0x57, 0x45, 0x42, 0x50]
-        if (tail.every((byte, index) => bytes[8 + index] === byte)) return candidate
-      }
-    }
-  }
-  return null
-}
+// Ce qui fait qu'une suite d'octets est une image vit dans un module partagé :
+// quatre endroits posent la question, et une deuxième table de signatures
+// serait celle qui ignore le format ajouté dans l'autre.
+export { kindOf } from "../shared/image"
 
 function folder(conversationId: string): string {
   // The id is ours — generated in the renderer from a timestamp and random
@@ -124,14 +104,37 @@ export async function forget(conversationId: string, id: string): Promise<void> 
 // attachment by an id, and only a file this process wrote under this
 // conversation's own folder can come back out. Without it, "here is an image to
 // read" would be a way to ask the agent to read any file on the machine.
+// thumbnail rend l'image d'une pièce jointe, prête à être affichée.
+//
+// Le chemin, lui, ne sort toujours pas d'ici : le rendu nomme une pièce jointe
+// par son identifiant et reçoit une adresse `data:`. C'est la règle depuis le
+// début — un rendu qui nomme un chemin est un rendu qui peut demander
+// `/etc/passwd` en l'appelant une image — et la vignette ne l'entame pas.
+//
+// Rien plutôt qu'une erreur quand elle a disparu : une conversation qu'on
+// rouvre après avoir vidé le dossier ne doit pas s'afficher en rouge pour une
+// vignette manquante.
+export async function thumbnail(conversationId: string, id: string): Promise<string | null> {
+  const [file] = pathsFor(conversationId, [id])
+  if (!file) return null
+  try {
+    const bytes = await fs.readFile(file)
+    const kind = kindOf(bytes)
+    if (!kind) return null
+    return dataUri(kind.mime, bytes)
+  } catch {
+    return null
+  }
+}
+
 export function pathsFor(conversationId: string, ids: string[]): string[] {
   const dir = folder(conversationId)
   const out: string[] = []
   for (const id of ids) {
     const safe = id.replace(/[^a-zA-Z0-9-]/g, "")
     if (!safe) continue
-    for (const candidate of SIGNATURES) {
-      const file = path.join(dir, `${safe}.${candidate.extension}`)
+    for (const extension of IMAGE_EXTENSIONS) {
+      const file = path.join(dir, `${safe}.${extension}`)
       if (existsSync(file)) {
         out.push(file)
         break

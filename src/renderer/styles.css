@@ -106,3 +106,15 @@ button,
 .xterm .xterm-viewport {
   background-color: transparent !important;
 }
+
+/* Le damier derrière une image : il dit ce qui est transparent. Un fond uni le
+   cache, et un logo blanc sur fond blanc a l'air vide. */
+.zy-checker {
+  background-image:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.04) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, rgba(255, 255, 255, 0.04) 75%),
+    linear-gradient(-45deg, transparent 75%, rgba(255, 255, 255, 0.04) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}

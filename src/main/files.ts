@@ -1,5 +1,6 @@
 import fs from "node:fs/promises"
 import path from "node:path"
+import { MAX_INLINE_BYTES, dataUri, kindOf } from "../shared/image"
 
 // Everything the renderer can touch on disk goes through this module. The
 // renderer runs untrusted-ish content (a workflow can render model output), so
@@ -92,11 +93,41 @@ export async function listDir(root: string, relative: string): Promise<DirEntry[
   return out
 }
 
-export type FileRead = { path: string; text: string; truncated: boolean } | { path: string; binary: true }
+export type FileRead =
+  | { path: string; text: string; truncated: boolean }
+  // Une image se regarde. C'est la troisième réponse possible, et elle manquait :
+  // cliquer sur un `.png` dans l'arbre donnait « This file is binary or too
+  // large to edit here », ce qui est vrai et inutile — on ne voulait pas
+  // l'éditer, on voulait la voir.
+  | { path: string; image: { mime: string; uri: string } }
+  | { path: string; binary: true }
 
 export async function readFile(root: string, relative: string): Promise<FileRead> {
   const file = await resolveInside(root, relative)
   const stat = await fs.stat(file)
+
+  // L'image d'abord, et par ses octets plutôt que par son nom : une capture
+  // sans extension est une image, `notes.png` qui contient du texte n'en est
+  // pas, et c'est le contenu qui décide de ce qu'on affiche.
+  //
+  // Sa borne est la sienne : un PNG de trois mégaoctets ne s'édite pas mais se
+  // regarde très bien, là où trois mégaoctets de texte dans un éditeur sont une
+  // fenêtre qui rame.
+  if (stat.size <= MAX_INLINE_BYTES) {
+    const head = Buffer.alloc(Math.min(32, stat.size))
+    const handle = await fs.open(file, "r")
+    try {
+      await handle.read(head, 0, head.length, 0)
+    } finally {
+      await handle.close()
+    }
+    const kind = kindOf(head)
+    if (kind) {
+      const bytes = await fs.readFile(file)
+      return { path: relative, image: { mime: kind.mime, uri: dataUri(kind.mime, bytes) } }
+    }
+  }
+
   if (stat.size > MAX_TEXT_BYTES) return { path: relative, binary: true }
   const buffer = await fs.readFile(file)
   // A NUL byte in the first few KB is the pragmatic binary test every editor

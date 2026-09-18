@@ -624,6 +624,12 @@ export function registerIpc(onRecents?: () => void): void {
     }
   )
 
+  // La vignette d'une pièce jointe, par son identifiant. Le chemin ne traverse
+  // toujours pas : ce qui revient est une adresse `data:`.
+  ipcMain.handle("agent:thumbnail", async (_event, conversationId: string, id: string) =>
+    attachments.thumbnail(String(conversationId), String(id))
+  )
+
   ipcMain.handle("agent:detach", async (_event, conversationId: string, id: string) =>
     attachments.forget(String(conversationId), String(id))
   )

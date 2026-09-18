@@ -16,7 +16,12 @@ function on<T>(channel: string, handler: (payload: T) => void): Unsubscribe {
 export type DirEntry = { name: string; path: string; kind: "file" | "directory" }
 export type DaemonInfo = { ready: true; port: number; token: string; project: string; origin: string }
 export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
-export type FileRead = { path: string; text: string; truncated: boolean } | { path: string; binary: true }
+// La forme que le rendu reçoit. Redite ici parce qu'il ne peut pas importer un
+// module du processus principal, et c'est le contrat entre les deux.
+export type FileRead =
+  | { path: string; text: string; truncated: boolean }
+  | { path: string; image: { mime: string; uri: string } }
+  | { path: string; binary: true }
 import type { AgentKind } from "../shared/harness"
 export type { AgentKind }
 
@@ -279,6 +284,10 @@ const api = {
     detach: (conversationId: string, id: string): Promise<void> =>
       invoke("agent:detach", conversationId, id),
     models: (kind: AgentKind): Promise<string[]> => invoke("agent:models", kind),
+    // Ce qu'une puce affiche d'elle-même. Une adresse `data:`, ou rien quand le
+    // fichier n'est plus là.
+    thumbnail: (conversationId: string, id: string): Promise<string | null> =>
+      invoke("agent:thumbnail", conversationId, id),
     conversations: (): Promise<Conversation[]> => invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
       invoke("agent:remember", conversation),
@@ -298,7 +307,16 @@ const api = {
       }) => void
     ): Unsubscribe => on("agent:tool", cb),
     onToolResult: (
-      cb: (p: { id: string; callId: string; output: string; isError: boolean }) => void
+      cb: (p: {
+        id: string
+        callId: string
+        output: string
+        isError: boolean
+        // Ce que l'outil a MONTRÉ. Des identifiants, pas des octets : l'image
+        // est déjà écrite à côté de la conversation, et se redemande par
+        // `thumbnail`.
+        images: { id: string; name: string }[]
+      }) => void
     ): Unsubscribe => on("agent:tool-result", cb),
     onModel: (cb: (p: { id: string; conversationId: string; model: string }) => void): Unsubscribe =>
       on("agent:model", cb),

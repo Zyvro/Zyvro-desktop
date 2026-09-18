@@ -33,6 +33,10 @@ export type StoredTool = {
   output: string
   isError: boolean
   plan?: { title: string; status: string }[]
+  /** Ce que l'outil a montré. Des identifiants : l'image est écrite à côté de
+   *  la conversation, et quatre mégaoctets de base64 réécrits à chaque
+   *  sauvegarde du transcript ne seraient pas une sauvegarde. */
+  images?: { id: string; name: string }[]
 }
 
 // Un message assistant est une suite de morceaux, dans l'ordre où ils sont
@@ -70,6 +74,9 @@ export type StoredMessage = {
     costUsd: number | null
   }
   error?: string
+  /** Les images parties avec ce message : leurs identifiants, jamais leurs
+   *  chemins. Le fichier vit à côté de la conversation et s'en va avec elle. */
+  images?: { id: string; name: string }[]
 }
 
 export type Conversation = {

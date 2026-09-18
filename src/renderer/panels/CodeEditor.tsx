@@ -143,6 +143,26 @@ export function CodeEditor({ tabId, path }: Props) {
     )
   }
 
+  // Une image se regarde plutôt que de s'annoncer comme illisible.
+  //
+  // `object-contain` et pas `cover` : une capture qu'on recadre pour remplir le
+  // cadre est une capture dont on a coupé ce qu'on voulait voir. Le damier
+  // derrière dit ce qui est transparent, ce qu'un fond uni cache — un logo
+  // blanc sur fond blanc a l'air vide sinon.
+  if (file.data && "image" in file.data) {
+    const image = file.data.image
+    return (
+      <div className="zy-checker flex h-full items-center justify-center overflow-auto p-6">
+        <img
+          src={image.uri}
+          alt={path}
+          className="max-h-full max-w-full object-contain"
+          style={{ imageRendering: "auto" }}
+        />
+      </div>
+    )
+  }
+
   if (file.data && "binary" in file.data) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
