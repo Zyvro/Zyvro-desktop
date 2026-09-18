@@ -1,5 +1,9 @@
 import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+// L'instance de module : `dispatch` envoie hors de tout composant, donc il ne
+// peut pas demander la sienne à un crochet. C'est la même, celle que la
+// doctrine impose de tenir ici plutôt que d'en fabriquer une par rendu.
+import { queryClient } from "~/lib/queryClient"
 import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Repeat, Square, Target, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
@@ -138,7 +142,18 @@ type Thread = {
    * is an image to read" would become a way to read any file on the machine.
    */
   images: { id: string; name: string }[]
+  /**
+   * Ce qu'on a tapé pendant qu'un tour tournait, et qui partira tout seul.
+   *
+   * Sur la conversation et pas sur le panneau, pour la même raison que `busy` :
+   * un tour lancé dans un onglet continue pendant qu'on lit un autre, donc une
+   * file par panneau enverrait la suite d'une conversation dans une autre.
+   */
+  queued: Queued[]
 }
+
+/** Un message en attente. Il porte ses images : elles ont été choisies avec lui. */
+type Queued = { id: string; text: string; images: { id: string; name: string }[] }
 
 // Une demande de permission en attente : ce que la CLI veut faire, et les deux
 // boutons qui décident. Elle vit au niveau du panneau et non d'une conversation
@@ -177,6 +192,7 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     kind,
     saved: "",
     images: [],
+    queued: [],
   }
 }
 
@@ -387,16 +403,93 @@ function finishTurn(id: string): void {
   endTurn(id)
 }
 
+// dispatch : envoyer un message pour une conversation, sans passer par l'écran.
+//
+// Sorti du composant parce que la file doit repartir **même dans un onglet
+// qu'on ne regarde pas**. C'est tout l'intérêt des onglets : un tour lancé ici
+// continue pendant qu'on lit ailleurs. Une file qui n'avancerait que dans la
+// conversation affichée serait une file qui s'arrête dès qu'on change de
+// fenêtre — exactement au moment où on comptait sur elle.
+//
+// Tout ce dont un envoi a besoin vit déjà au niveau du module : l'état des
+// conversations, le client de requêtes, le projet, la permission. Il ne restait
+// dans le composant que ce qui touche à la zone de saisie.
+async function dispatch(threadId: string, text: string, images: Attached[]): Promise<void> {
+  const thread = threadById(threadId)
+  const projectDir = useWorkspace.getState().project?.project ?? null
+  if (!thread || projectDir === null) return
+
+  const messageId = beginTurn(threadId, text, images)
+
+  // La liste des workflows est du contexte, pas une condition : si le démon
+  // local ne répond pas, l'agent tourne quand même — il ne connaîtra
+  // simplement pas les workflows par leur nom.
+  let workflows: WorkflowRef[] = []
+  try {
+    const listed = await queryClient.fetchQuery({ queryKey: WORKFLOWS_KEY, queryFn: () => api.listWorkflows() })
+    workflows = listed.map((workflow) => ({
+      id: workflow.id,
+      name: workflow.name,
+      description: workflow.description || undefined,
+    }))
+  } catch {
+    workflows = []
+  }
+
+  try {
+    const turnId = await window.zyvro.agent.send(
+      thread.kind,
+      text,
+      workflows,
+      threadId,
+      thread.model,
+      images.map((i) => i.id),
+      permissionFor(projectDir)
+    )
+    bindTurn(threadId, messageId, turnId)
+  } catch (error: unknown) {
+    failTurn(threadId, messageId, error instanceof Error ? error.message : String(error))
+  }
+}
+
+// advance : le tour est fini, au suivant s'il y en a un.
+//
+// Trois règles, et chacune existe parce que l'inverse surprendrait :
+//
+// · **Un tour arrêté à la main vide la file.** « Stop » veut dire stop. Faire
+//   partir le message suivant une demi-seconde après avoir cliqué serait le
+//   contraire de ce qu'on vient de demander — et ça dépense.
+// · **Un tour en erreur n'enchaîne pas.** Une erreur est une raison de
+//   regarder, pas de continuer : enchaîner ferait défiler trois échecs
+//   identiques pendant qu'on lit le premier. Les messages restent visibles et
+//   repartent d'un clic.
+// · **Sinon, le premier de la file part tout seul**, avec les images qui
+//   avaient été choisies avec lui.
+function advance(threadId: string, ok: boolean): void {
+  const thread = threadById(threadId)
+  if (!thread || thread.queued.length === 0) return
+  if (!ok) return
+  const [suivant, ...reste] = thread.queued
+  mapThread(threadId, (t) => ({ ...t, queued: reste }))
+  // Une micro-tâche : `advance` est appelée depuis la mise à jour d'état qui
+  // termine le tour, et repartir dedans ferait un envoi pendant un rendu.
+  window.queueMicrotask(() => void dispatch(threadId, suivant.text, suivant.images))
+}
+
 function endTurn(id: string): void {
   const bound = turnToMessage.get(id)
   turnToMessage.delete(id)
   orphans.delete(id)
   cancelled.delete(id)
   if (!bound) return
+  const arrete = cancelled.has(id)
   mapThread(bound.threadId, (thread) =>
     thread.turnId === id || thread.busy ? { ...thread, turnId: null, busy: false } : thread
   )
   persist(bound.threadId)
+  // Le tour est terminé : c'est maintenant que la file avance, si elle le doit.
+  const fini = threadById(bound.threadId)?.messages.find((m) => m.id === bound.messageId)
+  advance(bound.threadId, !arrete && !fini?.error)
 }
 
 // Reloading is driven by the project, not by a component mounting.
@@ -628,8 +721,13 @@ export async function restore(): Promise<void> {
     // Un fichier écrit avant que les modèles soient séparés n'en porte qu'un :
     // il appartient au harnais que la conversation portait alors.
     models: c.models ?? (c.model ? { [c.kind]: c.model } : {}),
-    // Le but survit à la fermeture parce qu'il survit dans la session du
-    // harnais : vérifié sur claude, une reprise le rapporte toujours actif.
+    // Le but tel qu'il était à la fermeture.
+    //
+    // Ce commentaire affirmait qu'il « survit dans la session du harnais,
+    // vérifié sur claude ». C'est faux, mesuré le 18/09 : en mode impression,
+    // un but posé dans un tour a disparu au suivant — chaque tour est un
+    // processus, et la commande locale ne laisse rien derrière elle. Ce qu'on
+    // réaffiche est donc le dernier état connu, pas un état relu du harnais.
     goal: c.goal ?? null,
     // Les réveils vivent en mémoire : une boucle tient tant que la fenêtre
     // tient. Une conversation rouverte n'en a donc pas, et c'est la vérité
@@ -638,6 +736,11 @@ export async function restore(): Promise<void> {
     ranWith: c.ranWith ?? null,
     kind: c.kind,
     images: [],
+    // Une file en attente ne survit pas à la fermeture, et c'est voulu : ces
+    // messages n'ont jamais été envoyés. Les retrouver au prochain démarrage
+    // les ferait partir tout seuls, longtemps après, sur un projet peut-être
+    // rouvert pour autre chose — et chacun coûte un tour.
+    queued: [],
     // L'empreinte de ce qui est sur le disque, dans la forme où on l'écrirait :
     // sans ça, le premier tour réécrirait un transcript identique.
     saved: "",
@@ -1039,51 +1142,35 @@ export function AgentPanel(): JSX.Element {
     // An image on its own is a message: "what is wrong with this?" is often the
     // whole question, and refusing it because the box is empty would be
     // pedantry.
-    if ((text === "" && thread.images.length === 0) || thread.busy || project === null) return
+    if ((text === "" && thread.images.length === 0) || project === null) return
     const threadId = thread.id
-    const images = thread.images.map((i) => i.id)
+    const images = thread.images
 
+    // La boîte se vide dans les deux cas : ce qu'on vient d'écrire est parti
+    // quelque part, en vol ou en file, et le laisser à l'écran ferait croire
+    // qu'il n'est pas parti.
     setDraft("")
     const node = composer.current
     if (node) node.style.height = ""
-
-    const messageId = beginTurn(threadId, text, thread.images)
     // The chips clear with the message they went with: they belong to what was
     // just sent, not to whatever gets typed next.
     mapThread(threadId, (t) => ({ ...t, images: [] }))
 
-    // The workflow list is context, not a precondition. If the local daemon is
-    // not answering, the agent should still run — it just will not know the
-    // project's workflows by name.
-    let workflows: WorkflowRef[] = []
-    try {
-      const listed = await queryClient.fetchQuery({
-        queryKey: WORKFLOWS_KEY,
-        queryFn: () => api.listWorkflows(),
-      })
-      workflows = listed.map((workflow) => ({
-        id: workflow.id,
-        name: workflow.name,
-        description: workflow.description || undefined,
+    // Pendant qu'un tour tourne, on met en file au lieu de refuser.
+    //
+    // Avant, la touche Entrée ne faisait rien : le texte restait dans la boîte
+    // et on l'y retrouvait, ou pas, selon qu'on avait regardé. Or c'est le
+    // moment où l'on a le plus d'idées — l'agent travaille, on lit sa réponse,
+    // on pense à la suite. Elle part maintenant toute seule au tour suivant.
+    if (thread.busy) {
+      mapThread(threadId, (t) => ({
+        ...t,
+        queued: [...t.queued, { id: nextMessageId(), text, images }],
       }))
-    } catch {
-      workflows = []
+      return
     }
 
-    try {
-      const turnId = await window.zyvro.agent.send(
-        kind,
-        text,
-        workflows,
-        threadId,
-        thread.model,
-        images,
-        permission
-      )
-      bindTurn(threadId, messageId, turnId)
-    } catch (error: unknown) {
-      failTurn(threadId, messageId, error instanceof Error ? error.message : String(error))
-    }
+    await dispatch(threadId, text, images)
   }
 
   const stop = (): void => {
@@ -1091,6 +1178,18 @@ export function AgentPanel(): JSX.Element {
     if (turnId === null) return
     markCancelled(turnId)
     void window.zyvro.agent.cancel(turnId)
+
+    // « Stop » vide la file, et rend ce qu'elle contenait.
+    //
+    // La vider est la seule lecture honnête du bouton : laisser des messages
+    // prêts à partir au prochain tour ferait repartir, plus tard, ce qu'on
+    // venait d'interrompre. Mais les jeter serait perdre ce que quelqu'un a
+    // écrit, alors ils reviennent dans la boîte — elle est vide à ce
+    // moment-là, puisqu'écrire les y avait retirés.
+    const attente = thread.queued
+    if (attente.length === 0) return
+    mapThread(thread.id, (t) => ({ ...t, queued: [], images: [...t.images, ...attente.flatMap((q) => q.images)] }))
+    setDraft((actuel) => [actuel, ...attente.map((q) => q.text)].filter(Boolean).join("\n\n"))
   }
 
   // ---- le menu de la barre oblique ----------------------------------------
@@ -1575,6 +1674,46 @@ export function AgentPanel(): JSX.Element {
           <p className="mb-1.5 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
             {attachError}
           </p>
+        )}
+
+        {/* Ce qui partira tout seul au prochain tour.
+            Visible, et retirable un par un. Une file qu'on ne voit pas est une
+            file qui dépense sans qu'on l'ait voulu — c'est la leçon de la
+            boucle invisible : « le décompte repartait, de vrais tours
+            tournaient, et l'écran ne bougeait pas d'une ligne ». */}
+        {thread.queued.length > 0 && (
+          <div className="mb-1.5 space-y-1">
+            {thread.queued.map((q, index) => (
+              <div
+                key={q.id}
+                className="flex items-start gap-2 rounded border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-[11px] text-muted-foreground"
+              >
+                <span className="mt-[1px] shrink-0 font-mono text-[10px] text-muted-foreground/70">
+                  {index + 1}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={q.text}>
+                  {q.text || `${q.images.length} image${q.images.length === 1 ? "" : "s"}`}
+                </span>
+                {q.images.length > 0 && q.text !== "" && (
+                  <Paperclip className="mt-[1px] h-3 w-3 shrink-0 text-muted-foreground/70" />
+                )}
+                <button
+                  type="button"
+                  title="Remove from the queue"
+                  className="shrink-0 rounded p-0.5 hover:bg-white/[0.1] hover:text-foreground"
+                  onClick={() =>
+                    mapThread(thread.id, (t) => ({ ...t, queued: t.queued.filter((x) => x.id !== q.id) }))
+                  }
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            <p className="px-0.5 text-[10px] text-muted-foreground/70">
+              {thread.queued.length === 1 ? "Sent on its own" : "Sent one at a time"} when this turn ends. Stop puts
+              {thread.queued.length === 1 ? " it" : " them"} back in the box.
+            </p>
+          </div>
         )}
 
         {/* Deux rangées : ce qu'on écrit, puis ce qui le gouverne.
