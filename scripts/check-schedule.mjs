@@ -165,9 +165,17 @@ const assistant = (...outils) => ({
     "deux minuteries pour une conversation : la boucle se dédouble à chaque passage"
   )
   // Réarmer AVANT de lancer le tour : sinon le temps du tour s'ajoute au rythme.
+  //
+  // Écrit pour échouer quand la ligne disparaît, pas seulement quand elle
+  // bouge. La version d'avant cherchait `if (every !== null) this.schedule(`,
+  // une écriture abandonnée le jour où le cron est devenu calculé : elle rendait
+  // -1, et `-1 < n` est vrai, donc le garde passait sans rien vérifier. Trouvé
+  // le 18/09 en relisant. Un garde qui ne peut pas échouer n'est pas un garde.
+  const rearme = bloc.indexOf("this.schedule(conversationId, Math.max(1,")
+  const part = bloc.indexOf("this.send(encore.target")
   check(
     "**le rythme se réarme avant de partir**",
-    bloc.indexOf("if (every !== null) this.schedule(") < bloc.indexOf("this.send(encore.target"),
+    rearme !== -1 && part !== -1 && rearme < part,
     "« toutes les minutes » devient « toutes les minutes plus la durée du tour »"
   )
   // Une minuterie ne doit pas retenir le processus au moment de quitter.
@@ -188,6 +196,17 @@ const assistant = (...outils) => ({
     "et une fenêtre fermée n'est pas réveillée",
     bloc.includes("repeat.target.isDestroyed()"),
     "on parle à une fenêtre qui n'existe plus"
+  )
+
+  // La limite qu'on annonce est « une boucle tient tant que la fenêtre tient ».
+  // Elle doit être tenue par du code qui la dit : sans ça, le minuteur part
+  // quand même à l'heure, trouve une fenêtre détruite et renonce en chemin —
+  // ça marche par accident, et l'objet reste en mémoire jusqu'au réveil.
+  const ferme = agent.slice(agent.indexOf("cancelAll(): void {"))
+  check(
+    "**fermer la fenêtre désarme les réveils, pas seulement les tours**",
+    ferme.includes("this.clearTimer(id)") && ferme.includes("this.repeats.clear()"),
+    "un réveil survit à sa fenêtre et retient tout ce qu'il tient"
   )
 }
 

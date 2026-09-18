@@ -963,7 +963,22 @@ export class AgentRunner {
     turn.child.kill()
   }
 
+  // cancelAll : la fenêtre s'en va, tout s'arrête avec elle.
+  //
+  // Les tours en cours ET les réveils armés. Les réveils manquaient, et ce
+  // n'était pas seulement une fuite : le minuteur partait quand même à
+  // l'heure dite, trouvait une fenêtre détruite et renonçait en silence. Ça
+  // marchait par accident — le jour où quelqu'un rouvre une fenêtre pendant
+  // qu'un ancien minuteur court encore, l'accident change de sens. La limite
+  // qu'on annonce (« une boucle tient tant que la fenêtre tient ») doit être
+  // tenue par du code qui la dit, pas par un `isDestroyed()` en chemin.
+  //
+  // Et tant que le minuteur court, sa fermeture retient cet objet et tout ce
+  // qu'il tient : une conversation fermée il y a vingt minutes restait en
+  // mémoire jusqu'à son réveil.
   cancelAll(): void {
     for (const id of [...this.turns.keys()]) this.cancel(id)
+    for (const id of [...this.waking.keys()]) this.clearTimer(id)
+    this.repeats.clear()
   }
 }
