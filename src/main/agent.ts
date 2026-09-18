@@ -578,9 +578,34 @@ export function sessionIn(event: Record<string, unknown>): string | null {
   return typeof value === "string" && value ? value : null
 }
 
+// Ce qu'on garde d'un tour pour pouvoir le rejouer. Deux mégaoctets : une
+// réponse ordinaire en fait quelques dizaines de milliers, et un tour qui
+// dépasse ça a de toute façon plus de sortie qu'un écran n'en montre.
+const REPLAY_MAX_BYTES = 2 * 1024 * 1024
+
 type Turn = {
   id: string
   conversationId: string
+  /**
+   * Ce qui a été demandé, mot pour mot.
+   *
+   * Retenu pour pouvoir redessiner la question après un rechargement du rendu :
+   * un tour en vol n'est pas encore écrit sur le disque — le transcript n'est
+   * enregistré qu'à la fin — donc personne d'autre ne l'a.
+   */
+  prompt: string
+  /**
+   * Les lignes que la CLI a déjà imprimées, pour les rejouer à une fenêtre qui
+   * s'est rechargée pendant le tour.
+   *
+   * Les lignes BRUTES, et pas les événements qu'on en a tirés : elles
+   * repasseront par le même analyseur, donc une reprise montre exactement ce
+   * qu'un tour normal aurait montré. Deux chemins de lecture finiraient par
+   * diverger, et la différence ne se verrait que le jour d'une reprise.
+   */
+  lines: string[]
+  /** La taille du tampon, pour le borner sans compter à chaque fois. */
+  bytes: number
   // Quel harnais tourne : c'est lui que la session apprise concerne.
   kind: AgentKind
   // Ce que ce tour a demandé pour la suite, lu au vol et honoré à la fin : au
@@ -810,7 +835,7 @@ export class AgentRunner {
     // déjà : l'écrire une seconde fois dans le message d'erreur serait la
     // deuxième liste qui a tort le jour où le paquet change de nom.
     const child = launchPiped(bin, args, { cwd: ctx.projectDir, env }, harness(kind).install)
-    this.turns.set(id, { id, conversationId, kind, wake: null, child, sentText: false })
+    this.turns.set(id, { id, conversationId, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false })
 
     child.stdin.write(text)
     child.stdin.end()
@@ -823,7 +848,10 @@ export class AgentRunner {
       while (index >= 0) {
         const line = buffer.slice(0, index).trim()
         buffer = buffer.slice(index + 1)
-        if (line) this.emitEvent(target, id, kind, line)
+        if (line) {
+          this.remember(id, line)
+          this.emitEvent(target, id, kind, line)
+        }
         index = buffer.indexOf("\n")
       }
     })
@@ -948,6 +976,52 @@ export class AgentRunner {
   // pendingWake : ce qui est armé, pour une fenêtre qui vient de se rouvrir.
   pendingWake(conversationId: string): Pending | null {
     return this.waking.get(conversationId)?.pending ?? null
+  }
+
+  // remember garde une ligne pour une reprise éventuelle.
+  //
+  // Borné en octets : un tour qui imprime longtemps ne doit pas faire grossir
+  // le processus principal sans fin. Quand le plafond est atteint on jette par
+  // le début — ce qu'on veut retrouver à l'écran après un rechargement est la
+  // fin, c'est-à-dire là où le tour en est.
+  private remember(id: string, line: string): void {
+    const turn = this.turns.get(id)
+    if (!turn) return
+    turn.lines.push(line)
+    turn.bytes += line.length
+    while (turn.bytes > REPLAY_MAX_BYTES && turn.lines.length > 1) {
+      turn.bytes -= (turn.lines.shift() as string).length
+    }
+  }
+
+  /**
+   * Les tours encore en vol, pour une fenêtre qui vient de se recharger.
+   *
+   * En développement, `electron-vite` recharge le rendu à chaque fichier
+   * modifié. Le processus principal, lui, ne redémarre pas : le tour continue,
+   * il dépense, et la page neuve n'a plus aucune idée de son existence. Ses
+   * événements arrivaient donc dans le vide — le panneau les garait comme
+   * « orphelins » pour toujours, et l'écran ne bougeait plus.
+   */
+  running(): { id: string; conversationId: string; prompt: string }[] {
+    return [...this.turns.values()].map((turn) => ({
+      id: turn.id,
+      conversationId: turn.conversationId,
+      prompt: turn.prompt,
+    }))
+  }
+
+  /**
+   * Rejouer à une fenêtre ce qu'un tour a déjà imprimé.
+   *
+   * Appelé après que le rendu s'est réaccroché, jamais avant : les événements
+   * portent l'identifiant du tour, et une page qui ne l'a pas encore lié les
+   * garerait une seconde fois.
+   */
+  replay(id: string, target: WebContents): void {
+    const turn = this.turns.get(id)
+    if (!turn || target.isDestroyed()) return
+    for (const line of turn.lines) this.emitEvent(target, id, turn.kind, line)
   }
 
   private emitEvent(target: WebContents, id: string, kind: AgentKind, line: string): void {

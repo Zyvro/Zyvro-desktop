@@ -152,9 +152,69 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   check("et chacun se retire", /queued: t\.queued\.filter\(\(x\) => x\.id !== q\.id\)/.test(panel))
 }
 
+// ---- se raccrocher à un tour après un rechargement -----------------------
+//
+// Signalé par Jeremy : « quand tu modifies un fichier ça recharge le front, ça
+// ne reprend pas les sessions d'agent ». Le processus principal ne redémarre
+// pas ; le tour continue, il dépense, et la page neuve ne le connaît plus. Ses
+// événements étaient garés comme orphelins pour toujours.
+{
+  const main = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
+
+  check(
+    "**le processus principal sait dire ce qui tourne encore**",
+    /running\(\): \{ id: string; conversationId: string; prompt: string \}\[\]/.test(main),
+    "la page neuve n'a aucun moyen de retrouver le tour en vol"
+  )
+  // La question est reprise du principal et pas du disque : un tour en vol n'y
+  // est pas encore écrit.
+  check("**et la question qui l'a lancé, que le disque n'a pas encore**", /prompt: turn\.prompt/.test(main))
+
+  // Les lignes BRUTES, rejouées par le même analyseur : deux chemins de lecture
+  // finiraient par diverger, et la différence ne se verrait qu'une fois.
+  check(
+    "**ce qui est rejoué repasse par le même analyseur**",
+    /for \(const line of turn\.lines\) this\.emitEvent\(target, id, turn\.kind, line\)/.test(main),
+    "une reprise montrerait autre chose qu'un tour normal"
+  )
+  check(
+    "et le tampon est borné",
+    main.includes("REPLAY_MAX_BYTES") && /while \(turn\.bytes > REPLAY_MAX_BYTES/.test(main),
+    "un tour bavard ferait grossir le processus principal sans fin"
+  )
+
+  check(
+    "**le rendu se raccroche au démarrage**",
+    panel.includes("await reattach()") && panel.includes("window.zyvro.agent.running()"),
+    "le tour continue de tourner dans le vide"
+  )
+  // Lié d'abord, rejoué ensuite : l'inverse garerait les événements une
+  // seconde fois.
+  const raccroche = panel.slice(panel.indexOf("async function reattach("))
+  const corps = raccroche.slice(0, 1800)
+  check(
+    "**et il lie avant de demander la relecture**",
+    corps.indexOf("bindTurn(conversationId, messageId, id)") < corps.indexOf("agent.replay(id)"),
+    "les événements rejoués seraient garés comme orphelins une seconde fois"
+  )
+  // Une conversation neuve n'est pas encore sur le disque : son premier tour
+  // est justement celui qu'on lance avant de sauver un fichier.
+  check(
+    "**une conversation jamais écrite est recréée**",
+    corps.includes("id: conversationId"),
+    "le premier tour d'un fil neuf reste invisible après un rechargement"
+  )
+  const restaure2 = panel.slice(panel.indexOf("export async function restore("))
+  check(
+    "et rien à relire n'est pas rien à faire",
+    /if \(usable\.length === 0\) \{\s*await reattach\(\)/.test(restaure2),
+    "un projet sans conversation enregistrée ne se raccrocherait jamais"
+  )
+}
+
 console.log(
   failures === 0
-    ? "\nCe qu'on écrit pendant un tour part au suivant, se voit, et s'arrête quand on arrête."
+    ? "\nCe qu'on écrit pendant un tour part au suivant, et un rechargement ne perd plus le tour en cours."
     : `\n${failures} échec(s)`
 )
 process.exit(failures === 0 ? 0 : 1)

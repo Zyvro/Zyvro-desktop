@@ -354,6 +354,16 @@ const api = {
       on("agent:model", cb),
     // Ce qu'un tour a dépensé, tel que le CLI le rapporte à la fin. Il arrive
     // avec le flux : rien n'est demandé en plus pour l'obtenir.
+    /**
+     * Les tours encore en vol dans cette fenêtre.
+     *
+     * Ce que le rendu demande au démarrage : en développement il se recharge à
+     * chaque fichier modifié, et le tour que le processus principal fait
+     * tourner lui survit.
+     */
+    running: (): Promise<{ id: string; conversationId: string; prompt: string }[]> => invoke("agent:running"),
+    /** Rejouer ce qu'un tour a déjà imprimé. À demander une fois lié, pas avant. */
+    replay: (id: string): Promise<boolean> => invoke("agent:replay", id),
     onUsage: (cb: (p: { id: string } & Spent) => void): Unsubscribe => on("agent:usage", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),

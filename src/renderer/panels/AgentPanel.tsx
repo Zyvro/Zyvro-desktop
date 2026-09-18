@@ -701,7 +701,13 @@ export async function restore(): Promise<void> {
   if (typeof window === "undefined" || !window.zyvro) return
   const all = await window.zyvro.agent.conversations()
   const usable = all.filter((c) => c.messages.length > 0)
-  if (usable.length === 0) return
+  // Rien à relire n'est pas rien à faire : un tour peut tourner dans une
+  // conversation qui n'a encore jamais été écrite sur le disque — le premier,
+  // justement, celui qu'on lance avant de sauver un fichier.
+  if (usable.length === 0) {
+    await reattach()
+    return
+  }
 
   const threads: Thread[] = usable.map((c) => ({
     id: c.id,
@@ -746,6 +752,49 @@ export async function restore(): Promise<void> {
     saved: "",
   }))
   commit({ threads, activeId: threads[0].id, asks: state.asks })
+  await reattach()
+}
+
+// reattach : se raccrocher aux tours qui tournent encore.
+//
+// Signalé par Jeremy : « quand tu modifies un fichier, ça recharge le front, ça
+// ne reprend pas les sessions d'agent sur les apps qui tournent ». En
+// développement, `electron-vite` recharge le rendu à chaque fichier sauvé — ce
+// qui rend l'outil agréable à écrire — mais le processus principal ne redémarre
+// pas. Le tour continuait donc, il dépensait, et la page neuve n'avait plus
+// aucune idée de son existence : ses événements arrivaient avec un identifiant
+// que personne ne connaissait plus, et le panneau les garait comme
+// « orphelins » pour toujours. L'écran ne bougeait plus d'une ligne.
+//
+// Ce n'est pas qu'un confort de développement : la même chose arrive à
+// quiconque recharge la fenêtre pendant qu'un agent travaille.
+//
+// La question elle-même est reprise du processus principal, pas du disque : un
+// tour en vol n'y est pas encore écrit — le transcript n'est enregistré qu'à la
+// fin — donc le principal est le seul à l'avoir.
+async function reattach(): Promise<void> {
+  const running = await window.zyvro.agent.running().catch(() => [])
+  for (const { id, conversationId, prompt } of running) {
+    // Une conversation neuve n'est pas encore sur le disque : son premier tour
+    // est en vol, et `restore` n'a donc rien trouvé à recréer. On lui refait un
+    // onglet, sous son identifiant à elle — celui que le processus principal et
+    // la session de la CLI connaissent déjà.
+    if (!threadById(conversationId)) {
+      // S'il y a un onglet vide — celui que le panneau ouvre toujours au
+      // démarrage — on lui donne cet identifiant plutôt que d'en ajouter un à
+      // côté : sinon la reprise laisse un « New chat » orphelin derrière elle.
+      const vide = state.threads.find((t) => t.messages.length === 0 && !t.busy)
+      const threads = vide
+        ? state.threads.map((t) => (t.id === vide.id ? { ...t, id: conversationId } : t))
+        : [{ ...blankThread(), id: conversationId }, ...state.threads]
+      commit({ ...state, threads, activeId: conversationId })
+    }
+    const messageId = beginTurn(conversationId, prompt, [])
+    bindTurn(conversationId, messageId, id)
+    // Lié d'abord, rejoué ensuite : les événements portent l'identifiant du
+    // tour, et une page qui ne l'a pas encore lié les garerait une seconde fois.
+    await window.zyvro.agent.replay(id).catch(() => false)
+  }
 }
 
 // GoalBanner : ce vers quoi la session travaille.

@@ -699,6 +699,27 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  // Se rattacher à un tour qui tourne encore.
+  //
+  // En développement, `electron-vite` recharge le rendu à chaque fichier
+  // modifié — c'est ce qui rend l'outil agréable à écrire — mais le processus
+  // principal, lui, ne redémarre pas. Un tour en cours continuait donc de
+  // tourner et de dépenser pendant que la page neuve n'avait plus aucune idée
+  // de son existence.
+  ipcMain.handle("agent:running", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return ws.agent.running()
+  })
+
+  // Et rejouer ce qu'il a déjà dit. En deux temps, jamais en un : le rendu doit
+  // avoir lié le tour avant que les événements arrivent, sinon il les gare une
+  // seconde fois comme orphelins.
+  ipcMain.handle("agent:replay", async (event, id: string) => {
+    const { ws } = requireWorkspace(event)
+    ws.agent.replay(id, event.sender)
+    return true
+  })
+
   // The account lives in the main process. The renderer can ask who is signed
   // in and ask for a publish, but is never handed the credential.
   ipcMain.handle("account:current", async () => currentAccount())
