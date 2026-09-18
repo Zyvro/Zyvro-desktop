@@ -82,14 +82,26 @@ async function handle(
 
   const chemin = (req.url ?? "").split("?")[0]
 
-  // codex interroge la liste des modèles au démarrage pour se renseigner. Elle
-  // ne décide de rien ici — le modèle est imposé par le panneau — mais une
-  // route absente ferait un message d'erreur au lancement de chaque tour.
+  // codex interroge cette route au démarrage, et ce n'est PAS la liste de
+  // modèles d'OpenAI : c'est son catalogue à lui. Relevé avec
+  // `codex debug models` — `{"models":[{slug, display_name, context_window,
+  // base_instructions, tool_mode, …}]}`, une quarantaine de champs dont
+  // plusieurs changent son comportement.
+  //
+  // On rend donc un catalogue **vide**, pas un catalogue inventé. Fabriquer une
+  // entrée demanderait d'annoncer un `context_window` pour un modèle local dont
+  // on ne sait rien : trop grand, codex envoie plus que le serveur ne peut
+  // prendre — c'est exactement la panne qu'on a vue — et `base_instructions`
+  // réécrirait le prompt de l'agent.
+  //
+  // Vide et bien formé plutôt qu'absent ou mal formé : la première version
+  // rendait la forme d'OpenAI (`{object:"list", data:[…]}`), que codex ne sait
+  // pas décoder, et il écrivait deux fois par tour « failed to decode models
+  // response: missing field `models` » dans le panneau. Avec un catalogue vide
+  // il se rabat en silence sur ses valeurs par défaut, en le disant une fois.
   if (chemin === "/v1/models") {
-    const aim = [...routes.values()][0]
-    const data = [...routes.keys()].map((id) => ({ id, object: "model", owned_by: aim?.provider ?? "zyvro" }))
     res.writeHead(200, { "content-type": "application/json" })
-    res.end(JSON.stringify({ object: "list", data }))
+    res.end(JSON.stringify({ models: [] }))
     return
   }
 

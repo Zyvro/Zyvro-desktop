@@ -101,10 +101,37 @@ check("aucune option ne suit l'identifiant", codexResumed.slice(codexResumed.ind
   const claudeArgs = (permission) => argsFor("claude", { ...ctx, permission }, null).join(" ")
   const codexArgs = (permission) => argsFor("codex", { ...ctx, permission }, null).join(" ")
 
-  // Le défaut : tout le projet, sans rien demander. C'est ce qu'on attend d'un
-  // agent qui travaille dans le dossier qu'on vient de lui ouvrir — le shell
-  // intégré, à côté, n'a jamais rien demandé non plus.
-  check("**par défaut, claude ne demande rien**", claudeArgs(undefined).includes("--permission-mode bypassPermissions"), claudeArgs(undefined))
+  // Le défaut : tout le projet, sans rien demander — et RIEN QUE le projet.
+  //
+  // C'était `bypassPermissions`, et le nom du mode a été pris pour une
+  // frontière. Signalé par Jeremy le 18/09 (« l'agent en mode workspace a pu
+  // écrire un fichier hors du workspace ») et refait à la main : en
+  // `bypassPermissions`, « écris dans ../DEHORS.txt » crée le fichier un niveau
+  // au-dessus du projet, sans un mot.
+  //
+  // Les quatre modes ont été essayés sur le binaire plutôt que choisis au nom :
+  // `bypassPermissions` et `auto` sortent du projet ; `dontAsk` refuse dehors
+  // mais refuse aussi dedans — plus d'écriture, plus de commande ;
+  // `acceptEdits` écrit et lance des commandes dans le projet et refuse d'en
+  // sortir, **y compris par le shell** : `echo sorti > ../DEHORS.txt` revient
+  // « refusé par le système de permissions, pas par moi ».
+  check(
+    "**par défaut, claude ne demande rien — et ne sort pas du projet**",
+    claudeArgs(undefined).includes("--permission-mode acceptEdits"),
+    claudeArgs(undefined)
+  )
+  check(
+    "**et il ne repasse pas par le mode qui laissait sortir**",
+    !claudeArgs(undefined).includes("bypassPermissions") && !claudeArgs(undefined).includes("--permission-mode auto "),
+    "bypassPermissions écrit hors du projet : mesuré, pas supposé"
+  )
+  // En mode impression personne ne peut répondre : ce qui demanderait doit être
+  // refusé, pas attendu.
+  check(
+    "et ce qui demanderait est refusé, pas laissé pendre",
+    claudeArgs(undefined).includes("--permission-prompts none"),
+    claudeArgs(undefined)
+  )
   check("**et codex écrit dans le dossier du projet**", codexArgs(undefined).includes("--sandbox workspace-write"), codexArgs(undefined))
   check("sans bac à sable désactivé pour autant", !codexArgs(undefined).includes("--dangerously-bypass"))
 

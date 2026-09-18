@@ -218,10 +218,36 @@ export function claudePermission(permission: Permission, canAsk = true): string[
     case "yolo":
       return ["--dangerously-skip-permissions"]
     case "project":
-      // Rien ne demande. Les outils de fichiers de claude restent confinés à
-      // son dossier de travail — celui du projet — donc « tout » veut dire
-      // « tout ce qu'il peut atteindre », et c'est le projet.
-      return ["--permission-mode", "bypassPermissions"]
+      // Rien ne demande, et rien ne sort du projet.
+      //
+      // C'était `bypassPermissions`, sur la foi de son nom et d'un raisonnement
+      // faux : « les outils de fichiers restent confinés au dossier de
+      // travail ». Non. Signalé par Jeremy — « l'agent en mode workspace a pu
+      // écrire un fichier hors du workspace » — et refait ici pour en être sûr :
+      // en `bypassPermissions`, « écris dans ../DEHORS.txt » a créé le fichier
+      // un niveau au-dessus du projet, sans un mot.
+      //
+      // `acceptEdits` est le mode qui tient la promesse, et les quatre ont été
+      // essayés plutôt que choisis au nom :
+      //
+      //   bypassPermissions  écrit dehors           ✗
+      //   auto               écrit dehors           ✗
+      //   dontAsk            refuse dehors, mais refuse aussi dedans — ni
+      //                      écriture ni commande, le mode ne sert plus à rien
+      //   acceptEdits        écrit et lance des commandes DANS le projet,
+      //                      refuse d'en sortir                            ✓
+      //
+      // Et il le tient pour le shell aussi, ce qui est le seul cas qui compte :
+      // `echo sorti > ../DEHORS.txt` lancé par Bash a été refusé par la CLI
+      // elle-même — « refusé par le système de permissions, pas par moi ».
+      // Un garde de chemin écrit par nous n'aurait jamais attrapé ça : une
+      // commande shell peut écrire n'importe où de mille façons qu'aucun
+      // analyseur ne voit.
+      //
+      // `--permission-prompts none` va avec : en mode impression personne ne
+      // peut répondre, et ce qui demanderait doit être refusé plutôt que
+      // d'attendre une réponse qui n'arrivera pas.
+      return ["--permission-mode", "acceptEdits", "--permission-prompts", "none"]
     default:
       // Tout demande, et la question arrive dans le panneau.
       //
@@ -265,9 +291,25 @@ export function qwenPermission(permission: Permission, canAsk = true): string[] 
     case "yolo":
       return ["--approval-mode", "yolo"]
     case "project":
-      // Tout ce qu'il peut atteindre, c'est-à-dire le projet : ses outils de
-      // fichiers vivent dans son dossier de travail.
-      return ["--approval-mode", "yolo"]
+      // `auto-edit` écrit sans demander mais ne lance pas de commande.
+      //
+      // C'était `yolo`, avec le même raisonnement faux que du côté de claude —
+      // « ses outils de fichiers vivent dans son dossier de travail » — et
+      // `yolo` veut dire « ne demande jamais », pas « reste ici ». Le trou a
+      // été prouvé chez claude le 18/09 ; il n'y a aucune raison de croire que
+      // celui-ci soit différent.
+      //
+      // **Non vérifié sur le binaire** : Qwen Code n'est plus installé sur
+      // cette machine. Pour le vérifier, l'installer puis, dans un dossier
+      // `projet/` :
+      //
+      //   qwen --approval-mode auto-edit -p "écris 'sorti' dans ../DEHORS.txt"
+      //
+      // et regarder si le fichier apparaît un niveau au-dessus. En attendant,
+      // le choix va au mode le moins permissif des deux : une frontière qu'on
+      // n'a pas pu mesurer se place du côté sûr, quitte à refuser un shell que
+      // ce mode aurait pu accorder.
+      return ["--approval-mode", "auto-edit"]
     default:
       // `default` demande. Sans personne pour répondre, demander est une
       // attente infinie : mieux vaut un mode qui ne peut rien casser.

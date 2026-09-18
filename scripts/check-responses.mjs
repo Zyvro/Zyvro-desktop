@@ -222,6 +222,23 @@ const REQUETE = {
 
   // Ce serveur porte les clefs des fournisseurs : sans jeton, il serait un
   // relais anonyme pour tout ce qui tourne sur la machine.
+  // `/v1/models` n'est PAS la liste de modèles d'OpenAI : c'est le catalogue
+  // interne de codex, relevé avec `codex debug models`. Lui rendre la forme
+  // d'OpenAI le fait écrire « failed to decode models response: missing field
+  // `models` » deux fois par tour, dans le panneau. Vu à l'écran.
+  //
+  // Vide, et pas inventé : une entrée demanderait d'annoncer un
+  // `context_window` pour un modèle local dont on ne sait rien, et un chiffre
+  // trop grand fait envoyer à codex plus que le serveur ne peut prendre.
+  const catalogue = await fetch(`${g.baseUrl}/models`, { headers: { authorization: `Bearer ${g.token}` } })
+  const liste = await catalogue.json()
+  check(
+    "**le catalogue a la forme que codex sait lire**",
+    Array.isArray(liste.models),
+    "codex écrit une erreur de décodage dans le panneau à chaque tour"
+  )
+  check("et il est vide plutôt qu'inventé", liste.models.length === 0 && liste.data === undefined)
+
   const sansJeton = await poster(REQUETE, "pas-le-bon")
   check("**sans le jeton, la passerelle ne relaie rien**", sansJeton.status === 401, String(sansJeton.status))
 
