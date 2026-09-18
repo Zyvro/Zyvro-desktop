@@ -19,6 +19,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { randomBytes } from "node:crypto"
+import { JSONRPC_METHOD_NOT_FOUND, negotiateProtocol } from "../shared/mcpversion"
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { nativeImage, type BrowserWindow, type NativeImage, type Rectangle, type WebContents } from "electron"
@@ -868,6 +869,28 @@ async function handle(
     res.writeHead(401).end(JSON.stringify({ error: "unauthorized" }))
     return
   }
+
+  // Un GET, c'est un client qui demande le flux d'événements que le transport
+  // MCP prévoit pour les messages allant du serveur vers lui. Ce serveur n'en
+  // ouvre pas, et la spécification dit comment le dire : 405.
+  //
+  // Il répondait 404, ce qui ne veut pas du tout la même chose — « cette
+  // adresse n'existe pas » plutôt que « pas de flux ici ». Le client de claude
+  // s'en accommodait, celui de Qwen Code en concluait qu'il n'y avait pas de
+  // serveur et se déconnectait : « MCP server(s) failed to start: zyvro-app.
+  // Continuing with built-in tools. » Continuing, justement — le tour se
+  // déroulait, et l'agent n'avait ni la capture d'écran, ni le navigateur, ni
+  // l'outil par lequel il demande une permission.
+  //
+  // Trouvé en comparant les deux serveurs sur la même poignée de main : le
+  // démon du projet, lui, répondait déjà 405.
+  if (req.method === "GET") {
+    res
+      .writeHead(405, { "Content-Type": "application/json", Allow: "POST" })
+      .end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "no event stream here" } }))
+    return
+  }
+
   let body = ""
   for await (const chunk of req) body += chunk
   let msg: { id?: unknown; method?: string; params?: { name?: string; arguments?: ShotArgs & Record<string, unknown> } }
@@ -887,7 +910,10 @@ async function handle(
     switch (msg.method) {
       case "initialize":
         reply({
-          protocolVersion: "2024-11-05",
+          // La version demandée quand on la parle, la plus récente sinon. En
+          // dur, c'était `2024-11-05` : le client de Qwen Code demandait
+          // `2025-06-18` et se déconnectait sans un mot.
+          protocolVersion: negotiateProtocol((msg.params as { protocolVersion?: unknown } | undefined)?.protocolVersion),
           capabilities: { tools: {} },
           serverInfo: { name: SHOTS_SERVER, version: "1" },
         })
@@ -944,7 +970,33 @@ async function handle(
         }
       }
       default:
-        res.writeHead(404).end(JSON.stringify({ error: `unknown method ${msg.method}` }))
+        // Une méthode qu'on ne sert pas est une erreur JSON-RPC, pas une
+        // erreur de transport.
+        //
+        // C'était `404 {"error":"unknown method …"}`, et c'est ce qui rendait ce
+        // serveur inutilisable depuis Qwen Code. Après s'être connecté, son
+        // client demande `prompts/list` puis `resources/list` — deux méthodes
+        // que ce serveur ne sert pas, puisqu'il n'offre que des outils. Il
+        // recevait un 404 sans corps JSON-RPC, en concluait que l'endpoint
+        // n'existait pas, et marquait le serveur déconnecté :
+        //
+        //   [MCP] MCP ERROR (zyvro-app): Error POSTing to endpoint:
+        //   {"error":"unknown method prompts/list"}
+        //
+        // Le client de claude s'en accommodait, donc rien ne se voyait de ce
+        // côté — sauf « Continuing with built-in tools » au milieu d'une sortie,
+        // et un agent qwen sans capture d'écran, sans navigateur et sans l'outil
+        // par lequel il demande une permission.
+        //
+        // Le démon du projet, lui, répondait déjà `-32601`. C'est sa réponse
+        // qu'on reprend : un serveur, une façon de dire non.
+        res.writeHead(200, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: msg.id ?? null,
+            error: { code: JSONRPC_METHOD_NOT_FOUND, message: `method not found: ${msg.method}` },
+          })
+        )
     }
   } catch (err) {
     // Une erreur d'outil se rend dans le résultat, pas dans le code HTTP : le
