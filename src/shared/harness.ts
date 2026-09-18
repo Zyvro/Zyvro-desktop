@@ -35,11 +35,17 @@ export type Harness = {
   /**
    * Peut-on le viser ailleurs que sur son propre abonnement ?
    *
-   * claude et codex parlent au dos de leur compte et n'en changent pas — on
-   * peut bien leur donner une autre adresse, mais elle doit parler leur
-   * protocole, et c'est une traduction à écrire. Qwen Code prend un
-   * `--auth-type` et une adresse : les serveurs que ce projet connaît déjà
-   * deviennent des dos d'agent sans qu'on traduise quoi que ce soit.
+   * Qwen Code prend un `--auth-type` et une adresse : les serveurs que ce
+   * projet connaît déjà deviennent des dos d'agent sans qu'on traduise quoi que
+   * ce soit.
+   *
+   * codex, lui, ne poste que sur l'API Responses d'OpenAI — son réglage
+   * `wire_api = "chat"` a été retiré. Il est visable depuis le 18/09 parce que
+   * la traduction a été écrite : `shared/responses.ts` et la passerelle de
+   * `main/responses.ts` se mettent entre lui et un serveur Chat Completions.
+   *
+   * claude reste sur son compte : le viser demanderait le même travail côté
+   * Anthropic, et personne ne l'a demandé.
    *
    * C'est toute la différence entre « trois harnais » et « trois harnais fois
    * tous nos fournisseurs ».
@@ -60,7 +66,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     bin: "codex",
     install: "npm install -g @openai/codex",
     envelope: "codex",
-    aimable: false,
+    aimable: true,
   },
   qwen: {
     kind: "qwen",

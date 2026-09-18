@@ -527,6 +527,17 @@ export function registerIpc(onRecents?: () => void): void {
       // propre compte plutôt que d'échouer.
       const aim = harness(kind).aimable ? await aimFor(pinned, ws.daemon.current) : null
 
+      // codex ne sait poster que sur l'API Responses : il passe par la
+      // passerelle de cette fenêtre, qui traduit vers le Chat Completions que
+      // nos fournisseurs parlent. Elle s'ouvre ici parce qu'ouvrir une socket
+      // est asynchrone et que `send` ne l'est pas — le port doit être connu au
+      // moment d'écrire la ligne de commande.
+      //
+      // La route est le modèle épinglé lui-même, « lmstudio/qwen3-coder-next » :
+      // codex le renvoie mot pour mot dans sa requête, et c'est par là que la
+      // passerelle sait à quel serveur parler.
+      if (aim && pinned) await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
+
       return ws.agent.send(
         event.sender,
         // Le harnais tel qu'il a été nommé. La forme d'avant — « codex, sinon

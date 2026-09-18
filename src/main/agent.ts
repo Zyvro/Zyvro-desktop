@@ -5,6 +5,7 @@ import { keep as keepImage } from "./attachments"
 import { commandsIn, remember as rememberCommands } from "./commands"
 import { type Goal, goalIn, sameGoal } from "./goal"
 import { nextRunIn, type Pending, type Wake, wakeIn } from "./schedule"
+import { startGateway, type GatewayHandle } from "./responses"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
@@ -103,7 +104,10 @@ export function argsFor(
   resume: string | null,
   model: string | null = null,
   images: string[] = [],
-  aim: Aim | null = null
+  aim: Aim | null = null,
+  // Par où codex atteint le fournisseur visé. Null quand il parle à son propre
+  // compte, ou quand ce n'est pas lui.
+  gateway: GatewayAim | null = null
 ): string[] {
   // An empty model is not a model. Passing `--model ""` is not the same as
   // passing nothing: the CLI takes it as a value and refuses it, and the user
@@ -180,6 +184,10 @@ export function argsFor(
     "--skip-git-repo-check",
     // Le pendant côté codex, dans son vocabulaire à lui : un bac à sable.
     ...codexPermission(ctx.permission ?? DEFAULT_PERMISSION),
+    ...(aim && gateway ? codexAimArgs(gateway) : []),
+    // Le modèle épinglé est aussi la route de la passerelle : « lmstudio/
+    // qwen3-coder-next » nomme le serveur et le modèle, et codex le renvoie
+    // tel quel dans son corps de requête. C'est par là qu'elle sait où aller.
     ...(pinned ? ["--model", pinned] : []),
     // -i takes one path per occurrence. Several paths after a single -i would
     // be swallowed as one argument by some shells and as the prompt by codex.
@@ -265,6 +273,37 @@ export function qwenPermission(permission: Permission, canAsk = true): string[] 
       // attente infinie : mieux vaut un mode qui ne peut rien casser.
       return canAsk ? ["--approval-mode", "default"] : ["--approval-mode", "plan"]
   }
+}
+
+/** L'adresse de la passerelle et le nom de la variable qui porte son jeton. */
+export type GatewayAim = { baseUrl: string; keyVar: string }
+
+/**
+ * La variable d'environnement par laquelle codex lit le jeton de la passerelle.
+ *
+ * Par l'environnement et pas par la ligne de commande, comme la clef d'un
+ * fournisseur : `ps` est lisible par tout ce qui tourne sur la machine.
+ */
+export const GATEWAY_KEY_VAR = "ZYVRO_GATEWAY_KEY"
+
+/**
+ * codexAimArgs : déclarer la passerelle comme un fournisseur, et l'élire.
+ *
+ * `-c` écrit par-dessus `~/.codex/config.toml` sans le toucher : le réglage ne
+ * vit que le temps du tour, donc lancer codex à la main dans un terminal
+ * continue de parler à son propre compte.
+ *
+ * `wire_api = "responses"` est le seul accepté par la 0.152.0 — relevé sur le
+ * binaire : « `chat` no longer supported ». C'est toute la raison d'être de la
+ * passerelle.
+ */
+export function codexAimArgs(gateway: GatewayAim): string[] {
+  return [
+    "-c",
+    `model_providers.zyvro={name="Zyvro",base_url="${gateway.baseUrl}",wire_api="responses",env_key="${gateway.keyVar}"}`,
+    "-c",
+    "model_provider=zyvro",
+  ]
 }
 
 // aimArgs pointe Qwen Code sur un serveur que ce projet connaît déjà.
@@ -474,6 +513,14 @@ export class AgentRunner {
   // modèle n'a aucune raison d'être remarqué.
   private repeats = new Map<string, { target: WebContents; kind: AgentKind; ctx: AgentContext; model: string | null; aim: Aim | null }>()
 
+  // La passerelle Responses, une par fenêtre et allumée à la demande.
+  //
+  // Une par fenêtre et pas une par tour : ouvrir une socket pour la fermer
+  // trois secondes plus tard, c'est un port neuf à chaque message et une course
+  // le jour où deux tours partent ensemble. Elle route sur le nom du modèle,
+  // donc deux sessions visant deux fournisseurs y tiennent sans se mélanger.
+  private gateway: GatewayHandle | null = null
+
   // Les réveils armés, par conversation. En mémoire : une boucle vit tant que
   // la fenêtre vit, ce qui est déjà infiniment plus que « tant que le processus
   // du tour vit », et ce que promet le panneau — une session en cours, avec de
@@ -528,6 +575,23 @@ export class AgentRunner {
     return cliInstalled(this.available(kind))
   }
 
+  /**
+   * openGateway prépare la route par laquelle codex atteindra un fournisseur.
+   *
+   * Appelée avant `send` parce que `send` est synchrone et qu'ouvrir une
+   * socket ne l'est pas : le port doit être connu au moment où l'on écrit la
+   * ligne de commande. C'est l'appelant — la couche IPC, qui est déjà
+   * asynchrone — qui l'attend.
+   *
+   * Rien ne s'allume pour un harnais qui n'en a pas besoin : une fenêtre qui ne
+   * se sert que de claude n'ouvre jamais ce serveur.
+   */
+  async openGateway(kind: AgentKind, aim: Aim, key: string): Promise<void> {
+    if (kind !== "codex") return
+    if (!this.gateway) this.gateway = await startGateway()
+    this.gateway.aim(key, aim)
+  }
+
   // send starts one turn and streams it back.
   //
   // Each turn is still a fresh process — `claude -p` and `codex exec` are
@@ -554,10 +618,18 @@ export class AgentRunner {
     const env: NodeJS.ProcessEnv = { ...process.env }
     let disposeConfig: (() => void) | null = null
 
-    const args: string[] = argsFor(kind, ctx, resume ?? null, model, images, aim)
+    const passerelle =
+      kind === "codex" && aim && this.gateway ? { baseUrl: this.gateway.baseUrl, keyVar: GATEWAY_KEY_VAR } : null
+    const args: string[] = argsFor(kind, ctx, resume ?? null, model, images, aim, passerelle)
     // La clef du point d'accès arrive ici et pas dans `args` : la table des
     // processus est lisible par tout ce qui tourne sur cette machine.
-    if (aim) Object.assign(env, aimEnv(aim))
+    //
+    // Et seulement pour qui les lit : `OPENAI_BASE_URL` est ce que Qwen Code
+    // attend. codex, lui, passe par la passerelle et lit son jeton à elle —
+    // lui poser en plus l'adresse d'un fournisseur serait un second chemin
+    // vers le même serveur, c'est-à-dire celui des deux qui aura tort.
+    if (aim && kind === "qwen") Object.assign(env, aimEnv(aim))
+    if (passerelle && this.gateway) env[GATEWAY_KEY_VAR] = this.gateway.token
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -980,5 +1052,7 @@ export class AgentRunner {
     for (const id of [...this.turns.keys()]) this.cancel(id)
     for (const id of [...this.waking.keys()]) this.clearTimer(id)
     this.repeats.clear()
+    this.gateway?.close()
+    this.gateway = null
   }
 }

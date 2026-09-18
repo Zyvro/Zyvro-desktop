@@ -227,7 +227,7 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   const agentSrc = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
   check(
     "et c'est le processus principal qui la pose",
-    agentSrc.includes("if (aim) Object.assign(env, aimEnv(aim))"),
+    agentSrc.includes('if (aim && kind === "qwen") Object.assign(env, aimEnv(aim))'),
     "personne ne met la visée dans l'environnement du sous-processus"
   )
   // Elle vient du moteur, qui la détient, et pas du catalogue affiché.
@@ -248,9 +248,11 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 
   // Seul un harnais visable l'est. Donner une adresse à claude ne ferait rien
   // de bon : elle devrait parler son protocole, et c'est une traduction à
-  // écrire, pas un drapeau à poser.
+  // écrire, pas un drapeau à poser. Personne n'a demandé celle-là.
   check("claude ne se vise pas", mod.harness("claude").aimable === false)
-  check("codex non plus", mod.harness("codex").aimable === false)
+  // codex, si — depuis le 18/09, parce que la traduction a été écrite : voir
+  // check-responses.mjs, qui éprouve la passerelle elle-même.
+  check("**codex se vise, par la passerelle**", mod.harness("codex").aimable === true)
   check("**qwen, si**", mod.harness("qwen").aimable === true)
   check(
     "et un harnais non visable ignore une visée qu'on lui passerait",
