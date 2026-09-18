@@ -208,8 +208,17 @@ const api = {
     create: (relative: string, kind: "file" | "directory"): Promise<boolean> =>
       invoke("files:create", relative, kind),
     rename: (from: string, to: string): Promise<boolean> => invoke("files:rename", from, to),
+    /**
+     * Coller dans un dossier. Rend le chemin retenu, qui n'est pas toujours
+     * celui demandé : rien n'est jamais écrasé, donc un nom pris en fait naître
+     * un libre — « notes 2.txt ».
+     */
+    paste: (from: string, intoDir: string, mode: "copy" | "move"): Promise<string> =>
+      invoke("files:paste", from, intoDir, mode),
     remove: (relative: string): Promise<boolean> => invoke("files:delete", relative),
     reveal: (relative: string): Promise<boolean> => invoke("shell:reveal", relative),
+    /** Ouvrir avec le programme par défaut du système, comme un double-clic. */
+    openExternally: (relative: string): Promise<boolean> => invoke("shell:open", relative),
     pick: (request: { save?: boolean; title?: string; current?: string }): Promise<string | null> =>
       invoke("files:pick", request),
   },

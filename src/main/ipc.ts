@@ -397,6 +397,14 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  // Coller ce qu'on a copié ou coupé. Rend le chemin retenu : quand le nom
+  // était pris, ce n'est pas celui qu'on a demandé, et l'appelant doit savoir
+  // lequel relire.
+  ipcMain.handle("files:paste", async (event, from: string, intoDir: string, mode: "copy" | "move") => {
+    const { ws } = requireWorkspace(event)
+    return files.pasteEntry(requireRoot(ws), from, intoDir, mode === "move" ? "move" : "copy")
+  })
+
   ipcMain.handle("files:delete", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
     await files.deleteEntry(requireRoot(ws), relative)
@@ -966,6 +974,27 @@ export function registerIpc(onRecents?: () => void): void {
     const { ws } = requireWorkspace(event)
     const target = await files.resolveInside(requireRoot(ws), relative)
     shell.showItemInFolder(target)
+    return true
+  })
+
+  // Ouvrir avec le programme du système.
+  //
+  // « Ouvrir avec… » au sens du Finder — un sous-menu qui liste les
+  // applications — demande des interfaces macOS qu'Electron n'expose pas. Ce
+  // qu'on peut faire honnêtement est ce que fait un double-clic : le programme
+  // par défaut pour ce type de fichier. Le menu le dit en ces mots plutôt que
+  // de promettre une liste qui n'arrivera pas.
+  //
+  // Le portail habituel : le chemin vient du rendu, donc il est vérifié contre
+  // le dossier ouvert avant d'être passé au système.
+  ipcMain.handle("shell:open", async (event, relative: string) => {
+    const { ws } = requireWorkspace(event)
+    const target = await files.resolveInside(requireRoot(ws), relative)
+    // `openPath` rend une chaîne vide quand il a réussi, et le message du
+    // système quand il a échoué — un type de fichier que rien n'ouvre, par
+    // exemple. Le rendre plutôt que le jeter : c'est une phrase à afficher.
+    const probleme = await shell.openPath(target)
+    if (probleme) throw new Error(probleme)
     return true
   })
 }

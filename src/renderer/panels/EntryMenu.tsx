@@ -1,10 +1,11 @@
-import { useState, type ReactNode } from "react"
+import { useState, useSyncExternalStore, type ReactNode } from "react"
 import * as Menu from "@radix-ui/react-dropdown-menu"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import type { DirEntry } from "../../preload"
 import { askConfirm, askName } from "~/state/prompt"
 import { handTo } from "~/state/handoff"
+import { clearHeld, heldItem, hold, released, subscribeClipboard } from "~/state/clipboard"
 import { askSearchFocus } from "~/state/reveal"
 import { quotePath } from "../../shared/dropped"
 import { useWorkspace } from "~/state/workspace"
@@ -109,10 +110,44 @@ export function EntryMenu({
     if (!oui) return
     await window.zyvro.files.remove(entry.path)
     relire(parent)
+    // Ce qui part à la corbeille ne peut plus être collé. Le garder dans le
+    // presse-papiers offrirait un « Paste "notes.txt" » qui échouerait par
+    // « notes.txt is no longer there » — une erreur pour un geste qu'on n'avait
+    // aucune raison de proposer. Un dossier supprimé emporte ce qu'il
+    // contenait.
+    const garde = heldItem()
+    if (garde && (garde.path === entry.path || garde.path.startsWith(`${entry.path}/`))) clearHeld()
   }
 
   const copier = (texte: string) => {
     void navigator.clipboard.writeText(texte)
+  }
+
+  // Ce qui attend d'être collé, s'il y a quelque chose.
+  const retenu = useSyncExternalStore(subscribeClipboard, heldItem, () => null)
+
+  // Où l'on colle : dans le dossier visé, ou dans celui qui contient le fichier
+  // visé. Coller « sur » un fichier n'a pas de sens — un fichier ne contient
+  // rien — et refuser le geste serait pire que de faire la chose évidente.
+  const dossierCible = dossier ? entry.path : parent
+
+  const coller = async () => {
+    if (!retenu) return
+    const ecrit = await window.zyvro.files.paste(retenu.path, dossierCible, retenu.mode)
+    released()
+    relire(dossierCible)
+    // Un déplacement vide aussi le dossier d'où il vient.
+    if (retenu.mode === "move") {
+      const source = retenu.path.includes("/") ? retenu.path.slice(0, retenu.path.lastIndexOf("/")) : ""
+      if (source !== dossierCible) relire(source)
+    }
+    // Le nom retenu n'est pas toujours celui demandé : rien n'est écrasé, donc
+    // un nom pris en fait naître un libre. Ouvrir ce qui a vraiment été écrit
+    // évite d'ouvrir un fichier qu'on croit être le nouveau.
+    if (ecrit && !ecrit.endsWith("/")) {
+      const feuille = ecrit.split("/").pop() ?? ""
+      if (feuille.includes(".")) openFile(ecrit)
+    }
   }
 
   return (
@@ -180,8 +215,41 @@ export function EntryMenu({
               Find in folder…
             </Menu.Item>
           )}
+          {!dossier && (
+            <Menu.Item className={item} onSelect={fermerPuis(() => void window.zyvro.files.openExternally(entry.path))}>
+              {/* « Open with… » au sens du Finder — un sous-menu qui liste les
+                  applications — demande des interfaces qu'Electron n'expose
+                  pas. Ce qu'on sait faire est ce que fait un double-clic, et
+                  l'entrée le dit en ces mots plutôt que de promettre une liste
+                  qui n'arrivera jamais. */}
+              Open with default app
+            </Menu.Item>
+          )}
           <Menu.Item className={item} onSelect={fermerPuis(() => void window.zyvro.files.reveal(entry.path))}>
             Reveal in Finder
+          </Menu.Item>
+
+          <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+
+          {/* Couper, copier, coller.
+              Le presse-papiers est celui de l'application, pas celui du
+              système : couper un fichier ici ne doit pas effacer ce que
+              quelqu'un venait de copier ailleurs. */}
+          <Menu.Item className={item} onSelect={fermerPuis(() => hold(entry, "move"))}>
+            Cut
+          </Menu.Item>
+          <Menu.Item className={item} onSelect={fermerPuis(() => hold(entry, "copy"))}>
+            Copy
+          </Menu.Item>
+          <Menu.Item
+            className={item}
+            data-disabled={retenu ? undefined : true}
+            disabled={!retenu}
+            onSelect={fermerPuis(coller)}
+          >
+            {/* Le nom de ce qu'on collerait, plutôt qu'un « Paste » nu : deux
+                minutes après avoir coupé, on ne sait plus quoi. */}
+            {retenu ? `Paste “${retenu.name}”` : "Paste"}
           </Menu.Item>
 
           <Menu.Separator className="my-1 h-px bg-white/[0.08]" />

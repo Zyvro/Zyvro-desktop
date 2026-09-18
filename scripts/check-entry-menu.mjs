@@ -33,7 +33,8 @@ const dir = path.join(ROOT, "node_modules", ".zyvro-menu-check")
 mkdirSync(dir, { recursive: true })
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export * from "${path.join(ROOT, "src/renderer/state/handoff").replace(/\\/g, "/")}"\n`
+  `export * from "${path.join(ROOT, "src/renderer/state/handoff").replace(/\\/g, "/")}"\n` +
+    `export * from "${path.join(ROOT, "src/renderer/state/clipboard").replace(/\\/g, "/")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -41,7 +42,9 @@ await build({
   bundle: true, format: "cjs", platform: "node", external: ["electron"],
   absWorkingDir: ROOT, logLevel: "silent",
 })
-const { handTo, takeHandoff, tokenOf } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
+const { handTo, takeHandoff, tokenOf, hold, heldItem, released, clearHeld } = createRequire(import.meta.url)(
+  path.join(dir, "h.cjs")
+)
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -74,7 +77,7 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
 
 // ---- ce qu'il propose est ce que l'application sait faire -----------------
 {
-  for (const entree of ["New file…", "New folder…", "Open", "Add to agent", "Open in terminal", "Find in folder…", "Reveal in Finder", "Copy path", "Copy relative path", "Rename…"]) {
+  for (const entree of ["New file…", "New folder…", "Open", "Add to agent", "Open in terminal", "Find in folder…", "Cut", "Copy", "Paste", "Open with default app", "Reveal in Finder", "Copy path", "Copy relative path", "Rename…"]) {
     check(`il propose « ${entree} »`, menu.includes(entree))
   }
   // Et pas ce qui n'existe pas ici : un menu qui propose « Open to the Side »
@@ -113,6 +116,67 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
     menu.includes('setPanel("search", true)') && menu.includes("askSearchFocus()"),
     "la portée est remise à un panneau fermé"
   )
+}
+
+// ---- couper, copier, coller ----------------------------------------------
+{
+  // Le presse-papiers est celui de l'application, PAS celui du système. Écrire
+  // des chemins dans le presse-papiers du système effacerait ce que quelqu'un
+  // vient d'y copier — un mot de passe, un bout de code — pour un geste qui
+  // n'a rien à voir.
+  const cut = menu.slice(menu.indexOf(">\n            Cut") - 400, menu.indexOf(">\n            Cut"))
+  check(
+    "**couper n'écrit pas dans le presse-papiers du système**",
+    !cut.includes("navigator.clipboard"),
+    "couper un fichier effacerait ce que la personne avait copié ailleurs"
+  )
+
+  // Coller est proposé éteint quand il n'y a rien : une entrée qui échoue au
+  // clic est pire qu'une entrée grise.
+  check(
+    "**coller est éteint quand rien n'attend**",
+    menu.includes("data-disabled={retenu ? undefined : true}") && menu.includes("disabled={!retenu}"),
+    "on clique, et ça ne fait rien"
+  )
+  // Et il nomme ce qu'il collerait : deux minutes après avoir coupé, on ne sait
+  // plus quoi.
+  check("et il nomme ce qu'il collerait", menu.includes("`Paste “${retenu.name}”`"))
+
+  // Un couper ne vaut qu'une fois : le fichier n'est plus là où il était, et le
+  // recoller déplacerait un chemin qui n'existe plus. Un copier se colle
+  // plusieurs fois — c'est tout son intérêt.
+  hold({ path: "src/a.txt", name: "a.txt" }, "move")
+  check("**ce qu'on coupe est retenu**", heldItem()?.mode === "move" && heldItem()?.path === "src/a.txt")
+  released()
+  check("**et un couper collé ne se recolle pas**", heldItem() === null, "on déplacerait un chemin qui n'existe plus")
+
+  hold({ path: "src/b.txt", name: "b.txt" }, "copy")
+  released()
+  check("**un copier, lui, se colle encore**", heldItem()?.path === "src/b.txt", JSON.stringify(heldItem()))
+
+  // Ce qui part à la corbeille ne peut plus être collé.
+  check(
+    "**et supprimer ce qu'on tenait le retire du presse-papiers**",
+    menu.includes("clearHeld()") && menu.includes("garde.path.startsWith(`${entry.path}/`)"),
+    "« Paste » proposerait un fichier qui n'existe plus"
+  )
+  clearHeld()
+  check("oublier vide bien", heldItem() === null)
+}
+
+// ---- ouvrir avec le programme du système ---------------------------------
+{
+  // Sur un fichier seulement : « ouvrir » un dossier avec un programme n'est
+  // pas ce que quelqu'un demande depuis cet arbre — c'est « Reveal in Finder ».
+  check(
+    "**« Open with default app » ne s'offre que sur un fichier**",
+    /\{!dossier && \(\s*<Menu\.Item[\s\S]{0,900}?Open with default app/.test(menu),
+    "l'entrée s'offre aussi sur un dossier"
+  )
+  // Et ce qu'elle promet est ce qu'elle fait : le programme par défaut, pas une
+  // liste d'applications qu'Electron ne sait pas énumérer.
+  const rendu2 = menu.slice(menu.indexOf("<Menu.Portal>")).replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
+  check("et elle ne promet pas un sous-menu d'applications", !rendu2.includes("Open with…"))
 }
 
 // ---- supprimer va à la corbeille, et demande ------------------------------

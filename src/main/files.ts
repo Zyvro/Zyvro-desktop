@@ -179,6 +179,98 @@ export async function renameEntry(root: string, from: string, to: string): Promi
   await fs.rename(source, target)
 }
 
+// pasteEntry : coller ce qu'on a copié ou coupé, dans un dossier.
+//
+// Une seule fonction pour les deux gestes, parce que tout ce qui est délicat
+// leur est commun — le portail, le nom libre, le dossier qu'on essaie de
+// mettre dans lui-même — et que deux copies de ces règles, c'est une des deux
+// qui oublie la troisième.
+//
+// **Rien n'est jamais écrasé.** C'est la décision qui compte ici. Coller par
+// -dessus un fichier existant, c'est une perte qu'aucune corbeille ne rattrape :
+// la corbeille garde ce qu'on supprime, pas ce qu'on remplace. Quand le nom est
+// pris, on en choisit un libre — « notes 2.txt », « sprites 3 » — comme le
+// Finder, et on rend le nom retenu pour que l'appelant puisse le montrer.
+//
+// Couper vers son propre dossier ne fait rien : ce n'est pas un doublon, c'est
+// un geste sans effet, et fabriquer « notes 2.txt » pour ça surprendrait.
+// Copier vers son propre dossier, en revanche, duplique — c'est ce qu'on veut
+// dire en copiant-collant au même endroit.
+export async function pasteEntry(
+  root: string,
+  from: string,
+  intoDir: string,
+  mode: "copy" | "move"
+): Promise<string> {
+  const source = await resolveInside(root, from)
+  const destinationDir = await resolveInside(root, intoDir)
+
+  const info = await fs.stat(source).catch(() => null)
+  if (!info) throw new Error(`${from} is no longer there.`)
+
+  const into = await fs.stat(destinationDir).catch(() => null)
+  if (!into?.isDirectory()) throw new Error(`${intoDir || "the project root"} is not a folder.`)
+
+  // Un dossier qu'on met dans lui-même, ou dans un de ses descendants : la
+  // copie s'appellerait récursivement jusqu'au disque plein, et le déplacement
+  // détacherait l'arbre de la racine. Les deux se refusent avant d'agir.
+  if (info.isDirectory()) {
+    const dedans = path.relative(source, destinationDir)
+    if (dedans === "" || (!dedans.startsWith("..") && !path.isAbsolute(dedans))) {
+      throw new Error(`A folder cannot be pasted into itself.`)
+    }
+  }
+
+  // Couper vers le dossier qui le contient déjà : rien à faire.
+  if (mode === "move" && path.dirname(source) === destinationDir) {
+    return from
+  }
+
+  const target = await freeName(destinationDir, path.basename(source))
+  if (mode === "move") {
+    await fs.rename(source, target)
+  } else {
+    // `recursive` pour les dossiers ; `force: false` avec un nom déjà libre,
+    // pour que le jour où `freeName` se trompe on ait une erreur plutôt qu'un
+    // écrasement silencieux.
+    await fs.cp(source, target, { recursive: true, force: false, errorOnExist: true })
+  }
+
+  const rootReal = await fs.realpath(root)
+  return path.relative(rootReal, target)
+}
+
+// freeName : un nom qui n'écrase personne, dans le goût du Finder.
+//
+// « notes.txt » pris devient « notes 2.txt », puis « notes 3.txt ». L'extension
+// reste à la fin — « notes.txt 2 » se trierait mal et n'ouvrirait plus dans le
+// bon programme — et un dossier n'a pas d'extension à préserver.
+//
+// La boucle est bornée : cent tentatives, et au-delà on le dit. Un dossier où
+// cent noms sont pris est un dossier où quelque chose se passe qu'un
+// cent-unième fichier n'arrangera pas.
+async function freeName(dir: string, name: string): Promise<string> {
+  const candidat = path.join(dir, name)
+  if (!(await exists(candidat))) return candidat
+
+  const ext = path.extname(name)
+  const tige = ext ? name.slice(0, -ext.length) : name
+  for (let n = 2; n < 100; n++) {
+    const essai = path.join(dir, `${tige} ${n}${ext}`)
+    if (!(await exists(essai))) return essai
+  }
+  throw new Error(`There are already too many copies of ${name} here.`)
+}
+
+async function exists(target: string): Promise<boolean> {
+  // `lstat` et pas `stat` : un lien symbolique cassé occupe le nom tout de
+  // même, et le prendre pour libre ferait échouer l'écriture juste après.
+  return fs
+    .lstat(target)
+    .then(() => true)
+    .catch(() => false)
+}
+
 // deleteEntry met un fichier ou un dossier à la corbeille.
 //
 // À la corbeille et pas au néant, et c'est le changement qui compte : « Delete »
