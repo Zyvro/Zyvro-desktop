@@ -12,15 +12,21 @@
 //           chaque événement du flux, d'où le besoin de ne prévenir la fenêtre
 //           que quand il change.
 //
-//   claude  rien de structuré. Son `/goal` répond en texte — « Goal active: les
-//           tests passent (not yet evaluated) », ou « No goal set. Usage:… ».
-//           Mais le résultat porte `local_command: "goal"`, et c'est ce marqueur
-//           qui permet de le lire sans deviner : on sait alors que ce texte EST
-//           le rapport du but, et pas une phrase du modèle qui en parlerait.
+//   claude  rien de structuré. Son `/goal` répond en texte — « Goal set: les
+//           tests passent », « Goal active: … (not yet evaluated) », ou « No
+//           goal set. Usage:… ». Mais l'événement porte
+//           `local_command_run: {command: "goal", args: …}`, et c'est ce
+//           marqueur qui permet de le lire sans deviner : on sait alors que ce
+//           texte EST le rapport du but, et pas une phrase du modèle qui en
+//           parlerait.
 //
-// Vérifié aussi : chez claude le but survit à une reprise de session. Le
-// montrer en tête n'est donc pas un affichage éphémère, c'est l'état réel de la
-// session qu'on rouvre.
+// Ce que ce commentaire affirmait et qui est faux (corrigé le 18/09 en le
+// faisant tourner) : « chez claude le but survit à une reprise de session ».
+// Non, pas en mode impression. Un but posé dans un tour, puis `--resume` et
+// `/goal` : « No goal set ». Chaque tour est un processus, et la commande
+// locale ne laisse rien derrière elle. Le bandeau montre donc ce que le dernier
+// tour a dit du but — ce qui reste ce que la personne vient de demander, et
+// s'efface quand le harnais répond qu'il n'y en a pas.
 
 export type Goal = {
   /** Ce qu'on cherche à obtenir, dans les mots de la personne. */
@@ -90,24 +96,71 @@ function qwenGoal(event: Record<string, unknown>): { goal: Goal | null } | null 
 // volontairement lâche : « aucun but » se reconnaît, et TOUT le reste est un
 // but — quitte à épingler la phrase telle quelle. Perdre le but parce que la
 // tournure a bougé serait pire que d'épingler une phrase un peu longue.
+// claudeGoal : le marqueur n'est pas là où ce fichier le cherchait.
+//
+// Il lisait `local_command === "goal"` sur l'événement `result`. Ni l'un ni
+// l'autre n'existe : claude 2.1.276 émet un événement **assistant** portant
+//
+//   "local_command_run": {"command": "goal", "args": "tous les tests passent"},
+//   "local_command_source": "<local-command-stdout>Goal set: …</local-command-stdout>",
+//   "message": {"content": [{"type": "text", "text": "Goal set: …"}]}
+//
+// Relevé en le faisant tourner, ce qui aurait dû être fait la première fois : le
+// carnet disait « la lecture est juste et gardée contre les vraies charges
+// utiles ; il reste à la voir allumée ». Elle n'était pas juste, et c'est
+// précisément parce qu'on ne l'avait jamais vue allumée que personne ne le
+// savait. Un garde écrit sur une charge utile inventée vérifie l'invention.
+//
+// Ce qui ne change pas : c'est le marqueur du harnais qu'on lit, jamais une
+// phrase du modèle. Une réponse contenant « Goal active » écrite par le modèle
+// n'est pas un but, et rien ici ne la prendra pour tel.
 function claudeGoal(event: Record<string, unknown>): { goal: Goal | null } | null {
-  if (event.type !== "result" || event.local_command !== "goal") return null
-  const texte = typeof event.result === "string" ? event.result.trim() : ""
+  if (event.type !== "assistant") return null
+  const run = (event.local_command_run && typeof event.local_command_run === "object"
+    ? event.local_command_run
+    : {}) as Record<string, unknown>
+  if (run.command !== "goal") return null
+
+  const texte = commandText(event)
   if (!texte || /^no goal\b/i.test(texte)) return { goal: null }
 
-  const actif = /^goal\s+active\s*:\s*(.+)$/i.exec(texte)
-  if (!actif) return { goal: { objective: texte, status: "" } }
+  // « Goal set: … » est la réponse à `/goal <condition>`, « Goal active: … »
+  // celle à `/goal` tout seul. Les deux disent le même but.
+  const pose = /^goal\s+(?:set|active)\s*:\s*(.+)$/is.exec(texte)
+  if (!pose) return { goal: { objective: texte, status: "" } }
 
-  let reste = actif[1].trim()
+  let reste = pose[1].trim()
   let status = "active"
   // « … (not yet evaluated) » : la parenthèse finale est ce que le harnais dit
   // de l'état, pas une partie de l'objectif.
-  const parenthese = /^(.*?)\s*\(([^()]*)\)$/.exec(reste)
+  const parenthese = /^(.*?)\s*\(([^()]*)\)$/s.exec(reste)
   if (parenthese) {
     reste = parenthese[1].trim()
     status = parenthese[2].trim() || status
   }
   return { goal: { objective: reste, status } }
+}
+
+// commandText : ce que la commande a imprimé.
+//
+// Deux endroits le portent, et on prend celui qui est déjà propre. Le second
+// arrive enveloppé — `<local-command-stdout>…</local-command-stdout>` — parce
+// que c'est la sortie brute d'une commande locale ; garder l'enveloppe ferait
+// un but épinglé qui commence par une balise.
+function commandText(event: Record<string, unknown>): string {
+  const message = (event.message && typeof event.message === "object" ? event.message : {}) as Record<string, unknown>
+  const blocs = Array.isArray(message.content) ? message.content : []
+  const texte = blocs
+    .map((b) => {
+      const bloc = (b && typeof b === "object" ? b : {}) as Record<string, unknown>
+      return bloc.type === "text" && typeof bloc.text === "string" ? bloc.text : ""
+    })
+    .join("")
+    .trim()
+  if (texte) return texte
+
+  const brut = typeof event.local_command_source === "string" ? event.local_command_source : ""
+  return brut.replace(/<\/?local-command-[a-z]+>/gi, "").trim()
 }
 
 // sameGoal : deux états du but qui ne diffèrent en rien.
