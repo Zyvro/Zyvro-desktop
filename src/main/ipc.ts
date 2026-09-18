@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
+import { harness, isAgentKind } from "../shared/harness"
+import { aimFor, aimableModels } from "./aim"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
 import { helpOf } from "./cli"
@@ -517,9 +519,20 @@ export function registerIpc(onRecents?: () => void): void {
     ) => {
       const { ws } = requireWorkspace(event)
       const root = requireRoot(ws)
+      const pinned = typeof model === "string" && model.trim() ? model.trim() : null
+      // Où ce harnais ira chercher son modèle. Résolu ici parce que c'est ici
+      // qu'on peut demander au moteur quels serveurs ce projet a allumés — et
+      // null quand il n'y a rien à viser, ce qui laisse le harnais sur son
+      // propre compte plutôt que d'échouer.
+      const aim = harness(kind).aimable ? await aimFor(pinned, ws.daemon.current) : null
+
       return ws.agent.send(
         event.sender,
-        kind === "codex" ? "codex" : "claude",
+        // Le harnais tel qu'il a été nommé. La forme d'avant — « codex, sinon
+        // claude » — était une troisième liste : elle transformait en silence
+        // tout nouveau harnais en claude, et le panneau aurait montré « qwen »
+        // pendant que claude répondait.
+        isAgentKind(kind) ? kind : "claude",
         String(prompt),
         {
           projectDir: root,
@@ -537,11 +550,12 @@ export function registerIpc(onRecents?: () => void): void {
             : DEFAULT_PERMISSION,
         },
         String(conversationId),
-        typeof model === "string" && model.trim() ? model.trim() : null,
+        pinned,
         // Only paths this process wrote itself are accepted. The renderer names
         // an attachment by its id; it never hands over a path, so it cannot ask
         // the CLI to read /etc/passwd by calling it an image.
-        Array.isArray(images) ? attachments.pathsFor(String(conversationId), images.map(String)) : []
+        Array.isArray(images) ? attachments.pathsFor(String(conversationId), images.map(String)) : [],
+        aim
       )
     }
   )
@@ -558,7 +572,15 @@ export function registerIpc(onRecents?: () => void): void {
     const all = await conversations.load(requireRoot(ws))
     // The runner is told what it is expected to resume, so a conversation
     // reopened after a restart carries on rather than starting over.
-    for (const conversation of all) ws.agent.resumeAt(conversation.id, conversation.sessionId)
+    for (const conversation of all) {
+      // Un fichier écrit avant que les sessions soient séparées n'en porte
+      // qu'une : elle appartient au harnais que la conversation portait alors,
+      // et c'est la seule lecture honnête qu'on puisse en faire.
+      const known = conversation.sessions ?? (conversation.sessionId ? { [conversation.kind]: conversation.sessionId } : {})
+      for (const [kind, sessionId] of Object.entries(known)) {
+        if (isAgentKind(kind)) ws.agent.resumeAt(kind, conversation.id, sessionId)
+      }
+    }
     return all
   })
 
@@ -569,13 +591,16 @@ export function registerIpc(onRecents?: () => void): void {
       // The id the CLI actually reported wins over whatever the renderer last
       // saw: it is learned from the output stream, and the renderer only hears
       // about it through an event that may still be in flight.
-      sessionId: ws.agent.sessionFor(conversation.id) ?? conversation.sessionId ?? null,
+      sessionId: ws.agent.sessionFor(conversation.kind, conversation.id) ?? conversation.sessionId ?? null,
+      // Et le fil de chaque harnais, pour que basculer et revenir retrouve
+      // celui d'avant plutôt que d'en commencer un troisième.
+      sessions: { ...conversation.sessions, ...ws.agent.sessionsFor(conversation.id) },
     })
   })
 
   ipcMain.handle("agent:forget", async (event, id: string) => {
     const { ws } = requireWorkspace(event)
-    ws.agent.resumeAt(String(id), null)
+    ws.agent.forget(String(id))
     // The images go with the conversation. That is what keeps this folder from
     // growing forever without a sweeper to write and then forget about.
     await attachments.drop(String(id))
@@ -608,9 +633,17 @@ export function registerIpc(onRecents?: () => void): void {
   // the choice was between a second list that goes stale and a narrow parse of
   // what the tool states. A parse that finds nothing is not a failure: the
   // picker then offers the default and a box to type a full name in.
-  ipcMain.handle("agent:models", async (_event, kind: AgentKind) => {
-    const bin = kind === "codex" ? "codex" : "claude"
-    return agentModule.aliasesFrom(helpOf(bin))
+  ipcMain.handle("agent:models", async (event, kind: AgentKind) => {
+    // Un harnais visable ne choisit pas parmi SES modèles : il choisit parmi
+    // ceux des serveurs que ce projet a allumés. C'est la liste que la personne
+    // a déjà réglée dans le panneau des fournisseurs, demandée au moteur plutôt
+    // que recopiée — « lmstudio/qwen3-coder-next » nomme le serveur et le
+    // modèle d'un seul choix.
+    if (harness(kind).aimable) {
+      const { ws } = requireWorkspace(event)
+      return aimableModels(ws.daemon.current)
+    }
+    return agentModule.aliasesFrom(helpOf(harness(kind).bin))
   })
 
   ipcMain.handle("agent:cancel", async (event, id: string) => {

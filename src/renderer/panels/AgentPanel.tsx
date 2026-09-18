@@ -5,6 +5,7 @@ import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, Spent, WorkflowRef } from "../../preload"
+import { AGENT_KINDS } from "../../shared/harness"
 import { droppedText, insertAt } from "../../shared/dropped"
 import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
@@ -102,6 +103,17 @@ type Thread = {
   busy: boolean
   /** The model this thread is pinned to, or null for the CLI's own choice. */
   model: string | null
+  /**
+   * Ce que chaque harnais avait épinglé, par son nom.
+   *
+   * Un modèle appartient au harnais qui l'a proposé, comme une session lui
+   * appartient. Vu en basculant : une conversation épinglée sur
+   * « ollama-local/qwen2.5:0.5b » passée à claude lui faisait répondre « There's
+   * an issue with the selected model » — un nom que claude n'a aucune raison de
+   * connaître, gardé parce qu'il vivait sur la conversation et non sur le
+   * harnais. Revenir retrouve donc le sien.
+   */
+  models: Partial<Record<AgentKind, string | null>>
   /** What the CLI reported running last, so the picker can name the default. */
   ranWith: string | null
   /** Which CLI this thread is talking to. */
@@ -148,6 +160,7 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     turnId: null,
     busy: false,
     model,
+    models: { [kind]: model },
     ranWith: null,
     kind,
     saved: "",
@@ -500,6 +513,10 @@ function persist(threadId: string): void {
     // last knew keeps a conversation whose session has not changed intact.
     sessionId: null,
     model: thread.model,
+    // Ce que chaque harnais avait épinglé : basculer et revenir retrouve le
+    // sien plutôt que d'hériter de celui du voisin, qui répondrait « that model
+    // may not exist » pour un nom qu'il n'a jamais proposé.
+    models: { ...thread.models, [thread.kind]: thread.model },
     ranWith: thread.ranWith,
     messages,
     updatedAt: new Date().toISOString(),
@@ -567,6 +584,9 @@ export async function restore(): Promise<void> {
     turnId: null,
     busy: false,
     model: c.model ?? null,
+    // Un fichier écrit avant que les modèles soient séparés n'en porte qu'un :
+    // il appartient au harnais que la conversation portait alors.
+    models: c.models ?? (c.model ? { [c.kind]: c.model } : {}),
     ranWith: c.ranWith ?? null,
     kind: c.kind,
     images: [],
@@ -648,7 +668,11 @@ function restoreTool(stored: StoredTool | string): ToolCall {
 }
 
 function setModel(threadId: string, model: string | null): void {
-  mapThread(threadId, (thread) => ({ ...thread, model }))
+  mapThread(threadId, (thread) => ({
+    ...thread,
+    model,
+    models: { ...thread.models, [thread.kind]: model },
+  }))
 }
 
 // attach writes one image and hangs a chip on the composer. The file is the
@@ -664,7 +688,20 @@ function detach(threadId: string, id: string): void {
 }
 
 function setKind(threadId: string, kind: AgentKind): void {
-  mapThread(threadId, (thread) => ({ ...thread, kind }))
+  mapThread(threadId, (thread) => {
+    // Une session garde son harnais. C'est lui qui tient le fil côté CLI — la
+    // session qu'on reprend d'un tour à l'autre lui appartient — et en changer
+    // au milieu, c'est demander à quelqu'un d'autre de finir une phrase qu'il
+    // n'a pas entendue. L'écran ne le propose plus une fois commencé ; ceci
+    // est la règle, à l'endroit où elle ne dépend pas de l'écran.
+    if (thread.messages.length > 0) return thread
+    // Ce que ce harnais avait épinglé la dernière fois, et rien s'il n'a jamais
+    // rien épinglé : le défaut appartient à la CLI et se lit sur son premier
+    // tour. Garder le modèle du harnais précédent, c'est lui demander un nom
+    // qu'il ne connaît pas.
+    const models = { ...thread.models, [thread.kind]: thread.model }
+    return { ...thread, kind, models, model: models[kind] ?? null, ranWith: null }
+  })
 }
 
 // answerAsk : la réponse part, la demande quitte l'écran. Les deux ensemble,
@@ -789,6 +826,10 @@ export function AgentPanel(): JSX.Element {
 
   const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
   const kind = thread.kind
+  // Une session « commencée » est une session qui a un fil côté CLI. C'est le
+  // premier message envoyé qui le crée, pas le premier caractère tapé : tant
+  // que rien n'est parti, tout se change encore.
+  const started = thread.messages.length > 0
   const asks = chat.asks
   // Ce que l'agent a le droit de faire appartient au projet, pas à cette
   // conversation : on le choisit en fonction du dossier dans lequel on
@@ -1040,41 +1081,43 @@ export function AgentPanel(): JSX.Element {
           nom du modèle est choisi par la CLI — « claude-opus-5[1m] (default) »
           est plus long que « claude-haiku-4-5 ». Sans de quoi rétrécir, c'est
           le bouton de droite qui passait dehors : le seul qui ouvre une
-          nouvelle conversation, et il disparaissait sans bruit. */}
+          nouvelle session, et il disparaissait sans bruit. C'est aussi
+          pourquoi le choix du harnais a quitté cette barre pour le corps de la
+          session : trois boutons de plus ici, et elle débordait encore. */}
       <div className="flex h-9 shrink-0 items-center gap-2 overflow-hidden border-b border-white/[0.06] px-2">
         <span className="shrink-0 text-[11px] uppercase tracking-wide text-muted-foreground">Agent</span>
 
-        <div className="ml-auto min-w-0 max-w-[11rem]">
-          <ModelPicker
-            kind={kind}
-            model={thread.model}
-            ranWith={thread.ranWith}
-            onChange={(model) => setModel(thread.id, model)}
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
-          {(["claude", "codex"] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => setKind(thread.id, option)}
-              className={cn(
-                "rounded px-2 py-0.5 text-[11px] transition-colors",
-                kind === option
-                  ? "bg-white/[0.08] text-foreground"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
+        {/* Une fois la session commencée, l'en-tête ne propose plus de choix :
+            il rappelle ce qu'elle est. Le harnais est figé — c'est lui qui
+            tient le fil de la conversation côté CLI, et en changer au milieu
+            reviendrait à demander à quelqu'un d'autre de continuer une phrase
+            qu'il n'a pas entendue. Le modèle, lui, se change encore : c'est un
+            choix à l'intérieur du même harnais. */}
+        {started ? (
+          <>
+            <span
+              className="ml-auto shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+              title={`This session runs ${kind}. A session keeps its harness: it is the one holding the thread.`}
             >
-              {option}
-            </button>
-          ))}
-        </div>
+              {kind}
+            </span>
+            <div className="min-w-0 max-w-[9rem]">
+              <ModelPicker
+                kind={kind}
+                model={thread.model}
+                ranWith={thread.ranWith}
+                onChange={(model) => setModel(thread.id, model)}
+              />
+            </div>
+          </>
+        ) : (
+          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">New session</span>
+        )}
 
         <button
           type="button"
           onClick={openThread}
-          title="New conversation"
+          title="New session"
           className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
@@ -1118,8 +1161,51 @@ export function AgentPanel(): JSX.Element {
       )}
 
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {thread.messages.length === 0 ? (
+        {!started ? (
           <div className="space-y-3 text-xs text-muted-foreground">
+            {/* Le choix se fait ici, avant le premier message, et pas dans la
+                barre du haut : c'est le moment où il se décide, et un réglage
+                montré au moment où il compte n'a pas besoin d'être cherché.
+                Après, il disparaît — le harnais est figé et le rappeler comme
+                un bouton inviterait à cliquer dessus pour rien. */}
+            <div className="space-y-2 rounded-lg border border-white/[0.06] bg-white/[0.03] p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] uppercase tracking-wide">Harness</span>
+                <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
+                  {AGENT_KINDS.map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setKind(thread.id, option)}
+                      title={`Run this session with ${option}`}
+                      className={cn(
+                        "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-colors",
+                        kind === option
+                          ? "bg-white/[0.08] text-foreground"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] uppercase tracking-wide">Model</span>
+                <div className="min-w-0 max-w-[13rem]">
+                  <ModelPicker
+                    kind={kind}
+                    model={thread.model}
+                    ranWith={thread.ranWith}
+                    onChange={(model) => setModel(thread.id, model)}
+                  />
+                </div>
+              </div>
+              <p className="leading-snug text-[11px] text-muted-foreground/80">
+                The harness is fixed once this session starts — it is the one holding the thread. Open a
+                new session to use another.
+              </p>
+            </div>
             <p className="leading-relaxed">
               This runs the <span className="font-mono text-foreground">{kind}</span> CLI already signed
               in on this machine, in your project directory. A ChatGPT or Claude subscription works here

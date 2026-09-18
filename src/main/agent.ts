@@ -7,13 +7,17 @@ import type { WebContents } from "electron"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
 import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
+import { AGENT_KINDS, type Aim, type AgentKind, harness } from "../shared/harness"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
 // be reached from a server, but the CLI on this machine is already signed in.
 // Zyvro never sees a token; it sees stdout.
 
-export type AgentKind = "claude" | "codex"
+// Les harnais vivent dans un module partagé : le principal les lance, le pont
+// les fait traverser, le rendu les affiche. Une déclaration par côté, c'est la
+// déclaration d'un côté qui oublie le troisième harnais.
+export type { AgentKind } from "../shared/harness"
 
 // Ce que l'agent a le droit de faire vit dans un module que les trois côtés
 // partagent : le principal le traduit en drapeaux, le pont le fait traverser,
@@ -94,7 +98,8 @@ export function argsFor(
   ctx: AgentContext,
   resume: string | null,
   model: string | null = null,
-  images: string[] = []
+  images: string[] = [],
+  aim: Aim | null = null
 ): string[] {
   // An empty model is not a model. Passing `--model ""` is not the same as
   // passing nothing: the CLI takes it as a value and refuses it, and the user
@@ -135,6 +140,35 @@ export function argsFor(
       ...(images.length > 0 ? ["--add-dir", ...directoriesOf(images)] : []),
     ]
   }
+  if (kind === "qwen") {
+    // Qwen Code imprime la même enveloppe que Claude Code, et prend presque les
+    // mêmes drapeaux. Les trois qui lui sont propres :
+    //
+    //   --bare              coupe la découverte automatique au démarrage.
+    //                       Mesuré sur la même question : 190 s avec, 10 s
+    //                       sans, parce que l'extracteur de mémoire lance deux
+    //                       requêtes de 26 000 jetons avant de répondre.
+    //   -o stream-json      un événement par ligne, comme claude.
+    //   --auth-type + adresse  ce qui le vise ailleurs que sur son compte.
+    //
+    // `-p` est déprécié chez lui au profit de la question en positionnel ou sur
+    // stdin ; elle arrive sur stdin, comme pour les deux autres, et pour la
+    // même raison : elle ne doit pas se retrouver dans la table des processus.
+    return [
+      "--bare",
+      "-o",
+      "stream-json",
+      ...qwenPermission(ctx.permission ?? DEFAULT_PERMISSION),
+      "--append-system-prompt",
+      preamble(ctx),
+      ...(aim ? aimArgs(aim) : pinned ? ["-m", pinned] : []),
+      ...(resume ? ["--resume", resume] : []),
+      // Même raison que pour claude : ses outils de fichiers vivent dans le
+      // dossier de travail, et les pièces jointes sont rangées ailleurs.
+      ...(images.length > 0 ? ["--include-directories", directoriesOf(images).join(",")] : []),
+    ]
+  }
+
   return [
     "exec",
     ...(resume ? ["resume"] : []),
@@ -205,6 +239,50 @@ export function codexPermission(permission: Permission): string[] {
   }
 }
 
+// qwenPermission : le même choix encore, dans le vocabulaire de Qwen Code.
+//
+// Ses modes portent d'autres noms et ne se recouvrent pas exactement :
+// `plan` n'écrit rien et n'exécute rien, `auto-edit` écrit mais ne lance pas de
+// commande, `yolo` ne demande jamais. Le mode qui demande est `default`, et il
+// ne peut demander que si quelqu'un peut répondre — sinon le tour attend une
+// réponse qui n'arrivera pas, exactement comme claude.
+export function qwenPermission(permission: Permission, canAsk = true): string[] {
+  switch (permission) {
+    case "read":
+      return ["--approval-mode", "plan"]
+    case "yolo":
+      return ["--approval-mode", "yolo"]
+    case "project":
+      // Tout ce qu'il peut atteindre, c'est-à-dire le projet : ses outils de
+      // fichiers vivent dans son dossier de travail.
+      return ["--approval-mode", "yolo"]
+    default:
+      // `default` demande. Sans personne pour répondre, demander est une
+      // attente infinie : mieux vaut un mode qui ne peut rien casser.
+      return canAsk ? ["--approval-mode", "default"] : ["--approval-mode", "plan"]
+  }
+}
+
+// aimArgs pointe Qwen Code sur un serveur que ce projet connaît déjà.
+//
+// Le modèle et l'adresse sortent du même choix — « lmstudio/qwen3-coder-next »
+// nomme les deux — parce que les tenir séparés laisserait exister l'état « le
+// modèle de LM Studio, demandé à Ollama », qui répond 404 et n'apprend rien.
+export function aimArgs(aim: Aim): string[] {
+  return [
+    "--auth-type",
+    "openai",
+    "--openai-base-url",
+    aim.url,
+    // Un serveur local n'en demande pas, mais le client en exige une : sans
+    // valeur, Qwen Code réclame une connexion au lieu d'appeler.
+    "--openai-api-key",
+    aim.key.trim() || "local",
+    "-m",
+    aim.model,
+  ]
+}
+
 // directoriesOf is the set of folders a batch of images sits in, without
 // repeats — one --add-dir per folder rather than per file.
 function directoriesOf(files: string[]): string[] {
@@ -221,7 +299,10 @@ function directoriesOf(files: string[]): string[] {
 // codex gets nothing added here: it takes the same images as `-i` arguments,
 // and repeating them in the text would make it describe a list of paths.
 export function promptWith(kind: AgentKind, prompt: string, images: string[]): string {
-  if (kind !== "claude" || images.length === 0) return prompt
+  // Les deux harnais à enveloppe claude lisent une image par son chemin, avec
+  // leur outil de lecture ; codex en prend une par `-i` et n'a rien à lire dans
+  // le texte.
+  if (harness(kind).envelope !== "claude" || images.length === 0) return prompt
   const listed = images.map((file) => `- ${file}`).join("\n")
   return `${prompt}\n\nThe user attached ${images.length === 1 ? "this image" : "these images"}. Read ${images.length === 1 ? "it" : "them"} with the Read tool before answering:\n${listed}`
 }
@@ -332,6 +413,8 @@ export function sessionIn(event: Record<string, unknown>): string | null {
 type Turn = {
   id: string
   conversationId: string
+  // Quel harnais tourne : c'est lui que la session apprise concerne.
+  kind: AgentKind
   child: ChildProcess
   // Whether any assistant text has gone out for this turn yet. The CLI emits
   // one assistant message per stretch of thinking, and between two of them
@@ -353,22 +436,55 @@ export class AgentRunner {
   //
   // Held here and handed back to the caller, which is what writes it down: this
   // class knows how to talk to a CLI and should not also own a file.
+  // Une session par conversation ET par harnais.
+  //
+  // Elle appartient au harnais, pas à la conversation, et les tenir ensemble
+  // était un vrai défaut — trouvé en s'en servant, pas en relisant : une
+  // conversation commencée avec claude, basculée sur qwen, lançait
+  // `qwen --resume <identifiant de claude>`. Qwen Code répond alors « No saved
+  // session found with ID … », et c'est la réponse qui remplace le tour.
+  //
+  // Basculer d'un harnais à l'autre repart donc de zéro chez le nouveau, et
+  // revenir au premier retrouve son fil. C'est ce que « changer d'agent »
+  // devrait vouloir dire.
   private sessions = new Map<string, string>()
 
+  private static key(kind: AgentKind, conversationId: string): string {
+    return `${kind}\u0000${conversationId}`
+  }
+
   // sessionFor is what the panel's persistence reads after a turn.
-  sessionFor(conversationId: string): string | null {
-    return this.sessions.get(conversationId) ?? null
+  sessionFor(kind: AgentKind, conversationId: string): string | null {
+    return this.sessions.get(AgentRunner.key(kind, conversationId)) ?? null
+  }
+
+  // sessionsFor rend tout ce qui est connu d'une conversation, harnais par
+  // harnais : c'est ce qui est écrit sur le disque, pour qu'un fil repris
+  // demain le soit chez le bon.
+  sessionsFor(conversationId: string): Record<string, string> {
+    const out: Record<string, string> = {}
+    for (const kind of AGENT_KINDS) {
+      const id = this.sessionFor(kind, conversationId)
+      if (id) out[kind] = id
+    }
+    return out
   }
 
   // resumeAt seeds a session learned in a previous run of the app, so a
   // conversation reopened tomorrow carries on rather than starting over.
-  resumeAt(conversationId: string, sessionId: string | null): void {
-    if (sessionId) this.sessions.set(conversationId, sessionId)
-    else this.sessions.delete(conversationId)
+  resumeAt(kind: AgentKind, conversationId: string, sessionId: string | null): void {
+    const key = AgentRunner.key(kind, conversationId)
+    if (sessionId) this.sessions.set(key, sessionId)
+    else this.sessions.delete(key)
+  }
+
+  // forget efface tout ce qu'on sait d'une conversation, chez tous les harnais.
+  forget(conversationId: string): void {
+    for (const kind of AGENT_KINDS) this.resumeAt(kind, conversationId, null)
   }
 
   available(kind: AgentKind): string {
-    return kind === "codex" ? "codex" : "claude"
+    return harness(kind).bin
   }
 
   // installed is what the panel asks before offering the agent at all, and it
@@ -392,15 +508,19 @@ export class AgentRunner {
     ctx: AgentContext,
     conversationId: string,
     model: string | null = null,
-    images: string[] = []
+    images: string[] = [],
+    // Où ce harnais va chercher son modèle, quand ce n'est pas son propre
+    // compte. Résolu par l'appelant : c'est lui qui peut demander au moteur
+    // quels serveurs ce projet a allumés.
+    aim: Aim | null = null
   ): string {
     const id = randomUUID()
-    const resume = this.sessions.get(conversationId)
+    const resume = this.sessionFor(kind, conversationId)
     const bin = this.available(kind)
     const env: NodeJS.ProcessEnv = { ...process.env }
     let disposeConfig: (() => void) | null = null
 
-    const args: string[] = argsFor(kind, ctx, resume ?? null, model, images)
+    const args: string[] = argsFor(kind, ctx, resume ?? null, model, images, aim)
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -427,6 +547,24 @@ export class AgentRunner {
             .map((name) => `mcp__${name}`)
             .join(",")
         )
+      } else if (kind === "qwen") {
+        // Le même fichier de configuration, deux drapeaux à lui. Qwen Code
+        // écrit `--allowed-tools` avec des tirets là où claude écrit
+        // `--allowedTools`, et nomme les serveurs permis séparément. Ce sont
+        // les noms lus dans son `--help`, pas les noms devinés depuis l'autre :
+        // un drapeau mal orthographié n'est pas refusé, il est ignoré, et les
+        // outils de Zyvro manquent sans que rien ne le dise.
+        const config = claudeMcpConfig(ctx)
+        disposeConfig = config.dispose
+        const servers = Object.keys(mcpServers(ctx))
+        args.push(
+          "--mcp-config",
+          config.path,
+          "--allowed-mcp-server-names",
+          ...servers,
+          "--allowed-tools",
+          ...servers.map((name) => `mcp__${name}`)
+        )
       } else {
         // Codex reads the token from the environment rather than from a flag,
         // which keeps it out of the process table.
@@ -444,7 +582,7 @@ export class AgentRunner {
     // carries an extension and may be a .cmd that Node refuses to start
     // without a shell.
     const child = launchPiped(bin, args, { cwd: ctx.projectDir, env })
-    this.turns.set(id, { id, conversationId, child, sentText: false })
+    this.turns.set(id, { id, conversationId, kind, child, sentText: false })
 
     child.stdin.write(text)
     child.stdin.end()
@@ -522,9 +660,14 @@ export class AgentRunner {
 
     const learned = sessionIn(parsed)
     if (turn && learned) {
-      if (this.sessions.get(turn.conversationId) !== learned) {
-        this.sessions.set(turn.conversationId, learned)
-        target.send("agent:session", { id, conversationId: turn.conversationId, sessionId: learned })
+      if (this.sessionFor(turn.kind, turn.conversationId) !== learned) {
+        this.resumeAt(turn.kind, turn.conversationId, learned)
+        target.send("agent:session", {
+          id,
+          conversationId: turn.conversationId,
+          kind: turn.kind,
+          sessionId: learned,
+        })
       }
     }
     const send = (text: string) => {
@@ -554,7 +697,11 @@ export class AgentRunner {
     const finished = (callId: string, content: unknown, isError: boolean) =>
       target.send("agent:tool-result", { id, callId, output: outputIn(content), isError })
 
-    if (kind === "claude") {
+    // L'enveloppe décide, pas le nom du harnais. Qwen Code imprime exactement
+    // celle de Claude Code — mêmes `type`, même `session_id`, même bloc
+    // `usage` — et lui écrire un deuxième analyseur serait s'engager à corriger
+    // deux fois chaque bizarrerie du format.
+    if (harness(kind).envelope === "claude") {
       const type = parsed.type
       if (type === "assistant") {
         const message = parsed.message as { content?: unknown[] } | undefined

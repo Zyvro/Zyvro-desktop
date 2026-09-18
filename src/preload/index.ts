@@ -17,7 +17,8 @@ export type DirEntry = { name: string; path: string; kind: "file" | "directory" 
 export type DaemonInfo = { ready: true; port: number; token: string; project: string; origin: string }
 export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
 export type FileRead = { path: string; text: string; truncated: boolean } | { path: string; binary: true }
-export type AgentKind = "claude" | "codex"
+import type { AgentKind } from "../shared/harness"
+export type { AgentKind }
 
 // Les formes de la recherche traversent le pont : elles sont redites ici parce
 // que le rendu ne peut pas importer un module du processus principal, et la

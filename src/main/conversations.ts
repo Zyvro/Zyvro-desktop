@@ -78,7 +78,15 @@ export type Conversation = {
   title: string
   // The CLI's own id for this thread, learned from its output stream. Null
   // until the first turn has run: there is nothing to resume before then.
+  //
+  // Gardé pour les fichiers déjà écrits : un seul identifiant, celui du harnais
+  // que la conversation portait ce jour-là. Ce qui compte maintenant est
+  // `sessions`, parce qu'une session appartient au harnais et pas à la
+  // conversation — passer l'identifiant de claude à qwen lui fait répondre
+  // « No saved session found with ID … » à la place du tour.
   sessionId: string | null
+  // Ce que chaque harnais sait de cette conversation, par son nom.
+  sessions?: Record<string, string>
   // The model this thread is pinned to, or null for whatever the CLI picks.
   //
   // Null is a real answer and not a missing one: the default belongs to the
@@ -89,6 +97,11 @@ export type Conversation = {
   // is a thing people do deliberately — start on the fast one, move to the
   // careful one when it gets hard.
   model: string | null
+  // Ce que chaque harnais avait épinglé, par son nom. Un modèle appartient au
+  // harnais qui l'a proposé : « ollama-local/qwen2.5:0.5b » ne veut rien dire
+  // pour claude, et le lui passer lui fait répondre « that model may not
+  // exist » au lieu du tour qu'on lui demandait.
+  models?: Partial<Record<AgentKind, string | null>>
   // What the CLI reported actually running, so the picker can show the default
   // by name instead of the word "default".
   ranWith?: string | null
