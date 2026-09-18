@@ -15,6 +15,7 @@ import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import { Thumb, type Attached } from "~/panels/Thumb"
+import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import type { StoredTool } from "../../preload"
 
 // This panel runs the agent CLI that is already signed in on this machine, so
@@ -278,6 +279,10 @@ function ensureAttached(): void {
   // A result is paired by the call's own id and never by arrival: two commands
   // running at once come back in whichever order they finish, which was seen
   // happening in a real stream rather than guessed at.
+  // Ce que le harnais vient d'annoncer savoir faire. Il le dit à l'ouverture de
+  // chaque flux ; on le garde pour le menu de la barre oblique.
+  window.zyvro.agent.onCommands(({ kind, commands }) => noteCommands(kind, commands))
+
   window.zyvro.agent.onToolResult(({ id, callId, output, isError, images }) => {
     const bound = turnToMessage.get(id)
     // Le résultat retrouve son appel par son identifiant, jamais par l'ordre
@@ -864,6 +869,10 @@ export function AgentPanel(): JSX.Element {
   // toute la fenêtre, et cent messages n'ont pas à s'abonner cent fois.
   const showSpent = useSyncExternalStore(subscribeUsage, usageShown, () => true)
   const [draft, setDraft] = useState("")
+  // Où est le curseur : une commande ne se complète que tant qu'on est dedans,
+  // pas quand on est revenu écrire au milieu d'une phrase qui commence par une
+  // barre oblique.
+  const [caret, setCaret] = useState(0)
 
   const composer = useRef<HTMLTextAreaElement | null>(null)
   const scrollTeardown = useRef<(() => void) | null>(null)
@@ -947,7 +956,64 @@ export function AgentPanel(): JSX.Element {
     void window.zyvro.agent.cancel(turnId)
   }
 
+  // ---- le menu de la barre oblique ----------------------------------------
+  //
+  // Les harnais ont leurs propres commandes — 107 pour claude sur cette machine
+  // avec ses greffons, 27 pour qwen — et elles marchent déjà : ce qu'on tape
+  // part sur l'entrée standard, et la CLI les exécute. Vérifié plutôt que
+  // supposé : `claude -p "/context"` rend le vrai rapport de contexte, pas le
+  // modèle qui parle du mot.
+  //
+  // Ce qui manquait n'était donc pas l'exécution, c'était de savoir qu'elles
+  // existent. Le menu lit la liste que le harnais annonce, jamais une liste
+  // écrite ici — celle-là serait fausse chez la première personne qui installe
+  // un greffon.
+  const toutes = commandsFor(kind)
+  useSyncExternalStore(subscribeCommands, () => commandsKey(kind), () => "")
+  const tape = slashPrefix(draft, caret)
+  const proposees = tape === null ? [] : matching(toutes, tape)
+  const menuOuvert = proposees.length > 0
+  const [choisi, setChoisi] = useState(0)
+  const surligne = Math.min(choisi, Math.max(0, proposees.length - 1))
+
+  const completer = (nom: string): void => {
+    // Un espace derrière : la plupart de ces commandes prennent un argument, et
+    // celles qui n'en prennent pas s'accommodent d'un espace en trop.
+    setDraft(`/${nom} `)
+    setChoisi(0)
+    const node = composer.current
+    if (node) {
+      node.focus()
+      grow(node)
+    }
+  }
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (menuOuvert) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault()
+        setChoisi((v) => (v + 1) % proposees.length)
+        return
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault()
+        setChoisi((v) => (v - 1 + proposees.length) % proposees.length)
+        return
+      }
+      if (event.key === "Escape") {
+        event.preventDefault()
+        // Fermer sans effacer : on ferme le menu, pas ce qu'on écrivait.
+        setDraft(`${draft} `)
+        return
+      }
+      if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+        // Entrée complète au lieu d'envoyer : envoyer `/lo` à la CLI, c'est
+        // une commande inconnue et un tour perdu.
+        event.preventDefault()
+        completer(proposees[surligne])
+        return
+      }
+    }
     if (event.key !== "Enter" || event.shiftKey) return
     event.preventDefault()
     void send(draft)
@@ -1291,6 +1357,33 @@ export function AgentPanel(): JSX.Element {
           </div>
         )}
 
+        {/* Les commandes du harnais, quand on commence par une barre oblique.
+            Au-dessus de la saisie et pas en dessous : la saisie est déjà en bas
+            de la fenêtre, et un menu sous elle sortirait de l'écran. */}
+        {menuOuvert && (
+          <div className="zy-scroll mb-1.5 max-h-48 overflow-y-auto rounded-md border border-white/[0.08] bg-background/95 p-1">
+            {proposees.slice(0, 40).map((nom, index) => (
+              <button
+                key={nom}
+                type="button"
+                onMouseEnter={() => setChoisi(index)}
+                onClick={() => completer(nom)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11px]",
+                  index === surligne ? "bg-white/[0.09] text-foreground" : "text-muted-foreground"
+                )}
+              >
+                /{nom}
+              </button>
+            ))}
+            {proposees.length > 40 && (
+              <div className="px-2 py-1 text-[10px] text-muted-foreground/70">
+                et {proposees.length - 40} autres — précisez
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Ce que l'agent demande la permission de faire, juste au-dessus de la
             barre de saisie : il attend, et c'est ici qu'on regarde. */}
         {asks.map((ask) => (
@@ -1320,8 +1413,11 @@ export function AgentPanel(): JSX.Element {
             placeholder={disabled ? "Open a project first" : `Ask ${kind}…`}
             onChange={(event) => {
               setDraft(event.target.value)
+              setCaret(event.target.selectionStart ?? event.target.value.length)
+              setChoisi(0)
               grow(event.currentTarget)
             }}
+            onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
             className="block max-h-40 min-h-[22px] w-full resize-none bg-transparent text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"

@@ -6,6 +6,7 @@ import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
 import { harness, isAgentKind } from "../shared/harness"
 import { aimFor, aimableModels } from "./aim"
+import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
 import { helpOf } from "./cli"
@@ -626,6 +627,13 @@ export function registerIpc(onRecents?: () => void): void {
 
   // La vignette d'une pièce jointe, par son identifiant. Le chemin ne traverse
   // toujours pas : ce qui revient est une adresse `data:`.
+  // Ce que ce harnais sait faire, tel qu'il l'a annoncé la dernière fois qu'il
+  // a tourné. Vide tant qu'il n'a jamais tourné ici : c'est lui qui le dit, pas
+  // nous, et une liste inventée serait fausse dès le premier greffon installé.
+  ipcMain.handle("agent:commands", async (_event, kind: AgentKind) =>
+    isAgentKind(kind) ? knownCommands(kind) : []
+  )
+
   ipcMain.handle("agent:thumbnail", async (_event, conversationId: string, id: string) =>
     attachments.thumbnail(String(conversationId), String(id))
   )

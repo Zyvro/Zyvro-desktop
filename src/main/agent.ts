@@ -2,6 +2,7 @@ import { type ChildProcess } from "node:child_process"
 import { installed as cliInstalled, launchPiped } from "./cli"
 import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
+import { commandsIn, remember as rememberCommands } from "./commands"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
@@ -673,6 +674,14 @@ export class AgentRunner {
     // own default instead of a name we made up.
     const ranWith = modelIn(parsed)
     if (turn && ranWith) target.send("agent:model", { id, conversationId: turn.conversationId, model: ranWith })
+
+    // Ce que ce harnais sait faire, annoncé par lui à l'ouverture du flux. On
+    // le garde : la liste n'arrive qu'avec un tour, et le moment où l'on
+    // cherche ce qu'on peut taper est justement celui d'avant.
+    const commands = commandsIn(parsed)
+    if (commands && rememberCommands(kind, commands)) {
+      target.send("agent:commands", { kind, commands })
+    }
 
     const learned = sessionIn(parsed)
     if (turn && learned) {

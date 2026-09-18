@@ -288,6 +288,11 @@ const api = {
     // fichier n'est plus là.
     thumbnail: (conversationId: string, id: string): Promise<string | null> =>
       invoke("agent:thumbnail", conversationId, id),
+    // Les commandes en barre oblique que ce harnais annonce. Elles viennent de
+    // lui et de ses greffons, jamais d'une liste écrite ici.
+    commands: (kind: AgentKind): Promise<string[]> => invoke("agent:commands", kind),
+    onCommands: (cb: (p: { kind: AgentKind; commands: string[] }) => void): Unsubscribe =>
+      on("agent:commands", cb),
     conversations: (): Promise<Conversation[]> => invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
       invoke("agent:remember", conversation),
