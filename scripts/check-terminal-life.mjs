@@ -185,6 +185,29 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
     panel.includes("session précédente, les programmes ont été arrêtés"),
     "on relit une compilation d'hier en croyant qu'elle tourne"
   )
+
+  // Le dossier suit le défilement. Signalé par Jeremy dix minutes après la
+  // première version : rouvrir à la racine pendant que l'écran montre du
+  // travail fait dans `server/` est un écran qui ment.
+  check(
+    "**et il rouvre dans le dossier où on était**",
+    /cwd: this\.cwdOf\(session\.pty\.pid\) \?\? session\.cwd/.test(term),
+    "l'invite s'ouvre à la racine sous un défilement qui parle d'ailleurs"
+  )
+  check("lu au système, pas deviné", term.includes("/usr/sbin/lsof") && term.includes("/proc/${pid}/cwd"))
+  // Le rendu ne nomme pas un chemin : il renvoie une valeur que le principal
+  // lui a donnée, et le principal la revérifie.
+  check(
+    "**et le rendu ne choisit pas où s'ouvre un shell**",
+    ipc.includes("gardes.some((garde) => garde.cwd === cwd)"),
+    "« ouvrir un shell ici » deviendrait « ouvrir un shell n'importe où »"
+  )
+  // Un fichier écrit par la première version ne portait que le texte.
+  check(
+    "et un historique d'avant ce champ se relit quand même",
+    term.includes('if (typeof brut === "string")'),
+    "une version de plus, et quelqu'un perd son historique"
+  )
 }
 
 console.log(

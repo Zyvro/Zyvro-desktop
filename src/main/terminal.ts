@@ -1,4 +1,5 @@
-import { spawn as spawnPipe, type ChildProcess } from "node:child_process"
+import { execFileSync, spawn as spawnPipe, type ChildProcess } from "node:child_process"
+import { readlinkSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import fs from "node:fs/promises"
@@ -14,6 +15,10 @@ import { shellMcp, type McpTarget } from "./mcp"
 // we only fall back to pipes when the native module is unavailable.
 
 type PtyLike = {
+  /** Le processus du shell. Zéro quand on ne l'a pas — le repli par `script`
+   *  lance un intermédiaire, et c'est son pid qu'on aurait, pas celui du
+   *  shell. */
+  pid: number
   write(data: string): void
   resize(cols: number, rows: number): void
   kill(): void
@@ -27,6 +32,9 @@ type NodePtyModule = {
     args: string[],
     opts: { name: string; cols: number; rows: number; cwd: string; env: NodeJS.ProcessEnv }
   ): {
+    /** Le processus du shell, que node-pty expose. C'est lui qu'on interroge
+     *  pour savoir dans quel dossier quelqu'un s'est déplacé. */
+    readonly pid: number
     write(d: string): void
     resize(c: number, r: number): void
     kill(): void
@@ -79,6 +87,7 @@ function makePty(
   if (mod) {
     const proc = mod.spawn(file, args, { name: "xterm-256color", cols, rows, cwd, env })
     return {
+      pid: proc.pid,
       write: (d) => proc.write(d),
       resize: (c, r) => proc.resize(c, r),
       kill: () => proc.kill(),
@@ -105,6 +114,9 @@ function makePty(
     env: { ...env, LINES: String(rows), COLUMNS: String(cols) },
   })
   return {
+    // Le repli lance `/usr/bin/script`, pas le shell : son pid ne dirait pas où
+    // le shell se trouve. Mieux vaut zéro que le mauvais dossier.
+    pid: 0,
     write: (d) => child.stdin?.write(d),
     resize: () => undefined,
     kill: () => child.kill(),
@@ -268,6 +280,34 @@ export class Terminals {
 
   // ---- l'historique qui survit à la fermeture ------------------------------
 
+  // Où ce shell se trouve maintenant.
+  //
+  // Un pty naît avec un cwd, mais quelqu'un tape `cd` — et c'est même le geste
+  // le plus courant. Rouvrir le projet dans le dossier de départ pendant que le
+  // défilement montre du travail fait ailleurs, c'est un écran qui ment.
+  // Signalé par Jeremy dix minutes après la première version.
+  //
+  // Lu au système, parce que rien dans le shell ne nous le dit : `/proc` sur
+  // Linux, `lsof` sur macOS — vérifié qu'il rend bien le dossier et qu'il suit
+  // les `cd`. Windows n'a ni l'un ni l'autre et gardera son dossier de départ ;
+  // c'est moins bien, et c'est dit plutôt que caché.
+  private cwdOf(pid: number): string | null {
+    if (!pid) return null
+    try {
+      if (process.platform === "linux") return readlinkSync(`/proc/${pid}/cwd`)
+      if (process.platform !== "darwin") return null
+      const sortie = execFileSync("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
+        encoding: "utf8",
+        timeout: 2000,
+      })
+      const ligne = sortie.split("\n").find((l) => l.startsWith("n"))
+      return ligne ? ligne.slice(1) : null
+    } catch {
+      // Un dossier qu'on ne sait pas lire n'empêche pas de fermer la fenêtre.
+      return null
+    }
+  }
+
   private historyFile(projectDir: string): string {
     // Haché comme les conversations, et pour les mêmes raisons : un chemin
     // n'est pas un nom de fichier — il a des séparateurs, il peut être plus
@@ -286,7 +326,13 @@ export class Terminals {
       // pendant l'écriture laisserait sinon un JSON tronqué, et la réouverture
       // suivante perdrait tout l'historique au lieu d'en perdre la fin.
       const temp = `${file}.${process.pid}.tmp`
-      await fs.writeFile(temp, JSON.stringify({ shells: shells.map((session) => session.seen) }), "utf8")
+      await fs.writeFile(
+        temp,
+        JSON.stringify({
+          shells: shells.map((session) => ({ seen: session.seen, cwd: this.cwdOf(session.pty.pid) ?? session.cwd })),
+        }),
+        "utf8"
+      )
       await fs.rename(temp, file)
     } catch {
       // Un historique qu'on ne sait pas écrire n'est pas une raison de refuser
@@ -302,12 +348,24 @@ export class Terminals {
    * programmes, eux, sont morts avec la fenêtre — on ne fait pas semblant du
    * contraire.
    */
-  async saved(projectDir: string): Promise<string[]> {
+  async saved(projectDir: string): Promise<{ seen: string; cwd: string }[]> {
     try {
       const raw = await fs.readFile(this.historyFile(projectDir), "utf8")
       const parsed = JSON.parse(raw) as { shells?: unknown }
       if (!Array.isArray(parsed.shells)) return []
-      return parsed.shells.filter((s): s is string => typeof s === "string")
+      const out: { seen: string; cwd: string }[] = []
+      for (const brut of parsed.shells) {
+        // La première version n'écrivait que le texte. Un fichier de ce
+        // matin-là ne doit pas faire perdre son historique à quelqu'un.
+        if (typeof brut === "string") {
+          out.push({ seen: brut, cwd: projectDir })
+          continue
+        }
+        const forme = (brut && typeof brut === "object" ? brut : {}) as Record<string, unknown>
+        if (typeof forme.seen !== "string") continue
+        out.push({ seen: forme.seen, cwd: typeof forme.cwd === "string" ? forme.cwd : projectDir })
+      }
+      return out
     } catch {
       return []
     }

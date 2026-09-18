@@ -37,6 +37,8 @@ type SessionStatus = {
    * l'invite neuve. Vide dans le cas courant.
    */
   history?: string
+  /** Le dossier où ce shell était à la fermeture, pour l'y rouvrir. */
+  cwd?: string
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -229,7 +231,9 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const dejaLa = readStatus(key).ptyId
   const ouvrir = dejaLa
     ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
-    : window.zyvro.terminal.create(term.cols, term.rows).then((session) => ({ ...session, reprise: false }))
+    : window.zyvro.terminal
+        .create(term.cols, term.rows, readStatus(key).cwd)
+        .then((session) => ({ ...session, reprise: false }))
 
   void ouvrir
     .then((session) => {
@@ -252,7 +256,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
         // Une ligne qui dit franchement que ce qui précède est du passé : sans
         // elle, on relit une compilation d'hier en croyant qu'elle tourne.
         term.write("\r\n\u001b[2m— session précédente, les programmes ont été arrêtés —\u001b[0m\r\n")
-        patchStatus(key, { history: undefined })
+        patchStatus(key, { history: undefined, cwd: undefined })
       }
       if (session.banner) term.write(session.banner)
       // Lié d'abord, rejoué ensuite : les données portent l'identifiant du
@@ -446,9 +450,11 @@ export function TerminalPanel(): JSX.Element {
       // l'historique ».
       const passe = await window.zyvro.terminal.saved().catch(() => [])
       if ((useWorkspace.getState().project?.project ?? null) !== dir) return
-      const keys = (passe.length > 0 ? passe : [""]).map((history) => {
+      const keys = (passe.length > 0 ? passe : [{ seen: "", cwd: "" }]).map((shell) => {
         const key = nextSessionKey()
-        if (history) patchStatus(key, { history })
+        // Le dossier suit le défilement : rouvrir à la racine pendant que
+        // l'écran montre du travail fait dans `server/` est un écran qui ment.
+        if (shell.seen || shell.cwd) patchStatus(key, { history: shell.seen, cwd: shell.cwd })
         return key
       })
       setSessions(keys)

@@ -235,8 +235,12 @@ const api = {
   },
 
   terminal: {
-    create: (cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
-      invoke("terminal:create", cols, rows),
+    /**
+     * Ouvrir un shell. `cwd` ne sert qu'à rouvrir là où on était : le principal
+     * ne l'accepte que s'il l'a lui-même gardé pour ce projet.
+     */
+    create: (cols: number, rows: number, cwd?: string): Promise<{ id: string; pty: boolean; banner?: string }> =>
+      invoke("terminal:create", cols, rows, cwd),
     /**
      * Les shells de ce projet qui tournent encore.
      *
@@ -252,7 +256,7 @@ const api = {
      * Les programmes, eux, sont morts avec la fenêtre — mesuré. On ne rend que
      * ce qu'ils ont dit, au-dessus d'une invite neuve.
      */
-    saved: (): Promise<string[]> => invoke("terminal:saved"),
+    saved: (): Promise<{ seen: string; cwd: string }[]> => invoke("terminal:saved"),
     write: (id: string, data: string): Promise<boolean> => invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number): Promise<boolean> =>
       invoke("terminal:resize", id, cols, rows),

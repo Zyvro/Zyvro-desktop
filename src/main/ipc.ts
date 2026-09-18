@@ -495,11 +495,26 @@ export function registerIpc(onRecents?: () => void): void {
     }
   )
 
-  ipcMain.handle("terminal:create", async (event, cols: number, rows: number) => {
+  ipcMain.handle("terminal:create", async (event, cols: number, rows: number, cwd?: string) => {
     const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+
+    // Rouvrir un shell là où il était, et nulle part ailleurs.
+    //
+    // Le rendu ne nomme pas un dossier : il renvoie une valeur que le principal
+    // lui a donnée, et le principal la revérifie. C'est la même règle que
+    // partout ici — un chemin qui vient de la fenêtre est du texte jusqu'à
+    // preuve du contraire, et « ouvrir un shell ici » deviendrait sinon
+    // « ouvrir un shell n'importe où sur la machine ».
+    let lieu = root
+    if (typeof cwd === "string" && cwd !== "" && cwd !== root) {
+      const gardes = await ws.terminals.saved(root)
+      if (gardes.some((garde) => garde.cwd === cwd)) lieu = cwd
+    }
+
     // Le démon du projet part avec le shell : un agent lancé à la main dedans
     // doit pouvoir joindre les mêmes serveurs MCP que celui du panneau.
-    return ws.terminals.create(event.sender, requireRoot(ws), cols || 80, rows || 24, {
+    return ws.terminals.create(event.sender, lieu, cols || 80, rows || 24, {
       daemonOrigin: ws.daemon.current?.origin,
       daemonToken: ws.daemon.current?.token,
     })
