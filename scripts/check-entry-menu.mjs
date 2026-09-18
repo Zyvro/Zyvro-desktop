@@ -55,16 +55,20 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
 
 // ---- il s'ouvre là où on a cliqué, et seul -------------------------------
 {
-  check("**l'arbre ouvre un menu au clic droit**", explorer.includes("onContextMenu={menu.onContextMenu}"))
+  check("**l'arbre ouvre un menu au clic droit**", explorer.includes("onMenu(entry, { x: event.clientX, y: event.clientY })"))
   check(
     "**et empêche celui d'Electron de s'ouvrir par-dessus**",
-    /event\.preventDefault\(\)/.test(menu),
+    /event\.preventDefault\(\)/.test(explorer),
     "deux menus se superposent au clic droit"
   )
   // Un menu contextuel s'ouvre sous le curseur, pas sous un bouton.
+  check("il s'ouvre sous le curseur", menu.includes("style={{ left: at.x, top: at.y }}"))
+  // Un seul pour tout l'arbre : il y en avait un par ligne, et sur un dossier
+  // de vingt-huit mille fichiers c'étaient vingt-huit mille menus dans le DOM.
   check(
-    "il s'ouvre sous le curseur",
-    menu.includes("setAt({ x: event.clientX, y: event.clientY })") && menu.includes("style={{ left: at.x, top: at.y }}")
+    "**et il n'y en a qu'un pour tout l'arbre**",
+    explorer.split("<EntryMenu").length === 2 && /const \[menu, setMenu\]/.test(explorer),
+    "un menu par ligne : le DOM enfle avec le dossier"
   )
 }
 
