@@ -4,6 +4,7 @@ import * as Menu from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AgentKind } from "../../preload"
+import { harness } from "../../shared/harness"
 import { askName } from "~/state/prompt"
 
 // Which model this thread talks to.
@@ -38,10 +39,15 @@ export function ModelPicker({
   onChange: (model: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
+  // Un harnais visable ne choisit pas parmi SES modèles : il choisit parmi ceux
+  // que vos serveurs font tourner en ce moment. « En ce moment » est le mot qui
+  // compte — la liste d'un CLI ne bouge pas tant que l'application vit, celle
+  // d'un serveur change dès qu'on charge autre chose.
+  const vivante = harness(kind).aimable
   const aliases = useQuery({
     queryKey: ["agent", "models", kind],
     queryFn: () => window.zyvro.agent.models(kind),
-    staleTime: Infinity,
+    staleTime: vivante ? 0 : Infinity,
   })
 
   // Before the first turn there is nothing to report, so the label says what it
@@ -53,8 +59,25 @@ export function ModelPicker({
     onChange(value)
   }
 
+  // Redemandée à l'ouverture du menu, et pas au montage seulement.
+  //
+  // Le défaut qu'on répare ici : charger un modèle dans LM Studio APRÈS avoir
+  // ouvert le panneau donnait une liste vide qui le restait jusqu'au
+  // redémarrage de l'application. Rien ne disait pourquoi — le menu s'ouvrait
+  // sur « Default model » et rien d'autre, ce qui ressemble à une panne.
+  //
+  // À l'ouverture plutôt que par une minuterie : c'est le seul moment où
+  // quelqu'un regarde, et interroger trois serveurs en boucle pour un menu
+  // fermé serait du trafic que personne n'a demandé.
+  const ouvrir = (next: boolean): void => {
+    setOpen(next)
+    if (next && vivante) void aliases.refetch()
+  }
+
+  const liste = aliases.data ?? []
+
   return (
-    <Menu.Root open={open} onOpenChange={setOpen}>
+    <Menu.Root open={open} onOpenChange={ouvrir}>
       <Menu.Trigger
         title={
           model
@@ -79,10 +102,22 @@ export function ModelPicker({
             {ranWith ? `${ranWith} (default)` : "Default model"}
           </Menu.Item>
 
-          {(aliases.data ?? []).length > 0 && (
-            <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+          {liste.length > 0 && <Menu.Separator className="my-1 h-px bg-white/[0.08]" />}
+
+          {/* Une liste vide chez un harnais visable n'est pas une panne, c'est
+              une phrase : aucun serveur allumé, ou rien de chargé dedans. Sans
+              elle, le menu s'ouvre sur une seule ligne et a l'air cassé. */}
+          {vivante && liste.length === 0 && (
+            <>
+              <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+              <div className="px-2 py-1 text-[11px] leading-snug text-muted-foreground">
+                {aliases.isFetching
+                  ? "Asking your servers what they are running…"
+                  : "No local server is answering. Turn one on in Providers, load a model, and open this again."}
+              </div>
+            </>
           )}
-          {(aliases.data ?? []).map((alias) => (
+          {liste.map((alias) => (
             <Menu.Item key={alias} className={item} onSelect={() => choose(alias)}>
               <Check className={cn("h-3 w-3", model === alias ? "opacity-100" : "opacity-0")} />
               {alias}

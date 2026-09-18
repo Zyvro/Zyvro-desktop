@@ -305,6 +305,42 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   )
 }
 
+// ---- la liste des modèles est vivante ------------------------------------
+//
+// « Peut-être car j'ai load le modèle après avoir ajouté le provider. » Il avait
+// raison : la liste était demandée une fois par session de l'application et
+// gardée pour toujours. Charger un modèle dans LM Studio APRÈS avoir ouvert le
+// panneau donnait un menu vide qui le restait jusqu'au redémarrage, sans un mot
+// pour dire pourquoi.
+//
+// La distinction tient : la liste d'alias d'un CLI ne bouge pas tant que
+// l'application vit ; celle d'un serveur change dès qu'on charge autre chose.
+{
+  const picker = readFileSync(path.join(ROOT, "src/renderer/panels/ModelPicker.tsx"), "utf8")
+  check(
+    "**un harnais visable redemande sa liste à l'ouverture du menu**",
+    /if \(next && vivante\) void aliases\.refetch\(\)/.test(picker),
+    "la liste des modèles est figée pour la vie de l'application"
+  )
+  check(
+    "et elle n'est plus gardée pour toujours",
+    /staleTime: vivante \? 0 : Infinity/.test(picker),
+    "staleTime: Infinity pour tout le monde"
+  )
+  // Interroger trois serveurs en boucle pour un menu fermé serait du trafic que
+  // personne n'a demandé.
+  check(
+    "sans interroger les serveurs quand personne ne regarde",
+    !/refetchInterval/.test(picker),
+    "le menu interroge en boucle"
+  )
+  check(
+    "**et une liste vide se dit au lieu de ressembler à une panne**",
+    picker.includes("No local server is answering"),
+    "un menu vide n'explique pas pourquoi"
+  )
+}
+
 // ---- une session garde son harnais ---------------------------------------
 //
 // « Une fois le premier message sent, harnais impossible à changer sur cette
