@@ -8,6 +8,7 @@ import { Explorer } from "~/panels/Explorer"
 import { GitPanel } from "~/panels/GitPanel"
 import { WorkflowList } from "~/panels/WorkflowList"
 import { BrowserList } from "~/panels/BrowserList"
+import { PersistentList } from "~/panels/PersistentList"
 import { SearchPanel } from "~/panels/SearchPanel"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
@@ -160,6 +161,12 @@ export default function App() {
                       plus souvent dans une session de mise au point, et ce
                       qu'un agent est en train de piloter pendant qu'on lit. */}
                   <BrowserList />
+                  {/* Entre les deux, à la place que Jeremy a demandée : ce sont
+                      des choses qu'on ouvre et ferme au rythme d'une vue de
+                      navigateur, et qui appartiennent au projet comme un
+                      workflow. La section ne se dessine pas là où ni `tmux` ni
+                      `screen` n'existent. */}
+                  <PersistentList />
                   <WorkflowList />
                 </>
               ) : (

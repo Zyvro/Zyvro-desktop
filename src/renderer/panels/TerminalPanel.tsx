@@ -8,6 +8,7 @@ import { droppedText } from "../../shared/dropped"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
+import { openToken, subscribeOpen, takeOpen } from "~/state/persistent"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -39,6 +40,14 @@ type SessionStatus = {
   history?: string
   /** Le dossier où ce shell était à la fermeture, pour l'y rouvrir. */
   cwd?: string
+  /**
+   * L'étiquette d'une session persistante, quand ce shell en est le client.
+   *
+   * Présente avant l'ouverture — c'est elle qui dit à la référence de rappel
+   * d'attacher une session plutôt que de lancer un shell — et remplacée par le
+   * nom réel une fois la session ouverte.
+   */
+  persistent?: string
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -229,11 +238,22 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   // les oublie. Le panneau a repris leurs identifiants avant de monter ces
   // composants ; il ne reste qu'à s'y brancher et à redemander ce qui a défilé.
   const dejaLa = readStatus(key).ptyId
+  const persiste = readStatus(key).persistent
   const ouvrir = dejaLa
     ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
-    : window.zyvro.terminal
-        .create(term.cols, term.rows, readStatus(key).cwd)
-        .then((session) => ({ ...session, reprise: false }))
+    : persiste !== undefined
+      ? // Une session persistante : on n'est que son client. Fermer cet onglet
+        // la détachera au lieu de la tuer — c'est toute la différence, et c'est
+        // ce que `tmux` et `screen` savent faire et que nous ne savons pas.
+        window.zyvro.persistent
+          .open(persiste, term.cols, term.rows)
+          .then((session) => {
+            patchStatus(key, { persistent: session.label })
+            return { ...session, reprise: false }
+          })
+      : window.zyvro.terminal
+          .create(term.cols, term.rows, readStatus(key).cwd)
+          .then((session) => ({ ...session, reprise: false }))
 
   void ouvrir
     .then((session) => {
@@ -470,6 +490,24 @@ export function TerminalPanel(): JSX.Element {
     setActiveKey(keys[0])
   }
 
+  // Ce que la barre latérale demande d'ouvrir.
+  //
+  // Même mécanique que la boîte de `handoff` : un jeton qui change à chaque
+  // demande, pris une fois. Lire l'étiquette sans la prendre ouvrirait une
+  // seconde session au rendu suivant.
+  const demande = useSyncExternalStore(subscribeOpen, openToken, () => 0)
+  const vueDemande = useRef(0)
+  if (demande !== vueDemande.current) {
+    vueDemande.current = demande
+    const label = takeOpen()
+    if (label !== null) {
+      const key = nextSessionKey()
+      patchStatus(key, { persistent: label })
+      setSessions((actuelles) => [...actuelles, key])
+      setActiveKey(key)
+    }
+  }
+
   const activate = (key: string): void => {
     setActiveKey(key)
     // The wrapper is unhidden in this commit, so the fit has to wait for the
@@ -534,10 +572,10 @@ export function TerminalPanel(): JSX.Element {
                 type="button"
                 onClick={() => activate(key)}
                 className="inline-flex items-center gap-1.5"
-                title={`Shell ${index + 1}`}
+                title={readStatus(key).persistent ?? `Shell ${index + 1}`}
               >
                 <TerminalSquare className="h-3 w-3" />
-                Shell {index + 1}
+                {readStatus(key).persistent ?? `Shell ${index + 1}`}
               </button>
               <button
                 type="button"

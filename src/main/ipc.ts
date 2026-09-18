@@ -13,6 +13,7 @@ import { helpOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import * as textSearch from "./search"
+import * as persistent from "./persistent"
 import { createWatcher, type Watcher } from "./watch"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
 import { authorized, currentAccount, signIn, signOut } from "./account"
@@ -526,6 +527,52 @@ export function registerIpc(onRecents?: () => void): void {
   // les tue pas, elle les oublie. Ils continuaient donc d'écrire dans le vide,
   // injoignables jusqu'à la fermeture de la fenêtre, pendant que la page neuve
   // en ouvrait un de plus à côté.
+  // ---- les shells persistants ----------------------------------------------
+  //
+  // Un shell ordinaire est notre enfant : il meurt avec la fenêtre, mesuré.
+  // Celui-ci appartient au démon de `tmux` ou de `screen`, et nous n'en sommes
+  // que le client — fermer l'onglet détache, la session continue.
+
+  ipcMain.handle("persistent:available", async () => persistent.manager())
+
+  ipcMain.handle("persistent:list", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return persistent.list(requireRoot(ws))
+  })
+
+  // Ouvrir : attacher si elle existe, créer sinon. Le rendu envoie l'étiquette
+  // tapée par la personne, jamais un nom réel — c'est le principal qui le
+  // fabrique, préfixé par ce projet, pour qu'aucune fenêtre ne puisse attacher
+  // la session personnelle de quelqu'un en devinant son nom.
+  ipcMain.handle("persistent:open", async (event, label: string, cols: number, rows: number) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    const name = persistent.nameFor(root, String(label ?? ""))
+    const command = persistent.attachCommand(root, name)
+    if (!command) throw new Error("No tmux or screen on this machine.")
+    const session = ws.terminals.create(
+      event.sender,
+      root,
+      cols || 80,
+      rows || 24,
+      { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token },
+      command
+    )
+    return { ...session, name, label: persistent.labelOf(root, name) }
+  })
+
+  // Tuer pour de bon, ce que fermer l'onglet ne fait pas. Sans ce geste, une
+  // session oubliée tourne des semaines.
+  ipcMain.handle("persistent:kill", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    // Le nom vient du rendu : on ne tue que ce qui appartient à ce projet.
+    const sien = persistent.list(root).some((shell) => shell.name === name)
+    if (!sien) throw new Error("That session does not belong to this project.")
+    persistent.kill(name)
+    return true
+  })
+
   ipcMain.handle("terminal:running", async (event) => {
     const { ws } = requireWorkspace(event)
     return ws.terminals.running(requireRoot(ws))

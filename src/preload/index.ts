@@ -234,6 +234,26 @@ const api = {
     ): Promise<ReplaceResult> => invoke("search:replace", query, replacement, targets),
   },
 
+  /**
+   * Les shells qui survivent à l'application.
+   *
+   * Ils n'appartiennent pas à Zyvro : `tmux` ou `screen` les tient, et nous ne
+   * sommes que le client. Fermer l'onglet détache ; la session continue.
+   * Absents sur Windows, où rien de tel n'existe en natif.
+   */
+  persistent: {
+    available: (): Promise<"tmux" | "screen" | null> => invoke("persistent:available"),
+    list: (): Promise<{ name: string; label: string; attached: boolean }[]> => invoke("persistent:list"),
+    /** L'étiquette est ce qu'on a tapé ; le nom réel est fabriqué côté principal. */
+    open: (
+      label: string,
+      cols: number,
+      rows: number
+    ): Promise<{ id: string; pty: boolean; banner?: string; name: string; label: string }> =>
+      invoke("persistent:open", label, cols, rows),
+    kill: (name: string): Promise<boolean> => invoke("persistent:kill", name),
+  },
+
   terminal: {
     /**
      * Ouvrir un shell. `cwd` ne sert qu'à rouvrir là où on était : le principal

@@ -78,10 +78,11 @@ function makePty(
   cwd: string,
   cols: number,
   rows: number,
-  extra: Record<string, string | undefined> = {}
+  extra: Record<string, string | undefined> = {},
+  command: { file: string; args: string[] } | null = null
 ): PtyLike {
   const mod = loadPty()
-  const { file, args } = defaultShell()
+  const { file, args } = command ?? defaultShell()
   const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", ...extra }
 
   if (mod) {
@@ -102,14 +103,14 @@ function makePty(
   // the window size is fixed for the life of the session. Windows has no
   // equivalent, and there the shell genuinely runs on pipes.
   const useScript = process.platform !== "win32"
-  const command = useScript ? "/usr/bin/script" : file
+  const lance = useScript ? "/usr/bin/script" : file
   const commandArgs = useScript
     ? process.platform === "darwin"
       ? ["-q", "/dev/null", file, ...args]
       : ["-qfc", [file, ...args].join(" "), "/dev/null"]
     : args
 
-  const child: ChildProcess = spawnPipe(command, commandArgs, {
+  const child: ChildProcess = spawnPipe(lance, commandArgs, {
     cwd,
     env: { ...env, LINES: String(rows), COLUMNS: String(cols) },
   })
@@ -166,12 +167,17 @@ export class Terminals {
     cwd: string,
     cols = 80,
     rows = 24,
-    mcp: McpTarget | null = null
+    mcp: McpTarget | null = null,
+    // Ce qu'on lance à la place du shell de connexion : la commande qui attache
+    // une session persistante. Le reste — le pty, le tampon, la reprise — est
+    // rigoureusement le même, et c'est voulu : une session persistante est un
+    // shell de plus dans le panneau, pas un second panneau.
+    command: { file: string; args: string[] } | null = null
   ): { id: string; pty: boolean; banner?: string } {
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
     const lieu = cwd || os.homedir()
-    const pty = makePty(lieu, cols, rows, wired?.env)
+    const pty = makePty(lieu, cols, rows, wired?.env, command)
     this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: "" })
 
     pty.onData((data) => {
