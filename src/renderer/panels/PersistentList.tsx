@@ -40,6 +40,7 @@ export function PersistentList() {
   // demande. C'est très probablement ce que Jeremy a touché en disant « je le
   // ferme puis je clique sur la row et rien ne se passe ».
   const mode = useWorkspace((s) => s.mode)
+  const setPanel = useWorkspace((s) => s.setPanel)
   const [busy, setBusy] = useState(false)
 
   const dispo = useQuery({
@@ -67,10 +68,24 @@ export function PersistentList() {
   const liste = sessions.data ?? []
 
   const ouvrir = async (label: string): Promise<void> => {
-    // Et c'est tout : le panneau du bas prévient quand la session existe
-    // vraiment. La version d'avant attendait 1,2 s en espérant que ce serait
-    // fait — une supposition qui tenait tant que la machine n'était pas
-    // chargée, et une ligne qui manquait quand elle l'était.
+    // Ouvrir le panneau du bas d'abord, parce que c'est lui qui prend la
+    // demande.
+    //
+    // Signalé par Jeremy : « la création de shell persistant ne fonctionne
+    // plus, il ne se passe rien ». Reproduit, et c'était exactement ça : la
+    // demande est un jeton qu'un composant vient prendre, et ce composant
+    // n'existe pas quand le terminal est replié. Le clic ne faisait donc
+    // strictement rien — pas de session, pas d'onglet, pas de message — et la
+    // demande restait en attente jusqu'à ce qu'on rouvre le terminal, où elle
+    // partait toute seule bien plus tard.
+    //
+    // Demander une chose et ne pas voir l'endroit où elle arrive est un défaut
+    // à soi seul : le panneau s'ouvre donc, comme il s'ouvrirait si l'on
+    // cliquait sur un fichier dans l'arbre.
+    setPanel("terminal", true)
+    // Le panneau du bas prévient ensuite quand la session existe vraiment. La
+    // version d'avant attendait 1,2 s en espérant que ce serait fait — une
+    // supposition qui tenait tant que la machine n'était pas chargée.
     askOpen(label)
   }
 

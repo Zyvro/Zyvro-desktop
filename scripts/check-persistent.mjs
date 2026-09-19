@@ -163,6 +163,19 @@ const AUTRE = "/tmp/zyvro-autre-projet"
     liste.includes('mode === "ai"'),
     "les lignes s'affichent en mode IA et ne font rien quand on clique"
   )
+  // Demander une chose à un composant qui n'est pas là ne fait rien du tout.
+  //
+  // Signalé par Jeremy : « la création de shell persistant ne fonctionne plus,
+  // il ne se passe rien ». Reproduit : la demande est un jeton que le panneau
+  // du bas vient prendre, et ce panneau n'existe pas quand le terminal est
+  // replié. Le clic ne faisait donc strictement rien — pas de session, pas
+  // d'onglet, pas de message — et la demande restait en attente jusqu'à ce
+  // qu'on rouvre le terminal, où elle partait toute seule bien plus tard.
+  check(
+    "**ouvrir une session ouvre le panneau qui la prend**",
+    /setPanel\("terminal", true\)[\s\S]{0,600}?askOpen\(label\)/.test(liste),
+    "le clic ne fait rien quand le terminal est replié, et part tout seul plus tard"
+  )
   check("**tuer une session demande**", liste.includes("askConfirm("))
   check("et le panneau dit que fermer l'onglet ne tue pas", /only detache?s? it|détache/i.test(liste))
 
