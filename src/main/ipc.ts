@@ -542,9 +542,26 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle("persistent:available", async () => persistent.manager())
 
+  // Ce que le gestionnaire dit, plus ce que cette fenêtre vient d'attacher.
+  //
+  // Les deux, parce que `screen -ls` ment pendant une seconde : la socket d'un
+  // client qu'on vient de lancer n'existe pas encore quand la commande rend la
+  // main, et une session ouverte à l'instant manquait donc à la liste. Le
+  // gestionnaire reste la source pour tout ce qui vient d'ailleurs — un
+  // `screen` lancé dans un terminal à côté — et nous sommes la source pour ce
+  // que nous avons fait nous-mêmes.
   ipcMain.handle("persistent:list", async (event) => {
     const { ws } = requireWorkspace(event)
-    return persistent.list(requireRoot(ws))
+    const root = requireRoot(ws)
+    const vues = persistent.list(root)
+    const connues = new Set(vues.map((shell) => shell.label))
+    for (const label of ws.terminals.attachedLabels(root)) {
+      if (connues.has(label)) continue
+      connues.add(label)
+      vues.push({ name: persistent.nameFor(root, label), label, attached: true })
+    }
+    vues.sort((a, b) => a.label.localeCompare(b.label))
+    return vues
   })
 
   // Ouvrir : attacher si elle existe, créer sinon. Le rendu envoie l'étiquette

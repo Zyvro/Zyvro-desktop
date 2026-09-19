@@ -41,3 +41,32 @@ export function subscribeOpen(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
+
+// Et l'autre sens : quand une session vient d'apparaître ou de disparaître.
+//
+// La liste de la barre latérale interrogeait `screen -ls` toutes les dix
+// secondes, plus un délai de 1,2 s après un clic — une supposition sur le temps
+// qu'il faut à une session pour exister. Signalé par Jeremy : « dès qu'on ouvre
+// un shell persistant il doit apparaître dans la liste, et pareil s'il se
+// ferme ». Le moment exact est connu de celui qui attache : c'est quand le
+// principal a rendu la session. Il le dit ici, la liste l'apprend, et le
+// sondage ne sert plus qu'à ce qui se passe hors de l'application — un `screen`
+// lancé dans un terminal à côté.
+
+let changes = 0
+const changeListeners = new Set<() => void>()
+
+/** Une session vient d'être attachée, créée, tuée, ou de finir. */
+export function sessionsChanged(): void {
+  changes++
+  for (const listener of changeListeners) listener()
+}
+
+export function sessionsToken(): number {
+  return changes
+}
+
+export function subscribeSessions(listener: () => void): () => void {
+  changeListeners.add(listener)
+  return () => changeListeners.delete(listener)
+}

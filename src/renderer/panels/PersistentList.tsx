@@ -1,9 +1,9 @@
-import { useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState, useSyncExternalStore } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { Plus, TerminalSquare, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
-import { askOpen } from "~/state/persistent"
+import { askOpen, sessionsChanged, sessionsToken, subscribeSessions } from "~/state/persistent"
 import { askConfirm, askName } from "~/state/prompt"
 
 // Les shells qui survivent à l'application.
@@ -38,7 +38,6 @@ export function PersistentList() {
   // demande. C'est très probablement ce que Jeremy a touché en disant « je le
   // ferme puis je clique sur la row et rien ne se passe ».
   const mode = useWorkspace((s) => s.mode)
-  const client = useQueryClient()
   const [busy, setBusy] = useState(false)
 
   const dispo = useQuery({
@@ -47,14 +46,18 @@ export function PersistentList() {
     staleTime: Infinity,
   })
 
+  // Ce que le panneau du bas vient de faire : attacher une session, en voir une
+  // finir. Le moment est connu de lui, donc il le dit, et la liste n'a plus à
+  // le deviner avec un délai.
+  const token = useSyncExternalStore(subscribeSessions, sessionsToken, () => 0)
+
   const sessions = useQuery({
-    queryKey: KEY,
+    queryKey: [...KEY, token],
     queryFn: () => window.zyvro.persistent.list(),
     enabled: project !== null && Boolean(dispo.data),
-    // Une session peut naître ou mourir hors de l'application — dans un
-    // terminal, ou parce qu'elle a fini. Se rafraîchir doucement vaut mieux que
-    // montrer une liste d'hier ; assez doucement pour ne pas lancer un
-    // `screen -ls` par seconde.
+    // Le sondage ne sert plus qu'à ce qui se passe hors de l'application — un
+    // `screen` lancé dans un terminal à côté, une session qui finit toute
+    // seule. Assez doucement pour ne pas lancer un `screen -ls` par seconde.
     refetchInterval: 10_000,
   })
 
@@ -62,10 +65,11 @@ export function PersistentList() {
   const liste = sessions.data ?? []
 
   const ouvrir = async (label: string): Promise<void> => {
+    // Et c'est tout : le panneau du bas prévient quand la session existe
+    // vraiment. La version d'avant attendait 1,2 s en espérant que ce serait
+    // fait — une supposition qui tenait tant que la machine n'était pas
+    // chargée, et une ligne qui manquait quand elle l'était.
     askOpen(label)
-    // La liste se rafraîchit après l'ouverture : une session neuve n'existe
-    // qu'une fois attachée, et c'est le panneau du bas qui l'attache.
-    setTimeout(() => void client.invalidateQueries({ queryKey: KEY }), 1200)
   }
 
   const nouvelle = async (): Promise<void> => {
@@ -95,7 +99,7 @@ export function PersistentList() {
     })
     if (!oui) return
     await window.zyvro.persistent.kill(name)
-    void client.invalidateQueries({ queryKey: KEY })
+    sessionsChanged()
   }
 
   return (

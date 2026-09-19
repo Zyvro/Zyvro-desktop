@@ -256,6 +256,28 @@ export class Terminals {
       .map((session) => ({ id: session.id, pty: ptyAvailable(), label: session.label }))
   }
 
+  /**
+   * Les étiquettes des sessions persistantes que cette fenêtre tient attachées.
+   *
+   * Parce que `screen -ls` ment pendant une seconde. Attacher lance un client,
+   * et la socket que `screen` crée pour lui n'existe pas encore quand la
+   * commande rend la main : une liste demandée dans la foulée revient sans la
+   * session qu'on vient d'ouvrir. La version d'avant contournait ça en
+   * attendant 1,2 s et en espérant — ce qui tient tant que la machine n'est pas
+   * chargée.
+   *
+   * Or nous n'avons pas à demander à `screen` ce que nous venons de faire
+   * nous-mêmes. Ceci est ce que cette fenêtre sait de source sûre ; le
+   * gestionnaire reste la source pour tout le reste, c'est-à-dire pour les
+   * sessions ouvertes ailleurs.
+   */
+  attachedLabels(cwd: string): string[] {
+    const lieu = cwd || os.homedir()
+    return [...this.sessions.values()]
+      .filter((session) => session.attached && session.cwd === lieu && Boolean(session.label))
+      .map((session) => session.label as string)
+  }
+
   /** Rendre à une fenêtre ce qu'un shell a déjà écrit. */
   replay(id: string, target: WebContents): void {
     const session = this.sessions.get(id)

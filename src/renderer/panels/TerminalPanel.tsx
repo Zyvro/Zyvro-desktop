@@ -8,7 +8,7 @@ import { droppedText } from "../../shared/dropped"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
-import { openToken, subscribeOpen, takeOpen } from "~/state/persistent"
+import { openToken, sessionsChanged, subscribeOpen, takeOpen } from "~/state/persistent"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -190,7 +190,14 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       if (earlyExit === null) earlyExit = payload
       return
     }
-    if (payload.id === ptyId) patchStatus(key, { exitCode: payload.code })
+    if (payload.id === ptyId) {
+      patchStatus(key, { exitCode: payload.code })
+      // Une session persistante dont le client meurt : soit elle a fini, soit
+      // quelqu'un l'a tuée. Dans les deux cas la liste doit aller revoir — elle
+      // ne peut pas le deviner, et attendre son prochain tour de sondage
+      // laisserait une ligne morte à l'écran.
+      if (readStatus(key).persistent !== undefined) sessionsChanged()
+    }
   })
 
   const input = term.onData((data) => {
@@ -249,6 +256,10 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
           .open(persiste, term.cols, term.rows)
           .then((session) => {
             patchStatus(key, { persistent: session.label })
+            // Le moment exact où elle existe : `tmux`/`screen` vient de la
+            // rendre. La liste l'apprend maintenant plutôt qu'à son prochain
+            // tour de sondage.
+            sessionsChanged()
             return { ...session, reprise: false }
           })
       : window.zyvro.terminal

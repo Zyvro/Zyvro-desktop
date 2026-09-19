@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { Cloud, Download, Link2, Loader2, Plus, Trash2, Workflow as WorkflowIcon } from "lucide-react"
 import { api, type Workflow } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { workflowsKey } from "~/lib/project"
+import { subscribeFiles, versionOf, watchDir } from "~/state/fileWatch"
 import { askConfirm, askName } from "~/state/prompt"
 import { ImportWorkflows } from "~/panels/ImportWorkflows"
 import { MyWorkflows } from "~/panels/MyWorkflows"
@@ -16,6 +17,17 @@ import { ShareWorkflow } from "~/panels/ShareWorkflow"
 
 const EMPTY_GRAPH = { nodes: [], edges: [] }
 
+// Où les workflows sont, sur le disque. La liste suit ce dossier plutôt que nos
+// propres gestes.
+//
+// Les gestes ne suffisent pas, et c'est le défaut signalé : le bouton « + » de
+// ce panneau rafraîchissait bien, mais un workflow créé ailleurs — par l'agent
+// à travers MCP, par une autre fenêtre, par un `git checkout` — n'apparaissait
+// pas. Or l'agent qui crée un graphe est exactement l'usage de l'outil. Un
+// dossier surveillé dit la vérité quelle que soit la main qui l'a écrite, et
+// c'est déjà ce que fait l'arbre de fichiers à côté.
+const WORKFLOW_DIR = ".zyvro/workflows"
+
 export function WorkflowList() {
   const project = useWorkspace((s) => s.project)
   const openGraph = useWorkspace((s) => s.openGraph)
@@ -26,9 +38,24 @@ export function WorkflowList() {
   const [mine, setMine] = useState(false)
   const [sharing, setSharing] = useState<Workflow | null>(null)
 
+  // Le numéro de version entre dans la clé : un changement est une clé neuve,
+  // que react-query va chercher tout seul. C'est le tour que l'arbre de
+  // fichiers utilise déjà, et il évite d'avoir besoin d'un effet.
+  const version = useSyncExternalStore(
+    subscribeFiles,
+    () => versionOf(WORKFLOW_DIR),
+    () => 0
+  )
   const workflows = useQuery({
-    queryKey: workflowsKey,
-    queryFn: () => api.listWorkflows(),
+    // Le préfixe reste `workflowsKey`, donc les invalidations écrites ailleurs
+    // continuent de porter : react-query compare par préfixe.
+    queryKey: [...workflowsKey, version],
+    queryFn: () => {
+      // Demandé ici plutôt que dans un effet : lister le dossier et le
+      // surveiller sont la même intention, et la surveillance est idempotente.
+      watchDir(WORKFLOW_DIR)
+      return api.listWorkflows()
+    },
     enabled: Boolean(project),
   })
 
