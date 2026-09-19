@@ -8,6 +8,9 @@ import { ShotButton } from "~/panels/ShotPicker"
 import { useWorkspace } from "~/state/workspace"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 import { engineDown, subscribeEngine } from "~/state/engine"
+import { gitRunning, subscribeGit, type GitRunning } from "~/state/git"
+
+const IDLE_GIT: GitRunning = { verb: "", done: false, failed: false }
 
 // The one line that answers "can this project actually run anything right now".
 // On a desktop app that question is mostly about which CLIs are installed, so
@@ -46,13 +49,21 @@ function CliPill({ name, ready }: { name: string; ready: boolean }) {
 // separately: bring down what is there, then send up what is not.
 function GitPill() {
   const setPanel = useWorkspace((s) => s.setPanel)
+  // Ce que git fait en ce moment, d'où que ça vienne : le bouton de commit, le
+  // menu, ou cette pastille. C'est le seul endroit toujours à l'écran, donc
+  // c'est celui qui doit le dire quoi qu'il arrive.
+  const activite = useSyncExternalStore(subscribeGit, gitRunning, () => IDLE_GIT)
   const status = useGitStatus()
   const pull = useGitAction(gitActions.pull)
   const push = useGitAction(gitActions.push)
   const repo = status.data?.repository ? status.data : null
+  // `occupe` : ça tourne. `travail` : ça tourne, ou ça vient de finir et on
+  // l'annonce encore. Les deux, parce qu'un push qui dure trois secondes et
+  // disparaît sans un mot laisse exactement le doute qu'on essaie d'enlever.
+  const occupe = activite.verb !== "" && !activite.done
+  const travail = activite.verb !== ""
   if (!repo) return null
 
-  const busy = pull.isPending || push.isPending
   const sync = async () => {
     if (repo.behind > 0) await pull.mutateAsync(undefined)
     if (repo.ahead > 0) await push.mutateAsync(undefined)
@@ -71,8 +82,15 @@ function GitPill() {
       </button>
       {repo.upstream && (
         <button
-          className="flex items-center gap-0.5 hover:text-foreground disabled:opacity-60"
-          disabled={busy}
+          className={cn(
+            "flex items-center gap-1 rounded px-1.5 py-[1px] hover:text-foreground disabled:opacity-100",
+            // Pendant l'opération, la pastille se teinte. Un tourniquet de
+            // douze pixels dans un coin est exactement ce qu'on ne voit pas :
+            // c'est la surface entière qui doit changer d'état, pas une icône.
+            travail && !activite.failed && "bg-primary/15 text-primary",
+            travail && activite.failed && "bg-destructive/15 text-destructive"
+          )}
+          disabled={occupe}
           title={
             failure
               ? failure.message
@@ -82,8 +100,19 @@ function GitPill() {
           }
           onClick={() => void sync()}
         >
-          {busy ? (
-            <Loader2 className="h-3 w-3 zy-spin" />
+          {travail ? (
+            <>
+              {occupe ? (
+                <Loader2 className="h-3 w-3 shrink-0 zy-spin" />
+              ) : activite.failed ? (
+                <CircleSlash className="h-3 w-3 shrink-0" />
+              ) : (
+                <Check className="h-3 w-3 shrink-0" />
+              )}
+              {/* Le verbe, parce qu'un rond qui tourne dit « attends » là où
+                  « Pushing… » dit ce qu'on attend. */}
+              <span>{occupe ? `${activite.verb}…` : activite.verb}</span>
+            </>
           ) : repo.behind === 0 && repo.ahead === 0 ? (
             <RefreshCw className="h-3 w-3" />
           ) : (
@@ -104,7 +133,13 @@ function GitPill() {
           )}
         </button>
       )}
-      {failure && <span className="text-destructive">{failure.message}</span>}
+      {/* Tronqué : un message de git fait parfois trois lignes, et la barre
+          d'état n'a qu'une ligne. Le texte entier reste dans l'infobulle. */}
+      {failure && (
+        <span className="max-w-[28rem] truncate text-destructive" title={failure.message}>
+          {failure.message}
+        </span>
+      )}
     </span>
   )
 }

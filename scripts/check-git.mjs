@@ -14,7 +14,7 @@
 //
 //     node scripts/check-git.mjs
 import { build } from "esbuild"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
@@ -329,5 +329,58 @@ try {
   rmSync(dir, { recursive: true, force: true })
 }
 
-console.log(failures === 0 ? "\nGit does what the panel will show." : `\n${failures} check(s) failed.`)
+// ---- et ce que la fenêtre en montre pendant ce temps -----------------------
+//
+// Signalé par Jeremy : « quand je push je ne vois pas assez bien que le push
+// est en cours, c'est important de savoir visuellement ce qui se passe ».
+//
+// Le défaut était structurel. Un push part de trois endroits — le bouton de
+// commit, la pastille de la barre d'état, le menu — et chacun tenait sa propre
+// mutation : celui qui lançait savait, les deux autres ne savaient rien. Partir
+// du menu ne montrait donc rien du tout, et la pastille de la barre — le seul
+// endroit toujours visible — ne bougeait que si l'on était parti de là.
+{
+  const source = (rel) => readFileSync(path.resolve(import.meta.dirname, "..", rel), "utf8")
+  const action = source("src/renderer/lib/git.ts")
+  check(
+    "**une opération git s'annonce une fois, pour tout le monde**",
+    /onMutate: \(\) => \{\s*gitStarted\(verbNow\(run\)\)/.test(action) &&
+      /gitFinished\(verbThen\(run, Boolean\(error\)\), Boolean\(error\)\)/.test(action),
+    "celui qui lance sait, les deux autres surfaces ne savent rien"
+  )
+  check(
+    "et le nom vient de la fonction, pas de l'appelant",
+    /function verbNow\(run: unknown\)/.test(action),
+    "chaque appel doit répéter le verbe, donc un jour l'un l'oublie"
+  )
+
+  const bar = source("src/renderer/panels/StatusBar.tsx")
+  check(
+    "**la barre d'état dit le verbe, pas seulement un tourniquet**",
+    /\$\{activite\.verb\}…/.test(bar),
+    "un rond qui tourne dit « attends », pas ce qu'on attend"
+  )
+  const panel = source("src/renderer/panels/GitPanel.tsx")
+  check(
+    "**le panneau montre ce qui se passe sous son en-tête**",
+    /function GitActivity\(\)/.test(panel) && /zy-progress/.test(panel),
+    "il faut deviner qu'il se passe quelque chose"
+  )
+  check(
+    "et le bouton de commit dit ce qu'il fait",
+    /\{busy \? `\$\{activite\.verb\}…` : "Commit"\}/.test(panel),
+    "« Commit » qui ne bouge pas pendant qu'on pousse ne dit pas qu'on pousse"
+  )
+  // Une réussite qui disparaît sans un mot laisse le doute qu'on essaie
+  // justement d'enlever.
+  const store = source("src/renderer/state/git.ts")
+  check(
+    "**et une réussite se dit avant de se taire**",
+    /export function gitFinished\(verb: string, failed: boolean\)/.test(store) &&
+      /clearLater\(failed \? 6000 : 2000\)/.test(store),
+    "le push finit, tout redevient normal, et rien n'a dit que c'était parti"
+  )
+}
+
+console.log(failures === 0 ? "\nGit does what the panel will show, and the window says so while it happens." : `\n${failures} check(s) failed.`)
 process.exit(failures === 0 ? 0 : 1)

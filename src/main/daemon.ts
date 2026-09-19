@@ -118,8 +118,29 @@ export class Daemon {
   // engine now travels with the build, so a new engine means a new version of
   // the app — which is one fewer signed channel to get right, one fewer key to
   // keep safe, and no executable fetched at runtime at all.
+  // Les démarrages se suivent, ils ne se croisent pas.
+  //
+  // Mesuré au démarrage de l'application, et c'est le genre de course qui ne se
+  // voit qu'une fois sur trois : la fenêtre demande le moteur de la maison au
+  // moment où le dossier passé en argument s'ouvre. Les deux appellent
+  // `launch`, qui commence par arrêter l'enfant en cours — donc chacun tuait
+  // celui de l'autre, et l'ouverture échouait sur « the local Zyvro engine
+  // exited with code null ».
+  //
+  // Une file d'un élément suffit : le dernier demandé gagne, ce qui est la
+  // bonne règle — le projet qu'on ouvre l'emporte sur la maison. Le prix est un
+  // moteur lancé puis arrêté au démarrage quand un dossier est passé en
+  // argument ; une centaine de millisecondes, contre une ouverture qui rate.
+  private queue: Promise<unknown> = Promise.resolve()
+
   async start(projectDir: string): Promise<DaemonInfo> {
-    return this.launch(bundledBinary(), projectDir)
+    const next = this.queue.then(
+      () => this.launch(bundledBinary(), projectDir),
+      () => this.launch(bundledBinary(), projectDir)
+    )
+    // La file ne porte pas l'échec : elle sert à ordonner, pas à propager.
+    this.queue = next.catch(() => undefined)
+    return next
   }
 
   private async launch(bin: string, projectDir: string): Promise<DaemonInfo> {

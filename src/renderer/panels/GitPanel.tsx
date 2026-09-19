@@ -1,8 +1,9 @@
-import { useCallback, useRef, useState } from "react"
+import { useCallback, useRef, useState, useSyncExternalStore } from "react"
 import {
   Check,
   ChevronDown,
   ChevronRight,
+  CircleSlash,
   GitBranch,
   Loader2,
   Minus,
@@ -18,6 +19,49 @@ import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
 import { GitMenu } from "~/panels/GitMenu"
+import { gitRunning, subscribeGit, type GitRunning } from "~/state/git"
+
+const IDLE_GIT: GitRunning = { verb: "", done: false, failed: false }
+
+// Ce que git fait, en toutes lettres et avec une barre qui avance.
+//
+// Demandé par Jeremy : « quand je push je ne vois pas assez bien que le push est
+// en cours ; c'est important de savoir visuellement ce qui se passe ». Trois
+// choses le disent maintenant ensemble — le verbe, une barre indéterminée, et
+// la couleur — parce qu'une seule d'entre elles, à la taille d'une icône, est
+// précisément ce qu'on ne remarque pas.
+//
+// La barre est indéterminée parce que `git push` ne dit pas où il en est : une
+// barre qui prétendrait un pourcentage l'inventerait.
+function GitActivity() {
+  const activite = useSyncExternalStore(subscribeGit, gitRunning, () => IDLE_GIT)
+  if (!activite.verb) return null
+  const occupe = !activite.done
+  return (
+    <div className="px-2 pt-1.5">
+      <div
+        className={cn(
+          "flex items-center gap-1.5 text-[11px]",
+          activite.failed ? "text-destructive" : occupe ? "text-primary" : "text-emerald-400"
+        )}
+      >
+        {occupe ? (
+          <Loader2 className="h-3 w-3 shrink-0 zy-spin" />
+        ) : activite.failed ? (
+          <CircleSlash className="h-3 w-3 shrink-0" />
+        ) : (
+          <Check className="h-3 w-3 shrink-0" />
+        )}
+        <span className="truncate">{occupe ? `${activite.verb}…` : activite.verb}</span>
+      </div>
+      {occupe && (
+        <div className="mt-1 h-[2px] w-full overflow-hidden rounded-full bg-white/[0.07]">
+          <div className="zy-progress h-full w-1/3 rounded-full bg-primary" />
+        </div>
+      )}
+    </div>
+  )
+}
 
 // Source control, laid out the way VS Code lays it out, because that layout is
 // what everybody who will open this window already knows: the message box above
@@ -268,8 +312,12 @@ function CommitBox({ status }: { status: GitStatus }) {
     if (andPush) await push.mutateAsync(undefined)
   }
 
+  const activite = useSyncExternalStore(subscribeGit, gitRunning, () => IDLE_GIT)
   const busy = commit.isPending || push.isPending
-  const label = status.branch ? `Message (⌘⏎ to commit on "${status.branch}")` : "Message"
+  // Court, et tronqué s'il ne tient pas : un nom de branche de quarante
+  // caractères faisait passer l'invite sur deux lignes, donc ouvrait une boîte
+  // qui demandait un paragraphe pour ce qui est le plus souvent une phrase.
+  const label = status.branch ? `Message · ⌘⏎ on ${status.branch}` : "Message"
 
   return (
     <div className="space-y-2 px-2 pb-2">
@@ -280,7 +328,7 @@ function CommitBox({ status }: { status: GitStatus }) {
         <textarea
           ref={grow}
           rows={1}
-          className="zy-scroll max-h-40 w-full resize-none overflow-y-auto rounded-md border border-white/[0.08] bg-white/[0.03] py-[6px] pl-2 pr-8 text-[13px] leading-5 outline-none placeholder:text-muted-foreground focus:border-primary/50"
+          className="zy-scroll max-h-40 w-full resize-none overflow-y-auto rounded-md border border-white/[0.08] bg-white/[0.03] py-[6px] pl-2 pr-8 text-[12px] leading-[18px] outline-none placeholder:truncate placeholder:text-muted-foreground focus:border-primary/50"
           placeholder={label}
           value={message}
           onChange={(event) => {
@@ -309,8 +357,10 @@ function CommitBox({ status }: { status: GitStatus }) {
                 : `Commit ${staged} staged change${staged === 1 ? "" : "s"}`
           }
         >
-          {busy ? <Loader2 className="h-3.5 w-3.5 zy-spin" /> : <Check className="h-3.5 w-3.5" />}
-          Commit
+          {busy ? <Loader2 className="h-3.5 w-3.5 shrink-0 zy-spin" /> : <Check className="h-3.5 w-3.5 shrink-0" />}
+          {/* Le verbe pendant que ça tourne : « Commit » qui ne bouge pas
+              pendant qu'on pousse ne dit pas si l'on pousse. */}
+          <span className="truncate">{busy ? `${activite.verb}…` : "Commit"}</span>
         </button>
         <button
           className="rounded-r-md border-l border-black/20 bg-primary px-2 py-1.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
@@ -322,7 +372,13 @@ function CommitBox({ status }: { status: GitStatus }) {
         </button>
       </div>
       {(commit.isError || push.isError) && (
-        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[12px] text-destructive">
+        // Trois lignes au plus, et le reste dans l'infobulle : une erreur de
+        // git fait parfois quinze lignes — la sortie d'un hook, une trace de
+        // serveur — et le panneau entier disparaissait derrière.
+        <p
+          className="zy-selectable max-h-[3.4rem] overflow-hidden rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[12px] leading-[17px] text-destructive"
+          title={((commit.error ?? push.error) as Error).message}
+        >
           {((commit.error ?? push.error) as Error).message}
         </p>
       )}
@@ -414,6 +470,11 @@ export function GitPanel() {
         </button>
         <GitMenu status={repo} />
       </div>
+
+      {/* Ce qui se passe, sous l'en-tête du panneau : c'est là qu'on regarde
+          quand on vient de cliquer, et un tourniquet de quatorze pixels dans un
+          bouton n'était pas assez pour le voir. */}
+      <GitActivity />
 
       <CommitBox status={repo} />
 

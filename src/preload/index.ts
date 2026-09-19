@@ -172,7 +172,7 @@ const api = {
     create: (): Promise<string | null> => invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),
     current: (): Promise<OpenResult | null> => invoke("project:current"),
-    close: (): Promise<{ daemon: DaemonInfo }> => invoke("project:close"),
+    close: (): Promise<{ root: string | null; daemon: DaemonInfo | null }> => invoke("project:close"),
     recents: (): Promise<Recent[]> => invoke("project:recents"),
     forgetRecents: (): Promise<Recent[]> => invoke("project:forget-recents"),
   },
@@ -417,7 +417,7 @@ const api = {
      * globaux, les agents le sont aussi tant qu'aucun projet ne l'est, et les
      * uns comme les autres passent par le moteur.
      */
-    ensure: (): Promise<{ project: string | null; root: string | null; daemon: DaemonInfo }> =>
+    ensure: (): Promise<{ project: string | null; root: string | null; daemon: DaemonInfo | null }> =>
       invoke("engine:ensure"),
 
     /**

@@ -69,7 +69,7 @@ const read = (k) => readFileSync(files[k], "utf8")
   const ipc = read("ipc")
   check(
     "**une fenêtre sans projet ouvre quand même un moteur**",
-    /async function ensureEngine\(ws: Workspace\): Promise<DaemonInfo>/.test(ipc) &&
+    /async function ensureEngine\(ws: Workspace\): Promise<DaemonInfo \| null>/.test(ipc) &&
       /const home = homeWorkspace\(\)/.test(ipc),
     "« pas de projet » redevient « pas de moteur »"
   )
@@ -88,8 +88,16 @@ const read = (k) => readFileSync(files[k], "utf8")
   )
   check(
     "**fermer un projet ramène le moteur à la maison, il ne l'éteint pas**",
-    /const daemon = await ensureEngine\(ws\)\n    return \{ daemon \}/.test(ipc),
+    /const daemon = await ensureEngine\(ws\)\n    return \{ root: ws\.root, daemon \}/.test(ipc),
     "fermer un dossier vide le panneau des fournisseurs"
+  )
+  // Et le dossier passé au lancement l'emporte sur la maison : les deux
+  // démarraient ensemble et se tuaient l'un l'autre, puis celui de la maison
+  // écrasait la racine du projet. Mesuré, une fois sur trois.
+  check(
+    "**un dossier déjà en route garde le moteur pour lui**",
+    /startupPending = false/.test(ipc) && /if \(ws\.startupPending\) return null/.test(ipc),
+    "l'ouverture rate sur « the local Zyvro engine exited with code null »"
   )
 }
 

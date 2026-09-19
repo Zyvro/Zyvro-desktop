@@ -166,6 +166,10 @@ function createWindow(): BrowserWindow {
   // Sending it earlier would be shouting at a window with no React in it yet.
   const startupFolder = folderFromArgv(process.argv)
   if (startupFolder) {
+    // Dit tout de suite, pas à l'envoi : la fenêtre demande un moteur dès
+    // qu'elle est montée, et ce drapeau est ce qui l'empêche d'en démarrer un
+    // second qui se battrait avec celui-ci.
+    workspaceFor(win).startupPending = true
     win.webContents.once("did-finish-load", () => {
       win.webContents.send("menu:open-path", startupFolder)
     })

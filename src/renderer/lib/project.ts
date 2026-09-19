@@ -28,6 +28,9 @@ export const recentsKey = ["project", "recents"] as const
 async function attachHome(): Promise<void> {
   try {
     const { root, daemon } = await window.zyvro.engine.ensure()
+    // Rien à faire : un dossier passé au lancement est déjà en train de
+    // s'ouvrir, et c'est lui qui donnera l'adresse.
+    if (!daemon) return
     attachDaemon(daemon.origin, daemon.token)
     engineStarted()
     engineAttached()
@@ -105,6 +108,10 @@ export async function openProject(dir: string | null): Promise<OpenResult | null
     return result
   } catch (err) {
     store.setOpenError((err as Error).message)
+    // L'ouverture a raté : la fenêtre reste sans adresse si personne ne
+    // reprend la main. Le moteur de la maison est ce qui la lui rend, pour que
+    // les fournisseurs et l'agent restent joignables après un échec.
+    await attachHome()
     return null
   }
 }
@@ -140,19 +147,20 @@ export async function forgetRecents(): Promise<void> {
 }
 
 export async function closeProject(): Promise<void> {
-  const { daemon } = await window.zyvro.project.close()
+  const { root, daemon } = await window.zyvro.project.close()
   adopt(null)
-  engineAttached()
-  // Fermer un projet ne ferme pas le moteur : il revient à la maison, et les
-  // shells comme l'agent y continuent.
-  const home = await window.zyvro.engine.ensure()
-  useWorkspace.getState().setRoot(home.root)
-  // Le moteur de la maison prend la suite, tout de suite : sinon le panneau des
-  // fournisseurs se viderait le temps qu'on pense à le redemander.
-  attachDaemon(daemon.origin, daemon.token)
   queryClient.setQueryData(projectKey, null)
   queryClient.removeQueries({ queryKey: ["local"] })
   queryClient.removeQueries({ queryKey: ["files"] })
+  // Fermer un projet ne ferme pas le moteur : il revient à la maison, et les
+  // fournisseurs, l'agent et les shells y continuent. Rebranché tout de suite,
+  // sinon le panneau des fournisseurs se viderait le temps qu'on pense à le
+  // redemander.
+  if (daemon) {
+    attachDaemon(daemon.origin, daemon.token)
+    engineAttached()
+  }
+  useWorkspace.getState().setRoot(root)
 }
 
 // createWorkflow is here rather than in the list panel for the same reason:

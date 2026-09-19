@@ -118,3 +118,20 @@ button,
   background-size: 16px 16px;
   background-position: 0 0, 0 8px, 8px -8px, -8px 0;
 }
+
+/* Une barre qui avance pendant qu'une opération git tourne.
+ *
+ * Indéterminée, parce que `git push` ne dit pas où il en est : une barre qui
+ * prétendrait un pourcentage l'inventerait. Ce qu'elle dit est la seule chose
+ * qu'on sache et la seule qu'on demande — ça travaille, ce n'est pas figé. */
+@keyframes zy-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+.zy-progress {
+  animation: zy-progress 1.15s ease-in-out infinite;
+}

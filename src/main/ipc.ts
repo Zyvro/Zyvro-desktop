@@ -48,6 +48,15 @@ export class Workspace {
    */
   project: string | null = null
   /**
+   * Un dossier passé au lancement est en train de s'ouvrir.
+   *
+   * Sans ce drapeau, la fenêtre réclame le moteur de la maison au moment même
+   * où ce dossier s'ouvre — mesuré, et c'est une course qui rate une fois sur
+   * trois : les deux démarrages se tuaient l'un l'autre, puis celui de la
+   * maison écrasait la racine du projet. Ce qui est déjà en route gagne.
+   */
+  startupPending = false
+  /**
    * Où le moteur, les agents et les shells travaillent : le projet ouvert, ou
    * le dossier d'accueil quand il n'y en a pas.
    *
@@ -193,11 +202,16 @@ function requireRoot(ws: Workspace): string {
 // au lieu de répondre « pas de projet » à chaque appel, on ouvre le dossier
 // d'accueil et tout le reste du code continue de parler à un moteur comme
 // d'habitude.
-async function ensureEngine(ws: Workspace): Promise<DaemonInfo> {
+async function ensureEngine(ws: Workspace): Promise<DaemonInfo | null> {
   if (ws.daemon.current) return ws.daemon.current
+  // Un dossier est déjà en route : c'est lui qui aura le moteur, et en
+  // démarrer un deuxième ne ferait que se battre avec le sien.
+  if (ws.startupPending) return null
   const home = homeWorkspace()
   const info = await ws.daemon.start(home)
-  ws.root = home
+  // Et une dernière fois après l'attente : un projet a pu s'ouvrir pendant ce
+  // temps, auquel cas la racine est la sienne, pas la nôtre.
+  if (!ws.project) ws.root = home
   return info
 }
 
@@ -271,10 +285,12 @@ export function registerIpc(onRecents?: () => void): void {
       // Only a folder that opened successfully is worth offering again.
       rememberRecent(dir)
       onRecentsChanged?.()
+      ws.startupPending = false
       return { project: dir, name: path.basename(dir), daemon }
     } catch (err) {
       ws.root = null
       ws.project = null
+      ws.startupPending = false
       if (err instanceof DaemonError) {
         throw new Error(err.detail ? `${err.message}\n\n${err.detail}` : err.message)
       }
@@ -295,6 +311,8 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("engine:ensure", async (event) => {
     const { ws } = requireWorkspace(event)
     const daemon = await ensureEngine(ws)
+    // `daemon: null` veut dire « pas maintenant, un dossier est déjà en
+    // route » : la fenêtre n'a rien à faire, l'ouverture lui donnera l'adresse.
     return { project: ws.project, root: ws.root, daemon }
   })
 
@@ -355,7 +373,7 @@ export function registerIpc(onRecents?: () => void): void {
     ws.root = null
     ws.project = null
     const daemon = await ensureEngine(ws)
-    return { daemon }
+    return { root: ws.root, daemon }
   })
 
   // The graph editor asks for this when someone clicks Browse on a Read File

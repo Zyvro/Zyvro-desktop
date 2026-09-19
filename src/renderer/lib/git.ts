@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { CommitOptions } from "../../preload"
 import { useWorkspace } from "~/state/workspace"
+import { GIT_VERBS, gitFinished, gitStarted } from "~/state/git"
 
 // The one key every git query and mutation shares, so any change refreshes the
 // panel, the status bar and an open diff together. Three views of one
@@ -42,13 +43,45 @@ export function useGitAction<TArgs>(run: (args: TArgs) => Promise<unknown>) {
   const client = useQueryClient()
   return useMutation({
     mutationFn: run,
-    // Everything git does can change what is on disk, so the file tree and any
-    // open file are re-read too, not just the status.
-    onSettled: () => {
+    // Ce qui se passe est annoncé ici, une fois, pour les trois endroits qui
+    // peuvent lancer la même chose.
+    //
+    // Chacun tenait sa propre mutation, donc celui qui lançait savait et les
+    // deux autres ne savaient rien : un push parti du menu ne montrait rien du
+    // tout, et la pastille de la barre d'état — le seul endroit toujours
+    // visible — ne bougeait que si l'on était parti de là. Le nom de
+    // l'opération est déduit de la fonction passée, pour qu'aucun appelant
+    // n'ait à le répéter et qu'aucun n'oublie.
+    onMutate: () => {
+      gitStarted(verbNow(run))
+    },
+    onSettled: (_data, error) => {
+      gitFinished(verbThen(run, Boolean(error)), Boolean(error))
       void client.invalidateQueries({ queryKey: gitKey })
       void client.invalidateQueries({ queryKey: ["files"] })
     },
   })
+}
+
+// Le nom de l'opération, déduit de la fonction. Construit une fois, après
+// `gitActions`, parce que c'est lui qui donne les noms.
+const NAMES = new Map<unknown, string>()
+
+function nameOf(run: unknown): string {
+  if (NAMES.size === 0) {
+    for (const [name, fn] of Object.entries(gitActions)) NAMES.set(fn, name)
+  }
+  return NAMES.get(run) ?? ""
+}
+
+function verbNow(run: unknown): string {
+  return GIT_VERBS[nameOf(run)]?.now ?? "Working"
+}
+
+function verbThen(run: unknown, failed: boolean): string {
+  const pair = GIT_VERBS[nameOf(run)]
+  if (!pair) return failed ? "Failed" : "Done"
+  return failed ? `${pair.now} failed` : pair.then
 }
 
 export const gitActions = {
