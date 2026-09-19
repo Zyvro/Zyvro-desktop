@@ -219,7 +219,7 @@ const api = {
     reveal: (relative: string): Promise<boolean> => invoke("shell:reveal", relative),
     /** Ouvrir avec le programme par défaut du système, comme un double-clic. */
     openExternally: (relative: string): Promise<boolean> => invoke("shell:open", relative),
-    pick: (request: { save?: boolean; title?: string; current?: string }): Promise<string | null> =>
+    pick: (request: { save?: boolean; directory?: boolean; title?: string; current?: string }): Promise<string | null> =>
       invoke("files:pick", request),
   },
 

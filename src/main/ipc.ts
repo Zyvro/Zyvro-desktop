@@ -313,11 +313,14 @@ export function registerIpc(onRecents?: () => void): void {
   // committed and shared.
   ipcMain.handle(
     "files:pick",
-    async (event, request: { save?: boolean; title?: string; current?: string }) => {
+    async (event, request: { save?: boolean; directory?: boolean; title?: string; current?: string }) => {
       const { win, ws } = requireWorkspace(event)
       const root = await fs.realpath(requireRoot(ws))
+      // A folder is its own starting point; a file's is the folder holding it.
       const startIn = request?.current
-        ? path.resolve(root, path.dirname(request.current))
+        ? request?.directory
+          ? path.resolve(root, request.current)
+          : path.resolve(root, path.dirname(request.current))
         : root
 
       const chosen = request?.save
@@ -327,10 +330,14 @@ export function registerIpc(onRecents?: () => void): void {
             buttonLabel: "Use this path",
           })
         : await dialog.showOpenDialog(win, {
-            title: request?.title || "Choose a file",
+            title: request?.title || (request?.directory ? "Choose a folder" : "Choose a file"),
             defaultPath: startIn,
-            properties: ["openFile"],
-            buttonLabel: "Use this file",
+            // A batch runs over a folder, and typing the path of one is the
+            // kind of thing that is wrong by a character and comes back as
+            // "no such folder". Same dialog, same relative-path answer, same
+            // refusal when the pick lands outside the project.
+            properties: [request?.directory ? "openDirectory" : "openFile"],
+            buttonLabel: request?.directory ? "Use this folder" : "Use this file",
           })
 
       const picked =
