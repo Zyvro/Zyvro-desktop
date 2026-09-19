@@ -22,7 +22,7 @@ export type FileRead =
   | { path: string; text: string; truncated: boolean }
   | { path: string; image: { mime: string; uri: string } }
   | { path: string; binary: true }
-import type { AgentKind } from "../shared/harness"
+import type { AgentKind, ModelChoices } from "../shared/harness"
 export type { AgentKind }
 
 // Les formes de la recherche traversent le pont : elles sont redites ici parce
@@ -337,7 +337,7 @@ const api = {
       invoke("agent:attach", conversationId, name, bytes),
     detach: (conversationId: string, id: string): Promise<void> =>
       invoke("agent:detach", conversationId, id),
-    models: (kind: AgentKind): Promise<string[]> => invoke("agent:models", kind),
+    models: (kind: AgentKind): Promise<ModelChoices> => invoke("agent:models", kind),
     // Ce qu'une puce affiche d'elle-même. Une adresse `data:`, ou rien quand le
     // fichier n'est plus là.
     thumbnail: (conversationId: string, id: string): Promise<string | null> =>

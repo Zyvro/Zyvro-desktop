@@ -781,7 +781,10 @@ export function registerIpc(onRecents?: () => void): void {
       const { ws } = requireWorkspace(event)
       return aimableModels(ws.daemon.current)
     }
-    return agentModule.aliasesFrom(helpOf(harness(kind).bin))
+    // Un CLI n'a pas de serveur à qui la question puisse mal tourner : sa liste
+    // vient de son propre --help, et une analyse qui ne trouve rien n'est pas
+    // une panne — le sélecteur propose alors le défaut et une case à remplir.
+    return { models: agentModule.aliasesFrom(helpOf(harness(kind).bin)), trouble: [] }
   })
 
   // Arrêter une session qui se réveille toute seule. Le bouton du panneau, et

@@ -53,6 +53,19 @@ export type Harness = {
   aimable: boolean
 }
 
+/**
+ * Les modèles proposés pour un harnais, et ce qui a empêché d'en proposer plus.
+ *
+ * `trouble` existe parce qu'une liste vide ne dit pas pourquoi elle est vide.
+ * « Aucun serveur ne répond » et « ce serveur a répondu autre chose qu'une
+ * liste » demandent deux gestes différents, et le menu ne peut pas choisir la
+ * bonne phrase s'il ne reçoit que le vide.
+ */
+export type ModelChoices = {
+  models: string[]
+  trouble: { provider: string; said: string }[]
+}
+
 export const HARNESSES: Record<AgentKind, Harness> = {
   claude: {
     kind: "claude",

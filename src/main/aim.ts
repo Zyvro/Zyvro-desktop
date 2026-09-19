@@ -9,7 +9,7 @@
 // deuxième idée de « où est LM Studio » serait celle qui a tort le jour où le
 // port change. On la lui demande.
 
-import { type Aim, splitAimed } from "../shared/harness"
+import { type Aim, type ModelChoices, splitAimed } from "../shared/harness"
 
 type ProviderRow = { id?: unknown; endpoint?: unknown; endpoint_url?: unknown }
 
@@ -66,7 +66,15 @@ export async function aimFor(
   }
 }
 
-// aimableModels : ce que les serveurs de ce projet disent savoir faire tourner.
+// aimableModels : ce que les serveurs de ce projet disent savoir faire tourner,
+// **et ce qu'ils ont répondu quand ils n'ont pas dit ça**.
+//
+// Les deux, parce que confondre les deux a coûté une soirée à Jeremy : son LM
+// Studio tournait, il était réglé, il avait trois modèles — et son adresse ne
+// finissait pas par `/v1`. Le serveur répondait donc 200 avec un objet
+// d'erreur, la liste revenait vide, et le menu affirmait « aucun serveur local
+// ne répond ». Un échec avalé devient une phrase fausse : la seule qu'on ne
+// peut pas corriger en la lisant.
 //
 // C'est la moitié qui manquait. Zyvro savait déjà parler à Ollama, à LM Studio
 // et à un point d'accès quelconque, et le panneau de l'agent ne savait lancer
@@ -79,19 +87,19 @@ export async function aimFor(
 // est exactement ce que « il ne tourne pas » veut dire ici.
 export async function aimableModels(
   daemon: { origin?: string; token?: string } | null | undefined
-): Promise<string[]> {
-  if (!daemon?.origin || !daemon.token) return []
+): Promise<ModelChoices> {
+  if (!daemon?.origin || !daemon.token) return { models: [], trouble: [] }
   const auth = { Authorization: `Bearer ${daemon.token}` }
 
   let rows: ProviderRow[]
   try {
     const response = await fetch(`${daemon.origin}/api/providers`, { headers: auth })
-    if (!response.ok) return []
+    if (!response.ok) return { models: [], trouble: [] }
     const body = (await response.json()) as { providers?: unknown }
-    if (!Array.isArray(body.providers)) return []
+    if (!Array.isArray(body.providers)) return { models: [], trouble: [] }
     rows = body.providers as ProviderRow[]
   } catch {
-    return []
+    return { models: [], trouble: [] }
   }
 
   const configured = rows.filter(
@@ -102,18 +110,29 @@ export async function aimableModels(
   // répond pas, c'est le délai d'attente de celui-là ajouté à l'attente de tout
   // le monde. Le panneau, lui, attend cette liste pour s'ouvrir.
   const lists = await Promise.all(
-    configured.map(async (p) => {
+    configured.map(async (p): Promise<ModelChoices> => {
       const id = String(p.id)
       try {
         const response = await fetch(`${daemon.origin}/api/providers/${id}/models`, { headers: auth })
-        if (!response.ok) return []
-        const body = (await response.json()) as { models?: unknown }
-        if (!Array.isArray(body.models)) return []
-        return body.models.filter((m): m is string => typeof m === "string" && m.trim() !== "").map((m) => `${id}/${m}`)
-      } catch {
-        return []
+        const body = (await response.json()) as { models?: unknown; error?: unknown }
+        if (!response.ok) {
+          const said = typeof body.error === "string" ? body.error : "it did not answer with a model list"
+          return { models: [], trouble: [{ provider: id, said }] }
+        }
+        if (!Array.isArray(body.models)) return { models: [], trouble: [] }
+        return {
+          models: body.models
+            .filter((m): m is string => typeof m === "string" && m.trim() !== "")
+            .map((m) => `${id}/${m}`),
+          trouble: [],
+        }
+      } catch (err) {
+        return { models: [], trouble: [{ provider: id, said: err instanceof Error ? err.message : "unreachable" }] }
       }
     })
   )
-  return lists.flat()
+  return {
+    models: lists.flatMap((l) => l.models),
+    trouble: lists.flatMap((l) => l.trouble),
+  }
 }
