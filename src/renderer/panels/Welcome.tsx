@@ -27,8 +27,18 @@ export function Welcome() {
   const busy = opening || open.isPending || create.isPending
 
   return (
-    <div className="zy-scroll flex h-full items-center justify-center overflow-y-auto px-8">
-      <div className="w-full max-w-lg py-10">
+    // `items-center` sur un conteneur qui défile coupe le haut, et le coupe
+    // pour de bon : quand le contenu est plus grand que la boîte, le centrage
+    // le fait déborder des deux côtés, et le débordement du haut est au-dessus
+    // du point de départ du défilement — inatteignable, `scrollTop` est déjà à
+    // zéro. C'est ce que Jeremy a photographié : la page commençait au milieu
+    // d'un paragraphe, sans son titre.
+    //
+    // `m-auto` sur l'enfant fait la même chose quand ça tient — les marges
+    // automatiques se partagent la place libre — et ne fait rien quand il n'y
+    // en a pas, ce qui est exactement la différence qui manquait.
+    <div className="zy-scroll flex h-full justify-center overflow-y-auto px-8">
+      <div className="m-auto w-full max-w-lg py-10">
         <h1 className="text-2xl font-semibold tracking-tight">Zyvro Studio</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           Visual AI workflows next to the code they act on. A project is an ordinary folder: its
