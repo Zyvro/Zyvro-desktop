@@ -150,11 +150,19 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   const liste = readFileSync(path.join(ROOT, "src/renderer/panels/PersistentList.tsx"), "utf8")
   check(
     "**et elle ne se dessine pas là où rien ne la tient**",
-    liste.includes("if (!project || !dispo.data) return null"),
+    liste.includes("if (!project || !dispo.data || mode === \"ai\") return null"),
     "une section vide sur Windows, à expliquer chaque jour"
   )
   // Tuer se demande : la session contient justement ce qu'on avait pris soin de
   // ne pas perdre.
+  // En mode IA il n'y a pas de terminal — c'est la différence entre les deux
+  // modes, pas un panneau fermé. Une section dont chaque ligne serait inerte y
+  // serait pire qu'une section absente. Vu à l'écran avant d'être corrigé.
+  check(
+    "**ni là où il n'y a pas de terminal du tout**",
+    liste.includes('mode === "ai"'),
+    "les lignes s'affichent en mode IA et ne font rien quand on clique"
+  )
   check("**tuer une session demande**", liste.includes("askConfirm("))
   check("et le panneau dit que fermer l'onglet ne tue pas", /only detache?s? it|détache/i.test(liste))
 
