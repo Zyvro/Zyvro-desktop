@@ -2,10 +2,10 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { api } from "@/lib/api"
 import { registerPluginKinds, type NodeKind } from "@/lib/nodes"
 import type { OpenResult } from "../../preload"
-import { attachDaemon, detachDaemon } from "./daemon"
+import { attachDaemon } from "./daemon"
 import { queryClient } from "./queryClient"
 import { useWorkspace } from "~/state/workspace"
-import { engineStarted } from "~/state/engine"
+import { engineAttached, engineStarted } from "~/state/engine"
 
 // Opening a project is the operation that changes everything: it starts a
 // daemon, points the shared API client at it, and gives the file tree a root.
@@ -17,13 +17,39 @@ export const workflowsKey = ["local", "workflows"] as const
 export const nodesKey = ["local", "nodes"] as const
 export const recentsKey = ["project", "recents"] as const
 
+// attachHome branche la fenêtre sur le moteur du dossier d'accueil.
+//
+// Sans projet, il n'y avait pas de moteur, donc pas d'adresse, donc le panneau
+// des fournisseurs répondait « Could not load the provider list » — signalé par
+// Jeremy, avec la remarque qui va avec : les fournisseurs sont globaux, ils ne
+// dépendent pas d'un dossier ; et les agents le sont aussi tant qu'aucun projet
+// ne l'est. Il y a donc toujours un moteur : celui du projet, ou celui de la
+// maison.
+async function attachHome(): Promise<void> {
+  try {
+    const { root, daemon } = await window.zyvro.engine.ensure()
+    attachDaemon(daemon.origin, daemon.token)
+    engineStarted()
+    engineAttached()
+    // Le dossier où ça travaille, même sans projet : c'est lui que les shells
+    // et l'agent prennent pour dossier courant.
+    useWorkspace.getState().setRoot(root)
+  } catch {
+    // Un moteur qui ne démarre pas se voit ailleurs — la barre d'état le dit.
+    // Ici il n'y a rien de plus à faire que de ne pas prétendre le contraire.
+  }
+}
+
 function adopt(result: OpenResult | null): OpenResult | null {
   // Un projet qui s'ouvre, c'est un démon qui vient de répondre : l'annonce
   // d'une panne précédente n'a plus lieu d'être. Sans ça, la barre garderait le
   // souvenir d'un moteur mort réparé depuis.
   if (result) engineStarted()
   if (result) attachDaemon(result.daemon.origin, result.daemon.token)
-  else detachDaemon()
+  if (result) engineAttached()
+  // Pas de `detachDaemon()` ici : fermer un projet ramène le moteur à la
+  // maison, il ne l'éteint pas. Détacher l'adresse rendrait le panneau des
+  // fournisseurs inutilisable pour la seule raison qu'on a fermé un dossier.
   // Node packs belong to a project. Closing one has to take its nodes with it,
   // or the palette would go on offering a type the next project cannot run.
   if (!result) registerPluginKinds([])
@@ -36,7 +62,10 @@ function adopt(result: OpenResult | null): OpenResult | null {
 // Registering happens in the fetcher rather than in a component, because the
 // node registry is read during render by code that is not ours.
 export function useNodeCatalogue() {
-  const project = useWorkspace((s) => s.project)
+  // La racine du moteur, pas le projet : sans projet il y a quand même un
+  // moteur — celui de la maison — et donc un catalogue de nœuds, sans quoi un
+  // workflow global s'ouvrirait sur une palette vide.
+  const project = useWorkspace((s) => s.root)
   return useQuery({
     queryKey: nodesKey,
     queryFn: async () => {
@@ -111,8 +140,16 @@ export async function forgetRecents(): Promise<void> {
 }
 
 export async function closeProject(): Promise<void> {
-  await window.zyvro.project.close()
+  const { daemon } = await window.zyvro.project.close()
   adopt(null)
+  engineAttached()
+  // Fermer un projet ne ferme pas le moteur : il revient à la maison, et les
+  // shells comme l'agent y continuent.
+  const home = await window.zyvro.engine.ensure()
+  useWorkspace.getState().setRoot(home.root)
+  // Le moteur de la maison prend la suite, tout de suite : sinon le panneau des
+  // fournisseurs se viderait le temps qu'on pense à le redemander.
+  attachDaemon(daemon.origin, daemon.token)
   queryClient.setQueryData(projectKey, null)
   queryClient.removeQueries({ queryKey: ["local"] })
   queryClient.removeQueries({ queryKey: ["files"] })
@@ -132,7 +169,15 @@ export async function createWorkflow(name: string): Promise<void> {
 export function useCurrentProject() {
   return useQuery({
     queryKey: projectKey,
-    queryFn: async () => adopt(await window.zyvro.project.current()),
+    queryFn: async () => {
+      const current = adopt(await window.zyvro.project.current())
+      // Aucun projet ouvert : on branche quand même un moteur, celui de la
+      // maison. Fait ici plutôt que dans un effet — la doctrine du dépôt — et
+      // c'est le bon endroit : « qu'est-ce qui est ouvert » et « alors branche
+      // ça » sont le même aller-retour.
+      if (!current) await attachHome()
+      return current
+    },
     staleTime: Infinity,
   })
 }

@@ -172,7 +172,7 @@ const api = {
     create: (): Promise<string | null> => invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),
     current: (): Promise<OpenResult | null> => invoke("project:current"),
-    close: (): Promise<boolean> => invoke("project:close"),
+    close: (): Promise<{ daemon: DaemonInfo }> => invoke("project:close"),
     recents: (): Promise<Recent[]> => invoke("project:recents"),
     forgetRecents: (): Promise<Recent[]> => invoke("project:forget-recents"),
   },
@@ -410,6 +410,16 @@ const api = {
   },
 
   engine: {
+    /**
+     * Un moteur, avec ou sans projet.
+     *
+     * Le dossier d'accueil sert quand rien n'est ouvert : les fournisseurs sont
+     * globaux, les agents le sont aussi tant qu'aucun projet ne l'est, et les
+     * uns comme les autres passent par le moteur.
+     */
+    ensure: (): Promise<{ project: string | null; root: string | null; daemon: DaemonInfo }> =>
+      invoke("engine:ensure"),
+
     /**
      * Le moteur local est mort sans qu'on le lui demande.
      *

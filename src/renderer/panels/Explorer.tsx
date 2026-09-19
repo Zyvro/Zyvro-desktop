@@ -246,7 +246,12 @@ export function Explorer() {
   }
 
   if (!project) {
-    return <p className="px-3 py-2 text-[13px] text-muted-foreground">No project open.</p>
+    // `flex-1` : la place vide appartient à l'arbre absent, pas aux sections
+    // d'en dessous. Sans ça, les listes — shells persistants, workflows —
+    // remontaient se coller sous cette phrase au lieu de rester en bas de la
+    // barre, où elles sont dès qu'un projet est ouvert. Signalé par Jeremy :
+    // « ça doit être collé en bas, c'est listé, pas remonté en haut ».
+    return <p className="flex-1 px-3 py-2 text-[13px] text-muted-foreground">No project open.</p>
   }
 
   const premiere = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)

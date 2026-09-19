@@ -27,7 +27,9 @@ import { askConfirm, askName } from "~/state/prompt"
 const KEY = ["local", "persistent"] as const
 
 export function PersistentList() {
-  const project = useWorkspace((s) => s.project)
+  // Le dossier où l'on travaille, projet ouvert ou non : les sessions
+  // persistantes sont celles de ce dossier-là, et la maison en est un.
+  const project = useWorkspace((s) => s.root)
   // En mode IA il n'y a pas de terminal du tout — c'est la différence entre les
   // deux modes, pas un panneau qu'on aurait fermé. Une section dont chaque
   // ligne serait inerte y serait pire qu'une section absente : « un menu qui

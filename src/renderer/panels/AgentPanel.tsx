@@ -22,6 +22,7 @@ import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
+import { engineReady, subscribeEngine } from "~/state/engine"
 import type { StoredTool } from "../../preload"
 
 // This panel runs the agent CLI that is already signed in on this machine, so
@@ -1406,7 +1407,14 @@ export function AgentPanel(): JSX.Element {
     input.click()
   }
 
-  const disabled = project === null
+  // La bonne question n'est pas « un projet est-il ouvert » mais « y a-t-il un
+  // moteur à qui parler ». Les deux se confondaient parce qu'un moteur naissait
+  // avec un projet ; ce n'est plus vrai, et demander l'ancienne refusait le
+  // travail global — « les agents sont utilisables même si aucun projet n'est
+  // ouvert, ce sont des agents globaux ». Sans projet, l'agent tourne dans le
+  // dossier d'accueil.
+  const pret = useSyncExternalStore(subscribeEngine, engineReady, () => false)
+  const disabled = !pret
 
   // Lâcher un fichier : tout le panneau l'attrape, pas seulement le champ.
   //

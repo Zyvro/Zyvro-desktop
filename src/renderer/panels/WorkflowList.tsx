@@ -29,7 +29,10 @@ const EMPTY_GRAPH = { nodes: [], edges: [] }
 const WORKFLOW_DIR = ".zyvro/workflows"
 
 export function WorkflowList() {
-  const project = useWorkspace((s) => s.project)
+  // Le dossier où l'on travaille, projet ouvert ou non : « les workflows aussi,
+  // on peut en avoir des globaux ». Ceux de la maison sont ceux qu'on garde
+  // pour soi, indépendamment du dépôt dans lequel on se trouve.
+  const project = useWorkspace((s) => s.root)
   const openGraph = useWorkspace((s) => s.openGraph)
   const closeTab = useWorkspace((s) => s.closeTab)
   const activeTabId = useWorkspace((s) => s.activeTabId)

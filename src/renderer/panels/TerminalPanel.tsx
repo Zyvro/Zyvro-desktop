@@ -390,8 +390,11 @@ function TerminalSession({ sessionKey, active }: { sessionKey: string; active: b
 // ---------------------------------------------------------------------------
 
 export function TerminalPanel(): JSX.Element {
-  const project = useWorkspace((state) => state.project)
-  const projectDir = project?.project ?? null
+  // Le dossier où l'on travaille, pas le projet ouvert. Sans projet, c'est
+  // celui d'accueil : « les shells, pareil » — par projet s'il y en a un,
+  // globaux sinon. Il sert aussi de nom sous lequel le défilement est gardé,
+  // donc les shells de la maison se retrouvent comme ceux d'un projet.
+  const projectDir = useWorkspace((state) => state.root)
 
   const [sessions, setSessions] = useState<string[]>([])
   const [activeKey, setActiveKey] = useState("")

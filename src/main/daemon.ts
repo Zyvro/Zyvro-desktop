@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process"
+import { execFileSync, spawn, type ChildProcessByStdio } from "node:child_process"
 import type { Readable } from "node:stream"
 import { existsSync } from "node:fs"
 import path from "node:path"
@@ -51,6 +51,38 @@ export function bundledBinary(): string {
   }
   // Last resort: let the OS find it. Fails loudly at spawn if it cannot.
   return name
+}
+
+// homeWorkspace est le dossier où l'on travaille quand aucun projet n'est
+// ouvert, demandé au moteur plutôt que recalculé ici.
+//
+// Demandé, parce qu'il n'y a pas deux idées de « où Zyvro range ses affaires ».
+// Le moteur choisit ce dossier par le système — `~/Library/Application Support`
+// sur macOS, `%AppData%` sur Windows — et il y garde déjà les clefs et les
+// adresses des serveurs. Le recalculer ici serait un second chemin, c'est-à-dire
+// celui qui a tort le jour où l'autre bouge.
+//
+// Mis en cache : la réponse ne change pas dans la vie d'un processus, et c'est
+// un sous-processus par question.
+let homeDir: string | null = null
+
+export function homeWorkspace(): string {
+  if (homeDir) return homeDir
+  const bin = bundledBinary()
+  let printed = ""
+  try {
+    printed = execFileSync(bin, ["--home"], { encoding: "utf8", timeout: 5000 }).trim()
+  } catch (err) {
+    throw new DaemonError(
+      "Could not prepare a place to work without a project.",
+      err instanceof Error ? err.message : String(err)
+    )
+  }
+  if (!printed) {
+    throw new DaemonError("The engine did not say where to work without a project.", `${bin} --home printed nothing`)
+  }
+  homeDir = printed
+  return homeDir
 }
 
 // Daemon owns one child process for one project folder. It is deliberately not

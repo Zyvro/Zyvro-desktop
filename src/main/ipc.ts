@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, webContents } from "electron"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
-import { Daemon, DaemonError, type DaemonInfo } from "./daemon"
+import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
 import { harness, isAgentKind } from "../shared/harness"
@@ -42,6 +42,23 @@ import * as commitMessage from "./commitmessage"
 // the shells running in it and the agent turns in flight. Bundling them means
 // closing a window tears all four down together instead of leaking a daemon.
 export class Workspace {
+  /**
+   * Le dossier que la personne a ouvert, ou null quand elle n'en a ouvert
+   * aucun. C'est lui que l'écran d'accueil regarde.
+   */
+  project: string | null = null
+  /**
+   * Où le moteur, les agents et les shells travaillent : le projet ouvert, ou
+   * le dossier d'accueil quand il n'y en a pas.
+   *
+   * Les deux, parce qu'ils répondent à deux questions différentes — « qu'est-ce
+   * que la personne a ouvert » et « où ça travaille » — et que les confondre
+   * était ce qui rendait la moitié de l'application inutilisable tant qu'on
+   * n'avait pas ouvert un dossier : pas de projet, donc pas de moteur, donc pas
+   * de catalogue de fournisseurs, pas d'agent, pas de shell. Or les
+   * fournisseurs sont globaux et les agents le sont aussi quand rien n'est
+   * ouvert.
+   */
   root: string | null = null
   readonly daemon = new Daemon()
   readonly terminals = new Terminals()
@@ -162,9 +179,26 @@ function requireWorkspace(event: Electron.IpcMainInvokeEvent): { win: BrowserWin
   return { win, ws: workspaceFor(win) }
 }
 
+// requireRoot rend l'endroit où l'on travaille. Il ne lève plus dès qu'aucun
+// projet n'est ouvert : il y a toujours un dossier, celui d'accueil à défaut
+// d'un autre. Ce qui lève, c'est un moteur qui n'a pas démarré du tout.
 function requireRoot(ws: Workspace): string {
-  if (!ws.root) throw new Error("No project is open.")
+  if (!ws.root) throw new Error("The local engine is not running.")
   return ws.root
+}
+
+// ensureEngine garantit qu'une fenêtre a un moteur, avec ou sans projet.
+//
+// C'est le point unique où « aucun projet » cesse d'être un cas particulier :
+// au lieu de répondre « pas de projet » à chaque appel, on ouvre le dossier
+// d'accueil et tout le reste du code continue de parler à un moteur comme
+// d'habitude.
+async function ensureEngine(ws: Workspace): Promise<DaemonInfo> {
+  if (ws.daemon.current) return ws.daemon.current
+  const home = homeWorkspace()
+  const info = await ws.daemon.start(home)
+  ws.root = home
+  return info
 }
 
 export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
@@ -231,6 +265,7 @@ export function registerIpc(onRecents?: () => void): void {
       ws.watcher?.dispose()
       ws.watcher = null
       ws.root = dir
+      ws.project = dir
       win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
       win.setRepresentedFilename?.(dir)
       // Only a folder that opened successfully is worth offering again.
@@ -239,6 +274,7 @@ export function registerIpc(onRecents?: () => void): void {
       return { project: dir, name: path.basename(dir), daemon }
     } catch (err) {
       ws.root = null
+      ws.project = null
       if (err instanceof DaemonError) {
         throw new Error(err.detail ? `${err.message}\n\n${err.detail}` : err.message)
       }
@@ -248,8 +284,18 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle("project:current", async (event) => {
     const { ws } = requireWorkspace(event)
-    if (!ws.root || !ws.daemon.current) return null
-    return { project: ws.root, name: path.basename(ws.root), daemon: ws.daemon.current }
+    if (!ws.project || !ws.daemon.current) return null
+    return { project: ws.project, name: path.basename(ws.project), daemon: ws.daemon.current }
+  })
+
+  // Un moteur, avec ou sans projet. C'est ce que la fenêtre demande au
+  // démarrage quand personne n'a rien ouvert : les fournisseurs sont globaux,
+  // les agents le sont aussi tant qu'aucun projet ne l'est, et les uns comme
+  // les autres passent par le moteur.
+  ipcMain.handle("engine:ensure", async (event) => {
+    const { ws } = requireWorkspace(event)
+    const daemon = await ensureEngine(ws)
+    return { project: ws.project, root: ws.root, daemon }
   })
 
   // La capture d'une zone, demandée par le bouton de la barre du bas. La
@@ -299,11 +345,17 @@ export function registerIpc(onRecents?: () => void): void {
     return recents
   })
 
+  // Fermer un projet ne coupe pas le moteur, il le ramène à la maison : les
+  // fournisseurs, les agents et les shells restent utilisables, et c'est la
+  // seule lecture cohérente de « les agents sont globaux quand aucun projet
+  // n'est ouvert ».
   ipcMain.handle("project:close", async (event) => {
     const { ws } = requireWorkspace(event)
     await ws.dispose()
     ws.root = null
-    return true
+    ws.project = null
+    const daemon = await ensureEngine(ws)
+    return { daemon }
   })
 
   // The graph editor asks for this when someone clicks Browse on a Read File

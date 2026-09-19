@@ -46,3 +46,26 @@ export function subscribeEngine(listener: () => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }
+
+// Et l'autre question, qui n'est pas la même : **y a-t-il un moteur à qui
+// parler ?**
+//
+// Longtemps c'était « un projet est-il ouvert », et les deux se confondaient
+// parce qu'un moteur naissait avec un projet. Ce n'est plus vrai : sans projet,
+// la fenêtre ouvre le dossier d'accueil, et les fournisseurs comme les agents
+// restent joignables. Le panneau de l'agent demandait « as-tu un projet ? »
+// pour décider s'il pouvait envoyer un message — c'est-à-dire la mauvaise
+// question, celle qui refusait le travail global que Jeremy demande.
+
+let attached = false
+
+/** Une adresse de moteur vient d'être branchée, avec ou sans projet. */
+export function engineAttached(): void {
+  if (attached) return
+  attached = true
+  notify()
+}
+
+export function engineReady(): boolean {
+  return attached && down === null
+}

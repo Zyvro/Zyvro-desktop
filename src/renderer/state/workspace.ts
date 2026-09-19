@@ -65,6 +65,16 @@ export function sidebarView(panels: Record<PanelKey, boolean>): SidebarView | nu
 
 type WorkspaceState = {
   project: OpenResult | null
+  /**
+   * Où le moteur travaille : le dossier du projet, ou celui d'accueil quand
+   * aucun projet n'est ouvert.
+   *
+   * Distinct de `project`, et c'est la distinction qui compte : les shells et
+   * les agents ont besoin d'un dossier, pas d'un projet. Les confondre était ce
+   * qui rendait le terminal et l'agent inutilisables tant qu'on n'avait pas
+   * ouvert quelque chose.
+   */
+  root: string | null
   opening: boolean
   openError: string
 
@@ -79,6 +89,7 @@ type WorkspaceState = {
   mode: Mode
 
   setProject: (project: OpenResult | null) => void
+  setRoot: (root: string | null) => void
   setOpening: (opening: boolean) => void
   setOpenError: (message: string) => void
 
@@ -157,6 +168,7 @@ function nextActive(tabs: Tab[], closedIndex: number): string {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   project: null,
+  root: null,
   opening: false,
   openError: "",
 
@@ -174,9 +186,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setProject: (project) =>
     set(
       project
-        ? { project, openError: "", opening: false, tabs: [], activeTabId: "", drafts: {} }
+        ? { project, root: project.project, openError: "", opening: false, tabs: [], activeTabId: "", drafts: {} }
         : { project: null, tabs: [WELCOME], activeTabId: WELCOME.id, drafts: {} }
     ),
+  setRoot: (root) => set({ root }),
   setOpening: (opening) => set({ opening }),
   setOpenError: (openError) => set({ openError, opening: false }),
 
