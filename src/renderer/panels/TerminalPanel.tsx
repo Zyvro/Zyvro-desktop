@@ -412,11 +412,17 @@ export function TerminalPanel(): JSX.Element {
   const attendait = useRef(0)
   if (remis !== attendait.current) {
     attendait.current = remis
-    const ligne = takeHandoff("terminal")
-    const ptyId = readStatus(activeKey).ptyId
-    // Sans shell vivant il n'y a nulle part où écrire : mieux vaut ne rien
-    // faire que d'en ouvrir un qui surprendrait.
-    if (ligne && ptyId) window.queueMicrotask(() => void window.zyvro.terminal.write(ptyId, ligne))
+    // Prise après le rendu, comme la demande d'ouverture juste en dessous et
+    // pour la même raison : en développement React rend deux fois et jette le
+    // premier passage, donc un jeton pris pendant le rendu est consommé par
+    // celui qu'on jette. Le `cd` n'arrivait jamais dans le shell.
+    window.queueMicrotask(() => {
+      const ligne = takeHandoff("terminal")
+      const ptyId = readStatus(activeKey).ptyId
+      // Sans shell vivant il n'y a nulle part où écrire : mieux vaut ne rien
+      // faire que d'en ouvrir un qui surprendrait.
+      if (ligne && ptyId) void window.zyvro.terminal.write(ptyId, ligne)
+    })
   }
 
   // Adjusting state during render, not in an effect. A pty's cwd is fixed when
@@ -524,17 +530,34 @@ export function TerminalPanel(): JSX.Element {
   // Même mécanique que la boîte de `handoff` : un jeton qui change à chaque
   // demande, pris une fois. Lire l'étiquette sans la prendre ouvrirait une
   // seconde session au rendu suivant.
+  //
+  // **Prise après le rendu, pas pendant.** C'est ce qui manquait, et le défaut
+  // n'existait qu'en développement — ce qui est exactement là où Jeremy
+  // travaille. En `StrictMode`, React rend chaque composant deux fois et jette
+  // le premier passage : la demande était consommée par ce passage-là, et ses
+  // mises à jour partaient avec lui. Résultat mesuré dans une vraie app en mode
+  // dev : on tape un nom, on valide, et il ne se passe rien du tout — pas de
+  // session, pas d'onglet, pas de message. En production le double rendu
+  // n'existe pas, donc tout marchait, ce qui est la pire façon pour un défaut
+  // de se cacher.
+  //
+  // `queueMicrotask` est la réponse que la doctrine prévoit pour un effet :
+  // le repère change pendant le rendu — c'est une écriture idempotente — et la
+  // prise, qui ne l'est pas, attend que le rendu soit acquis. Si deux passages
+  // en mettaient deux en file, le second `takeOpen()` rendrait `null` et ne
+  // ferait rien : la seule façon sûre d'écrire ceci est d'être rejouable.
   const demande = useSyncExternalStore(subscribeOpen, openToken, () => 0)
   const vueDemande = useRef(0)
   if (demande !== vueDemande.current) {
     vueDemande.current = demande
-    const label = takeOpen()
-    if (label !== null) {
+    window.queueMicrotask(() => {
+      const label = takeOpen()
+      if (label === null) return
       const key = nextSessionKey()
       patchStatus(key, { persistent: label })
       setSessions((actuelles) => [...actuelles, key])
       setActiveKey(key)
-    }
+    })
   }
 
   const activate = (key: string): void => {

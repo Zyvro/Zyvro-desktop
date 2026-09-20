@@ -136,15 +136,19 @@ export function SearchPanel() {
   const attendait = useRef(0)
   if (remis !== attendait.current) {
     attendait.current = remis
-    const dossier = takeHandoff("search")
-    if (dossier) {
+    // Pris après le rendu : en développement React rend deux fois et jette le
+    // premier passage, donc un jeton pris pendant le rendu part avec lui —
+    // « Find in folder… » ne changeait pas de dossier.
+    window.queueMicrotask(() => {
+      const dossier = takeHandoff("search")
+      if (!dossier) return
       setScope(dossier)
       setNote("")
       if (query.trim() !== "") {
         if (timer.current) clearTimeout(timer.current)
-        window.queueMicrotask(() => void ask({ query, mode, include, exclude, scope: dossier }))
+        void ask({ query, mode, include, exclude, scope: dossier })
       }
-    }
+    })
   }
 
   const onQuery = (value: string): void => {

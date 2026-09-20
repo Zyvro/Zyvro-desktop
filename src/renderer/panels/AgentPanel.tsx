@@ -1347,9 +1347,14 @@ export function AgentPanel(): JSX.Element {
   const attendait = useRef(0)
   if (remis !== attendait.current) {
     attendait.current = remis
-    const texte = takeHandoff("agent")
-    // Pris, pas lu : un deuxième rendu ne doit pas le réécrire.
-    if (texte) window.queueMicrotask(() => insertPaths([texte]))
+    // Pris APRÈS le rendu, pas pendant. Prendre est ce qu'un rendu n'a pas le
+    // droit de faire : en développement React rend deux fois et jette le
+    // premier passage, donc le chemin déposé était consommé par celui qu'on
+    // jette et n'arrivait jamais dans le champ.
+    window.queueMicrotask(() => {
+      const texte = takeHandoff("agent")
+      if (texte) insertPaths([texte])
+    })
   }
 
   const insertPaths = (paths: string[]): void => {
