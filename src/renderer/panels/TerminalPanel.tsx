@@ -9,6 +9,7 @@ import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
 import { openToken, sessionsChanged, subscribeOpen, takeOpen } from "~/state/persistent"
+import { ShellPicker } from "./ShellPicker"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -652,6 +653,10 @@ export function TerminalPanel(): JSX.Element {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
+
+        {/* Poussé à droite par son propre `ml-auto` : les onglets défilent, et
+            un séparateur élastique entre eux et lui se ferait écraser. */}
+        <ShellPicker />
       </div>
 
       {/* Every session stays mounted. Hiding the wrapper (never the xterm host

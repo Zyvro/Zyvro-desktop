@@ -8,6 +8,7 @@ import { app } from "electron"
 import { randomUUID } from "node:crypto"
 import type { WebContents } from "electron"
 import { shellMcp, type McpTarget } from "./mcp"
+import { command as shellCommand } from "./shell"
 
 // The integrated shell is not a convenience feature. `claude` and `codex` both
 // change behaviour when stdout is not a terminal, and the whole point of the
@@ -64,14 +65,10 @@ export function ptyAvailable(): boolean {
   return loadPty() !== null
 }
 
+// Le shell du panneau vit dans shell.ts : c'est un choix de la personne, pas un
+// détail du pty. `$SHELL` reste le défaut, mais il n'est plus le seul mot.
 function defaultShell(): { file: string; args: string[] } {
-  if (process.platform === "win32") {
-    return { file: process.env.COMSPEC || "cmd.exe", args: [] }
-  }
-  const shell = process.env.SHELL || "/bin/zsh"
-  // A login shell is what picks up nvm, pyenv, homebrew and the PATH entry that
-  // makes `claude` and `codex` resolvable at all.
-  return { file: shell, args: ["-l"] }
+  return shellCommand()
 }
 
 function makePty(

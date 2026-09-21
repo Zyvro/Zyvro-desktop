@@ -16,6 +16,7 @@ import * as textSearch from "./search"
 import * as persistent from "./persistent"
 import { createWatcher, type Watcher } from "./watch"
 import { forgetRecents, loadRecents, rememberRecent } from "./recents"
+import { choose as chooseShell, shells as machineShells } from "./shell"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type AskHost, type BrowserHost } from "./shots"
@@ -356,6 +357,19 @@ export function registerIpc(onRecents?: () => void): void {
   })
 
   ipcMain.handle("project:recents", async () => loadRecents())
+
+  // Le shell du panneau. Une préférence de machine, comme la liste des projets
+  // récents : elle ne dépend d'aucun projet ouvert, donc elle n'en réclame pas.
+  ipcMain.handle("shell:list", async () => machineShells())
+
+  // `choose` revérifie ce qu'on lui donne contre ce que la machine offre. Le
+  // rendu n'envoie ici qu'un fichier qu'il a lu de `shell:list`, mais c'est la
+  // règle partout ici : ce qui vient de la fenêtre est du texte jusqu'à preuve
+  // du contraire.
+  ipcMain.handle("shell:choose", async (_event, file: string | null) => {
+    chooseShell(typeof file === "string" && file !== "" ? file : null)
+    return machineShells()
+  })
 
   ipcMain.handle("project:forget-recents", async () => {
     const recents = forgetRecents()

@@ -10,34 +10,44 @@ import { existsSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-// Finding the command line tools this app runs, on a machine it did not set up.
+// Giving this app the environment the person has, on a machine it did not set
+// up.
 //
-// The problem it exists for: the PATH a GUI application gets is not the PATH
-// you have. On macOS, double-clicking an app launches it from launchd, which
-// reads no shell profile at all — no .zshrc, no .zprofile. The process starts
-// with the system default, and everything a package manager or a version
-// manager installed is missing from it. `claude` and `codex` commonly live in
-// ~/.local/bin, which is nowhere in that list.
+// The problem it exists for: the environment a GUI application gets is not the
+// environment you have. On macOS, double-clicking an app launches it from
+// launchd, which reads no shell profile at all — no .zshrc, no .zprofile, no
+// .bash_profile. A packaged Zyvro Studio starts with about a dozen variables:
+// PATH set to /usr/bin:/bin:/usr/sbin:/sbin, HOME, USER, SHELL, TMPDIR, and
+// nothing else. Everything a package manager or a version manager installed is
+// missing from PATH, and everything a profile exports — NVM_DIR,
+// HOMEBREW_PREFIX, GOPATH, JAVA_HOME, LANG, the keys people keep in their shell
+// configuration — is missing outright.
 //
 // So the app told people the CLI they use every day was "not on your PATH".
-// True, and useless: it was on theirs. Running the app from a terminal hid it
-// completely, which is exactly how it survived every test — including mine.
+// True, and useless: it was on theirs. Then, once PATH alone was repaired, the
+// terminal panel opened a shell that still knew none of their variables and the
+// agents ran without them. Running the app from a terminal hides all of it,
+// which is exactly how it survived every test — including mine.
 //
-// Two steps, in this order, because the second is only needed when the first
+// Three steps, in this order, because each is only needed when the one before
 // was not enough.
 //
-//   1. Ask the login shell what its PATH is, and adopt it. The shell is the
-//      definition of the answer; guessing directories would be a second list,
-//      wrong differently on every machine.
-//   2. If a tool is still not found, ask the package managers where they put
+//   1. Ask the shells the person configured for their whole environment, and
+//      adopt what this process does not already have. A shell is the
+//      definition of the answer; guessing directories and variable names would
+//      be a second list, wrong differently on every machine.
+//   2. Ask more than one of them. `SHELL` is the account's login shell, which
+//      is not always the shell whose profile holds the configuration — see
+//      candidateShells.
+//   3. If a tool is still not found, ask the package managers where they put
 //      things — `npm prefix -g` and `brew --prefix` answer for themselves —
 //      and add that directory to PATH.
 //
-// The repair is always to PATH, never to a path handed to one caller. Every
-// child this app starts inherits the environment: the local engine resolving
-// `claude` with exec.LookPath, the shells in the terminal panel, the agent, the
-// commit-message CLI. Fixing PATH fixes all of them at once; handing an
-// absolute path to one of them fixes one.
+// The repair is always to this process's environment, never to something handed
+// to one caller. Every child this app starts inherits it: the local engine
+// resolving `claude` with exec.LookPath, the shells in the terminal panel, the
+// agent, the commit-message CLI. Fixing the environment fixes all of them at
+// once; handing an absolute path to one of them fixes one.
 
 const isWindows = process.platform === "win32"
 
@@ -51,25 +61,86 @@ const EXTENSIONS = isWindows ? [".cmd", ".exe", ".bat", ".ps1", ""] : [""]
 const TIMEOUT_MS = 5000
 const MARK = "__zyvro_env__"
 
-// ---------- step 1: the login shell ----------
+// ZYVRO_DEBUG_ENV=1 prints what was recovered. Names and counts, never values:
+// this environment carries API keys and a log is a file.
+const DEBUG = process.env.ZYVRO_DEBUG_ENV === "1"
 
-function readLoginShellPath(): Promise<string | null> {
+// ---------- step 1: the shells the person configured ----------
+
+type ShellEnv = Record<string, string>
+
+// What a shell answers about itself rather than about the person. TMPDIR is
+// here because launchd already handed this process the per-user one, and the
+// shell's answer is either the same string or a worse one.
+const NOT_OURS = new Set(["_", "PWD", "OLDPWD", "SHLVL", "TMPDIR", "ZYVRO_SHELL_PROBE"])
+
+// candidateShells: every shell whose profile might hold the answer.
+//
+// `SHELL` is the account's login shell — what launchd hands a GUI process, and
+// the honest first answer. It is not always the shell the person uses. A
+// terminal emulator can be told to run another one (iTerm has a "Custom Shell"
+// field, VS Code has terminal.integrated.defaultProfile), and then everything
+// that makes their machine work lives in a profile the account shell never
+// reads. That is the shape of the report this exists for: `chsh` said bash,
+// iTerm was running zsh, and the whole configuration — brew, nvm, the keys —
+// was in ~/.zshrc. The app asked bash, bash answered honestly, and the answer
+// was a PATH with no node in it.
+//
+// From inside a GUI process there is nothing that distinguishes the two cases,
+// so we ask all of them, in this order, and merge. Merging is safe in a way
+// that choosing is not: nothing anyone said is discarded, the first shell asked
+// wins any disagreement, and a machine with a single configured shell answers
+// exactly what it answered before.
+function candidateShells(): string[] {
+  const out: string[] = []
+  const add = (shell: string | undefined | null) => {
+    if (!shell || out.includes(shell) || !existsSync(shell)) return
+    out.push(shell)
+  }
+  add(process.env.SHELL)
+  // The user record, which answers when the environment does not: a process
+  // started by something other than launchd can have no SHELL at all.
+  try {
+    add(os.userInfo().shell)
+  } catch {
+    // No user record to read. The two below are still worth asking.
+  }
+  add("/bin/zsh")
+  add("/bin/bash")
+  return out
+}
+
+// readShellEnv asks one shell for its whole environment.
+//
+// Its whole environment, and not just PATH. PATH was the first thing found
+// missing and so the first thing repaired, but it is one variable among all the
+// ones a profile exports: NVM_DIR, HOMEBREW_PREFIX, GOPATH, JAVA_HOME, LANG,
+// and every key the person keeps in their shell configuration. An app that
+// repairs PATH alone still opens a terminal that is not the one they have, and
+// still runs an agent that cannot reach what their own shell reaches — which is
+// exactly how this was described: "the packaged version has no environment".
+function readShellEnv(shell: string): Promise<ShellEnv | null> {
   return new Promise((resolve) => {
-    const shell = process.env.SHELL || "/bin/zsh"
     // -l runs the login profile, -i the interactive one, because which of the
-    // two holds PATH depends on the shell and on how the person set it up.
-    const child = spawn(shell, ["-ilc", `echo "${MARK}"; printf '%s' "$PATH"; echo; echo "${MARK}"`], {
+    // two holds the configuration depends on the shell and on how the person
+    // set it up.
+    //
+    // `env -0` rather than `env`: a value is allowed to contain a newline, and
+    // a reader that split on newlines would cut one variable in half and take
+    // the rest of it for another.
+    const child = spawn(shell, ["-ilc", `echo "${MARK}"; /usr/bin/env -0; echo "${MARK}"`], {
       env: { ...process.env, ZYVRO_SHELL_PROBE: "1" },
       stdio: ["ignore", "pipe", "ignore"],
     })
 
     let out = ""
     let settled = false
-    const done = (value: string | null) => {
+    const done = (value: ShellEnv | null) => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       child.kill("SIGKILL")
+      if (DEBUG) console.log(`[cli] ${shell}: ${value ? `${Object.keys(value).length} variables` : "no answer"}`)
       resolve(value)
     }
 
@@ -83,9 +154,58 @@ function readLoginShellPath(): Promise<string | null> {
       // version-manager chatter, a `fortune` somebody set up in 2014. A reader
       // that took the whole output would parse a greeting as a variable.
       const parts = out.split(MARK)
-      done(parts.length >= 3 ? parts[1].trim() : null)
+      if (parts.length < 3) return done(null)
+      const env: ShellEnv = {}
+      for (const entry of parts[1].split("\0")) {
+        // The first entry still carries the newline `echo` left behind, and the
+        // last is whatever followed the final NUL.
+        const line = entry.replace(/^\r?\n/, "")
+        const at = line.indexOf("=")
+        if (at <= 0) continue
+        env[line.slice(0, at)] = line.slice(at + 1)
+      }
+      done(Object.keys(env).length > 0 ? env : null)
     })
   })
+}
+
+// adopt takes what the shells said and makes it this process's environment.
+async function adopt(): Promise<void> {
+  const shells = candidateShells()
+  if (DEBUG) console.log(`[cli] asking: ${shells.join(", ") || "nothing"}`)
+  // In parallel: each one runs a whole profile, and asking them in turn would
+  // add those seconds together in front of the first window.
+  const answers = (await Promise.all(shells.map(readShellEnv))).filter((env): env is ShellEnv => env !== null)
+
+  const taken: string[] = []
+  for (const answer of answers) {
+    for (const [key, value] of Object.entries(answer)) {
+      // PATH is merged rather than adopted, just below.
+      if (key === "PATH" || NOT_OURS.has(key)) continue
+      // Never overwrite. What this process already holds was given to it
+      // deliberately — by launchd, by the terminal it was started from, by a
+      // test — and a shell profile is the weaker claim of the two. It is also
+      // what keeps the case that already worked working: started from a
+      // terminal, the app keeps that terminal's environment exactly.
+      if (process.env[key] !== undefined) continue
+      process.env[key] = value
+      taken.push(key)
+    }
+  }
+
+  // PATH last and all at once, so the shells keep their order: merge puts what
+  // arrives in front, and merging them one at a time would leave the last shell
+  // asked ahead of the first.
+  const fromShells = answers
+    .map((answer) => answer.PATH)
+    .filter(Boolean)
+    .join(":")
+  if (fromShells) process.env.PATH = merge(process.env.PATH ?? "", fromShells)
+
+  if (DEBUG) {
+    console.log(`[cli] adopted ${taken.length} variables: ${taken.join(", ") || "none"}`)
+    console.log(`[cli] PATH is now ${(process.env.PATH ?? "").split(":").length} directories`)
+  }
 }
 
 // merge keeps what the process already had and adds what the shell knows, in
@@ -184,10 +304,7 @@ export function locate(name: string): Found | null {
 // not later: every child inherits this environment the moment it starts, so a
 // repair afterwards would fix some of them and not others.
 export async function prepare(names: string[]): Promise<void> {
-  if (!isWindows) {
-    const fromShell = await readLoginShellPath()
-    if (fromShell) process.env.PATH = merge(process.env.PATH ?? "", fromShell)
-  }
+  if (!isWindows) await adopt()
 
   // Only now, and only for what is still missing. A machine where the shell
   // already answered needs none of this, and asking npm and brew for their

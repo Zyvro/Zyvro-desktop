@@ -83,6 +83,45 @@ if (windows) {
   const missing = login.split(":").map((p) => p.trim()).filter(Boolean).filter((p) => !after.split(":").includes(p))
   check("tout ce que le shell de connexion connaît est repris", missing.length === 0, `manquant : ${missing.join(", ")}`)
 
+  // ---- le reste de l'environnement, qui est le même défaut ------------
+  //
+  // PATH a été réparé le premier parce qu'il a manqué le premier. Mais launchd
+  // ne cache pas le PATH, il cache le profil : NVM_DIR, HOMEBREW_PREFIX,
+  // GOPATH, LANG et les clefs que les gens gardent dans leur configuration de
+  // shell manquent exactement de la même façon. Un terminal ouvert dans l'app
+  // n'était alors toujours pas le leur, et un agent lancé depuis l'app ne
+  // pouvait toujours pas atteindre ce que leur shell atteint.
+  const dump = `
+    const { prepare } = require(${JSON.stringify(harness)})
+    prepare(["claude", "codex"]).then(() => process.stdout.write(JSON.stringify(process.env)))
+  `
+  const apres = JSON.parse(
+    execFileSync(process.execPath, ["-e", dump], { env: clean, encoding: "utf8", timeout: 40000 })
+  )
+
+  // La référence : ce que le shell de connexion exporte, lu dans le même
+  // environnement vidé.
+  const exported = {}
+  const raw = execFileSync(process.env.SHELL || "/bin/zsh", ["-ilc", "/usr/bin/env -0"], {
+    env: clean, encoding: "utf8", timeout: 30000,
+  })
+  for (const entry of raw.split("\0")) {
+    const at = entry.indexOf("=")
+    if (at > 0) exported[entry.slice(0, at)] = entry.slice(at + 1)
+  }
+
+  // Ce que le shell dit de lui-même plutôt que de la personne, et que l'app a
+  // déjà de sa part à elle.
+  const sien = new Set(["_", "PWD", "OLDPWD", "SHLVL", "TMPDIR", "PATH", "ZYVRO_SHELL_PROBE"])
+  const perdues = Object.keys(exported).filter((k) => !sien.has(k) && apres[k] === undefined)
+  check("ce que le profil exporte arrive jusqu'à l'application", perdues.length === 0, `manquant : ${perdues.join(", ")}`)
+
+  // Et l'inverse : ce que launchd a donné reste ce que launchd a donné. Un
+  // profil est la revendication la plus faible des deux, et c'est ce qui
+  // garantit qu'une app lancée depuis un terminal garde l'environnement de ce
+  // terminal — le seul cas qui marchait déjà.
+  check("ce que le processus tenait déjà n'est pas écrasé", apres.HOME === clean.HOME && apres.USER === clean.USER)
+
   // Et la conséquence, qui est le vrai sujet.
   for (const bin of ["claude", "codex"]) {
     const reachable = (env) => {

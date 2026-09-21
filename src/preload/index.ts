@@ -60,6 +60,8 @@ export type { Spent }
 export type { Permission }
 export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
+import type { Shell } from "../main/shell"
+export type { Shell }
 export type Account = { id: string; email: string; name: string }
 // The store's wire shapes live in src/main/store.ts and are imported, never
 // copied. They were copied, and the copies drifted: this file declared a
@@ -175,6 +177,21 @@ const api = {
     close: (): Promise<{ root: string | null; daemon: DaemonInfo | null }> => invoke("project:close"),
     recents: (): Promise<Recent[]> => invoke("project:recents"),
     forgetRecents: (): Promise<Recent[]> => invoke("project:forget-recents"),
+  },
+
+  /**
+   * Le shell que le panneau ouvre.
+   *
+   * `$SHELL` est le défaut — le shell de connexion du compte — et il n'est pas
+   * toujours celui qu'on a tous les jours : un émulateur de terminal peut être
+   * réglé pour en lancer un autre. `choose(null)` revient au défaut.
+   *
+   * Les deux appels rendent la liste à jour, pour que le menu n'ait jamais à
+   * redemander ce qu'il vient de changer.
+   */
+  shell: {
+    list: (): Promise<Shell[]> => invoke("shell:list"),
+    choose: (file: string | null): Promise<Shell[]> => invoke("shell:choose", file),
   },
 
   files: {
