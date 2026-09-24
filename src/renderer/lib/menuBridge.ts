@@ -66,6 +66,9 @@ window.zyvro.menu.onCloseTab(() => {
 window.zyvro.menu.onReopenTab(() => {
   useWorkspace.getState().reopenClosed()
 })
+window.zyvro.menu.onOpenSettings(() => {
+  useWorkspace.getState().openSettings()
+})
 window.zyvro.menu.onQuickOpen(() => {
   openQuickOpen()
 })

@@ -11,6 +11,7 @@ import { DiffView } from "./DiffView"
 import { GitOutput } from "./GitOutput"
 import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
+import { SettingsTab } from "./SettingsTab"
 import { StorePanel } from "./StorePanel"
 import { BrowserTab } from "./BrowserTab"
 import { Favicon } from "./BrowserList"
@@ -142,6 +143,8 @@ function TabBody({ tab }: { tab: Tab }) {
       return <GitOutput />
     case "providers":
       return <ProvidersTab />
+    case "settings":
+      return <SettingsTab />
     case "store":
       return <StorePanel />
     case "browser":

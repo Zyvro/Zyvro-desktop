@@ -6,6 +6,8 @@ import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
 import { registerSaver } from "~/state/savers"
+import { getSettings, subscribeSettings } from "~/state/settings"
+import { lineHeightFor, type EditorSettings } from "../../shared/settings"
 import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 
 // Monaco is imperative: it wants a DOM node and gives back an instance to
@@ -14,6 +16,20 @@ import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 // and with null on unmount, which is the whole lifecycle we need.
 
 type Props = { tabId: string; path: string }
+
+// Ce que les réglages changent dans un éditeur déjà ouvert. Les mêmes options à
+// la création et à chaque changement : deux listes, c'est un réglage qui ne
+// prend effet qu'au prochain fichier ouvert.
+function optionsFrom(r: EditorSettings): monaco.editor.IEditorOptions {
+  return {
+    fontSize: r.fontSize,
+    lineHeight: lineHeightFor(r.fontSize),
+    minimap: { enabled: r.minimap },
+    wordWrap: r.wordWrap,
+    lineNumbers: r.lineNumbers,
+    renderWhitespace: r.renderWhitespace,
+  }
+}
 
 export function CodeEditor({ tabId, path }: Props) {
   const setDraft = useWorkspace((s) => s.setDraft)
@@ -64,22 +80,22 @@ export function CodeEditor({ tabId, path }: Props) {
       }
       if (loaded === null) return
 
+      const reglages = getSettings()
       const editor = monaco.editor.create(node, {
         value: draft ?? loaded,
         language: languageFor(path),
         theme: "zyvro-dark",
         automaticLayout: true,
-        fontSize: 13,
-        lineHeight: 20,
+        ...optionsFrom(reglages),
         fontFamily:
           'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
-        minimap: { enabled: false },
         scrollBeyondLastLine: false,
         renderLineHighlight: "line",
         smoothScrolling: true,
         padding: { top: 12, bottom: 12 },
-        tabSize: 2,
-        wordWrap: "off",
+        tabSize: reglages.tabSize,
+        insertSpaces: reglages.insertSpaces,
+        detectIndentation: reglages.detectIndentation,
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
         // Un fichier lâché depuis le Finder sur l'éditeur s'ouvre dans un
         // onglet, comme dans VS Code (`lib/windowDrop.ts`). Monaco, lui,
@@ -87,6 +103,37 @@ export function CodeEditor({ tabId, path }: Props) {
         dropIntoEditor: { enabled: false },
       })
       editorRef.current = editor
+
+      // Un réglage changé s'applique tout de suite, à tous les éditeurs
+      // ouverts. L'indentation seulement quand on ne la devine pas : un
+      // fichier en tabulations reste en tabulations.
+      const offSettings = subscribeSettings(() => {
+        const r = getSettings()
+        editor.updateOptions(optionsFrom(r))
+        if (!r.detectIndentation) editor.getModel()?.updateOptions({ tabSize: r.tabSize, insertSpaces: r.insertSpaces })
+      })
+
+      // La sauvegarde automatique, comme VS Code : après un délai sans frappe,
+      // ou quand l'éditeur perd le focus — un autre onglet, un autre panneau,
+      // une autre application. Seulement ce qui a un brouillon.
+      let minuterie: ReturnType<typeof setTimeout> | null = null
+      const modifie = () => tabId in useWorkspace.getState().drafts
+      const sauverSiModifie = () => {
+        if (minuterie) clearTimeout(minuterie)
+        minuterie = null
+        if (modifie()) void save()
+      }
+      const apresFrappe = () => {
+        const r = getSettings()
+        if (r.autoSave !== "afterDelay") return
+        if (minuterie) clearTimeout(minuterie)
+        minuterie = setTimeout(sauverSiModifie, r.autoSaveDelay)
+      }
+      const perdFocus = () => {
+        if (getSettings().autoSave === "onFocusChange") sauverSiModifie()
+      }
+      const blurred = editor.onDidBlurEditorText(perdFocus)
+      window.addEventListener("blur", perdFocus)
 
       // Ce que la barre d'état affiche de cet éditeur. Publié à chaque
       // mouvement du curseur et à chaque changement d'options du modèle ; le
@@ -139,7 +186,10 @@ export function CodeEditor({ tabId, path }: Props) {
         const texte = editor.getValue()
         const enregistre = client.getQueryData<{ text?: string }>(["files", "read", path])?.text
         if (texte === enregistre) clearDraft(tabId)
-        else setDraft(tabId, texte)
+        else {
+          setDraft(tabId, texte)
+          apresFrappe()
+        }
       })
 
       // Aller à un résultat de recherche : le panneau ouvre le fichier et
@@ -180,6 +230,10 @@ export function CodeEditor({ tabId, path }: Props) {
         menuFind()
         unregister()
         unregisterEditor()
+        offSettings()
+        blurred.dispose()
+        window.removeEventListener("blur", perdFocus)
+        if (minuterie) clearTimeout(minuterie)
         cursorMoved.dispose()
         optionsChanged?.dispose()
         changed.dispose()

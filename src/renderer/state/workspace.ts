@@ -15,6 +15,7 @@ export type Tab =
   | { kind: "file"; id: string; path: string; title: string; pinned?: boolean }
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
+  | { kind: "settings"; id: "settings"; title: string }
   | { kind: "store"; id: "store"; title: string }
   // Plusieurs vues de navigateur, comme plusieurs onglets : une page de
   // connexion d'un côté, la page qu'on teste de l'autre, et un agent qui pilote
@@ -104,6 +105,7 @@ type WorkspaceState = {
   openDiff: (path: string, staged: boolean) => void
   openGitOutput: () => void
   openProviders: () => void
+  openSettings: () => void
   openStore: () => void
   openBrowser: (request?: { url?: string; reuse?: boolean }) => string
   setBrowserPage: (id: string, url: string, title: string, icon?: string) => void
@@ -286,6 +288,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "providers", id, title: "Providers" }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
+  openSettings: () => {
+    const id = "settings"
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "settings", id, title: "Settings" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 

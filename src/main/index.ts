@@ -245,6 +245,12 @@ function buildMenu(): void {
           click: (_item, win) => send(win as BrowserWindow, "menu:new-workflow"),
         },
         {
+          label: "Settings…",
+          accelerator: "CmdOrCtrl+,",
+          click: (_item, win) => send(win as BrowserWindow, "menu:open-settings"),
+        },
+        { type: "separator" },
+        {
           label: "Save",
           accelerator: "CmdOrCtrl+S",
           click: (_item, win) => send(win as BrowserWindow, "menu:save"),

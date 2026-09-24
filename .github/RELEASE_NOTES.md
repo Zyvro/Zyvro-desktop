@@ -49,6 +49,17 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.13
+
+**Settings (⌘, / Ctrl+,).** Font size, tab size, spaces or tabs, whether to
+follow a file's own indentation, word wrap, the minimap, line numbers (including
+relative), and whitespace rendering. Every change applies to the open editors
+straight away. They are kept on this computer; a font size is not something you
+commit. The page also links to Providers and API keys.
+
+**Auto save**, off by default as in VS Code: after a delay you choose, or when
+the editor loses focus (another tab, another panel, another application).
+
 ## New in alpha.12
 
 **An icon for every kind of file**, as in VS Code and Cursor: the TypeScript,

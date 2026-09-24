@@ -9,17 +9,13 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
-   désactivée par défaut.
-2. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
-   aujourd'hui en dur dans `CodeEditor.tsx`.
-3. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-4. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+1. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+2. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-5. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-6. **Terminal : effacer (Cmd+K) et scinder.**
-7. **Éditeurs côte à côte et fil d'Ariane.**
-8. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+3. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+4. **Terminal : effacer (Cmd+K) et scinder.**
+5. **Éditeurs côte à côte et fil d'Ariane.**
+6. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -71,3 +67,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.12 — une icône par type de fichier.** Celles de Material Icon
   Theme (MIT, notice dans THIRD-PARTY-NOTICES.md), résolues selon les règles
   de VS Code (`shared/fileicons`), dans l'arbre, les onglets et ⌘P.
+- **0.1.0-alpha.13 — réglages (⌘,) et sauvegarde automatique.** Police,
+  tabulation, indentation devinée ou non, retour à la ligne, minimap, numéros
+  de ligne, espaces visibles ; appliqués aux éditeurs ouverts. Sauvegarde
+  après un délai ou à la perte du focus, éteinte par défaut.
