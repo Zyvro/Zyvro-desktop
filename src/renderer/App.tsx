@@ -17,6 +17,7 @@ import { ShotOverlay } from "~/panels/ShotPicker"
 import { StatusBar } from "~/panels/StatusBar"
 import { Splitter } from "~/panels/Splitter"
 import { NamePrompt } from "~/panels/NamePrompt"
+import { QuickOpen } from "~/panels/QuickOpen"
 // Imported for its side effect: the menu listeners register once, at import
 // time, which is how this app subscribes to anything without a useEffect.
 import "~/lib/menuBridge"
@@ -224,6 +225,7 @@ export default function App() {
       <StatusBar />
       <ShotOverlay />
       <NamePrompt />
+      <QuickOpen />
     </div>
   )
 }

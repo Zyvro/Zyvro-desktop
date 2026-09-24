@@ -573,6 +573,12 @@ export function registerIpc(onRecents?: () => void): void {
   // Le remplacement passe par le même portail que tout le reste : un chemin
   // vient du rendu, donc il est vérifié contre le dossier ouvert avant qu'on y
   // écrive — même quand il sort de notre propre recherche.
+  // Tous les chemins du projet, pour Quick Open.
+  ipcMain.handle("files:all", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return textSearch.listFiles(requireRoot(ws))
+  })
+
   ipcMain.handle("search:find", async (event, query: textSearch.SearchQuery) => {
     const { ws } = requireWorkspace(event)
     return textSearch.search(requireRoot(ws), query)

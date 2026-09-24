@@ -5,6 +5,7 @@ import { askSearchFocus } from "~/state/reveal"
 import { engineStopped } from "~/state/engine"
 import { saveTab } from "~/state/savers"
 import { requestCloseTab, saveAll } from "./closing"
+import { openQuickOpen } from "~/panels/QuickOpen"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -64,6 +65,9 @@ window.zyvro.menu.onCloseTab(() => {
 })
 window.zyvro.menu.onReopenTab(() => {
   useWorkspace.getState().reopenClosed()
+})
+window.zyvro.menu.onQuickOpen(() => {
+  openQuickOpen()
 })
 window.zyvro.menu.onOpenPath((dir) => {
   void openProject(dir)

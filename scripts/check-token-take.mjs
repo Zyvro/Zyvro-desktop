@@ -39,7 +39,10 @@ let failures = 0
 let sites = 0
 for (const file of sources(path.join(ROOT, "src/renderer"))) {
   const brut = readFileSync(file, "utf8")
-  if (file.endsWith("/handoff.ts") || file.endsWith("/persistent.ts")) continue
+  // Par le nom, séparateur ramené à `/` : sous Windows `file` finit par
+  // `\handoff.ts`, et la définition elle-même était prise pour un appel.
+  const posix = file.split(path.sep).join("/")
+  if (posix.endsWith("/handoff.ts") || posix.endsWith("/persistent.ts")) continue
   // Les commentaires sont blanchis plutôt que retirés, pour que les numéros de
   // ligne restent justes. Sans ça ce garde s'attrapait lui-même : la phrase qui
   // explique la règle cite `takeOpen()`, et une citation n'est pas un appel.

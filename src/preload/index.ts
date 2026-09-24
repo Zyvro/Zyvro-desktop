@@ -239,6 +239,8 @@ const api = {
       }
       return invoke("files:import", sources, intoDir)
     },
+    /** Tous les fichiers du projet, relatifs, pour Quick Open (⌘P). */
+    all: (): Promise<{ files: string[]; truncated: boolean }> => invoke("files:all"),
     watch: (relative: string): Promise<boolean> => invoke("files:watch", relative),
     unwatch: (relative: string): Promise<boolean> => invoke("files:unwatch", relative),
     onChanged: (cb: (payload: { dir: string }) => void): Unsubscribe => on("files:changed", cb),
@@ -577,6 +579,7 @@ const api = {
     onSaveAll: (cb: () => void): Unsubscribe => on("menu:save-all", cb),
     onCloseTab: (cb: () => void): Unsubscribe => on("menu:close-tab", cb),
     onReopenTab: (cb: () => void): Unsubscribe => on("menu:reopen-tab", cb),
+    onQuickOpen: (cb: () => void): Unsubscribe => on("menu:quick-open", cb),
     onToggleTerminal: (cb: () => void): Unsubscribe => on("menu:toggle-terminal", cb),
     onFindInFile: (cb: () => void): Unsubscribe => on("menu:find-in-file", cb),
     onFindInProject: (cb: () => void): Unsubscribe => on("menu:find-in-project", cb),

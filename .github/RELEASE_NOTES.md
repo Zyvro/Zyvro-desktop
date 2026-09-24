@@ -70,6 +70,12 @@ Drag and drop, the way VS Code and Cursor do it.
   lost.
 - **Drop a file from the project onto the editor to open it in a tab.**
 
+**Go to File (⌘P / Ctrl+P).** Type a few letters of a file's name and press
+Enter, like in VS Code: `edarea` finds `EditorArea.tsx`, `pan/term` finds
+`panels/TerminalPanel.tsx`. With nothing typed it lists your open and recently
+closed files. Add `:42` (or `:42:7`) to jump to a line, which is what you copy
+from a stack trace.
+
 ## Fixed in alpha.8
 
 Four ways to lose work without being asked.

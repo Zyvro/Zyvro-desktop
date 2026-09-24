@@ -189,6 +189,24 @@ async function* walk(root: string, relative = ""): AsyncGenerator<string> {
   }
 }
 
+// listFiles : tous les fichiers du projet, pour Quick Open (⌘P).
+//
+// Le même parcours que la recherche, donc les mêmes dossiers cachés : un
+// `node_modules` n'a rien à faire dans une liste qu'on filtre au clavier. Borné,
+// parce qu'un dépôt géant ne doit pas geler la fenêtre le temps de tout lire ;
+// au-delà, on le dit plutôt que de laisser croire que la liste est complète.
+export const LIST_LIMIT = 50_000
+
+export async function listFiles(root: string): Promise<{ files: string[]; truncated: boolean }> {
+  const rootReal = await fs.realpath(root)
+  const files: string[] = []
+  for await (const file of walk(rootReal)) {
+    if (files.length >= LIST_LIMIT) return { files, truncated: true }
+    files.push(file)
+  }
+  return { files, truncated: false }
+}
+
 // scopeStart : d'où part le parcours, vérifié avant de partir.
 //
 // Le portail habituel, parce qu'une portée vient du rendu comme le reste. Et

@@ -9,30 +9,29 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Quick Open (Cmd+P).** Recherche floue sur les chemins du projet.
-2. **Palette de commandes (Cmd+Shift+P).** Un registre de commandes, dont le
+1. **Palette de commandes (Cmd+Shift+P).** Un registre de commandes, dont le
    menu et la palette lisent la même liste.
-3. **Barre d'état de l'éditeur.** Ligne/colonne, langage, fin de ligne,
+2. **Barre d'état de l'éditeur.** Ligne/colonne, langage, fin de ligne,
    indentation.
-4. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
+3. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
    All, Copy Path, Reveal in Explorer.
-5. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
+4. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
    désactivée par défaut.
-6. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
+5. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-7. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
-8. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
-9. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
+6. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
+7. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
+8. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
    l'arbre.
-10. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-11. **Réordonner les onglets en les glissant.**
-12. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-13. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+9. **Onglet d'aperçu en italique, et épinglage** par double-clic.
+10. **Réordonner les onglets en les glissant.**
+11. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+12. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-14. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-15. **Terminal : effacer (Cmd+K) et scinder.**
-16. **Éditeurs côte à côte et fil d'Ariane.**
-17. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+13. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+14. **Terminal : effacer (Cmd+K) et scinder.**
+15. **Éditeurs côte à côte et fil d'Ariane.**
+16. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -58,3 +57,5 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.8 — le .exe revient.** Le faux moteur d'un test ne se lançait
   pas sous Windows, et `.gitattributes` impose LF pour que les vérifications
   qui lisent les sources voient la même chose partout.
+- **0.1.0-alpha.8 — Go to File (⌘P).** Recherche floue sur les chemins du
+  projet (`shared/fuzzy`), récents d'abord, `chemin:ligne:colonne` accepté.

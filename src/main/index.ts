@@ -342,6 +342,16 @@ function buildMenu(): void {
         { role: "togglefullscreen" },
       ],
     },
+    {
+      label: "Go",
+      submenu: [
+        {
+          label: "Go to File…",
+          accelerator: "CmdOrCtrl+P",
+          click: (_item, win) => send(win as BrowserWindow, "menu:quick-open"),
+        },
+      ],
+    },
     // Écrit à la main plutôt que par le rôle tout fait : sous Windows et Linux
     // le rôle de menu « fenêtre » porte « Close » sur Ctrl+W, qui est
     // désormais « Close Editor ».
