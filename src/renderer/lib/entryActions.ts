@@ -71,3 +71,31 @@ export async function trashEntry(entry: DirEntry, client: QueryClient): Promise<
   }
   return true
 }
+
+// trashEntries : plusieurs à la fois — la sélection multiple de l'arbre. Une
+// seule question qui les compte et en nomme quelques-uns, puis chacune comme
+// `trashEntry` l'aurait fait, sans lui redemander.
+export async function trashEntries(entries: DirEntry[], client: QueryClient): Promise<boolean> {
+  if (entries.length === 0) return false
+  if (entries.length === 1) return trashEntry(entries[0], client)
+  const noms = entries.slice(0, 4).map((e) => e.path)
+  const oui = await askConfirm({
+    title: `Delete ${entries.length} items?`,
+    label: `${noms.join(", ")}${entries.length > noms.length ? `, and ${entries.length - noms.length} more` : ""} move to the trash.`,
+    confirmLabel: "Move to trash",
+  })
+  if (!oui) return false
+  for (const entry of entries) {
+    await window.zyvro.files.remove(entry.path)
+    reloadDir(client, parentOf(entry.path))
+    const garde = heldItem()
+    if (garde && isInside(garde.path, entry.path)) clearHeld()
+    const store = useWorkspace.getState()
+    for (const tab of store.tabs) {
+      if (tab.kind === "file" && isInside(tab.path, entry.path) && !(tab.id in store.drafts)) {
+        useWorkspace.getState().closeTab(tab.id)
+      }
+    }
+  }
+  return true
+}

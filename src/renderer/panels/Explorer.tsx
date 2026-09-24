@@ -18,8 +18,8 @@ import { ZYVRO_PATH } from "../../shared/dropped"
 import { ZYVRO_ENTRY, canMove, dropFolder, entriesFromText, parentOf, topmost } from "../../shared/treedrop"
 import { clearHeld, heldItem } from "~/state/clipboard"
 import { EntryMenu } from "~/panels/EntryMenu"
-import { ancestorsOf, navigate, scrollToShow } from "../../shared/treenav"
-import { renameEntry, trashEntry } from "~/lib/entryActions"
+import { ancestorsOf, clickSelect, dragged, navigate, scrollToShow, type Selection } from "../../shared/treenav"
+import { renameEntry, trashEntries } from "~/lib/entryActions"
 import { useGitStatus } from "~/lib/git"
 import { FileTypeIcon } from "~/lib/fileIcons"
 import { decorations, type Decoration, type Tone } from "../../shared/gitdecor"
@@ -101,6 +101,8 @@ function Row({
   isActive,
   isDropTarget,
   isFocused,
+  isSelected,
+  dragPaths,
   decor,
   folderTone,
   chargement,
@@ -116,12 +118,16 @@ function Row({
   isActive: boolean
   isDropTarget: boolean
   isFocused: boolean
+  /** Dans la sélection multiple. */
+  isSelected: boolean
+  /** Ce que la ligne emporte si on l'attrape : la sélection, ou elle seule. */
+  dragPaths: string[]
   /** Ce que git dit de ce fichier, s'il dit quelque chose. */
   decor?: Decoration
   /** La couleur la plus grave de ce que contient ce dossier. */
   folderTone?: Tone
   chargement: boolean
-  onFocusRow: (path: string) => void
+  onFocusRow: (path: string, event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => boolean
   onToggle: (path: string) => void
   onOpen: (path: string) => void
   onMenu: (entry: DirEntry, at: { x: number; y: number }) => void
@@ -133,7 +139,9 @@ function Row({
         "flex w-full items-center gap-1.5 rounded-md py-[3px] pr-2 text-left text-[13px] leading-5",
         isDropTarget
           ? "bg-sky-400/[0.18] text-foreground ring-1 ring-inset ring-sky-400/50"
-          : isActive
+          : isSelected
+            ? "bg-sky-400/[0.12] text-foreground"
+            : isActive
             ? "bg-white/[0.08] text-foreground"
             : "text-foreground/80 hover:bg-white/[0.05]",
         // La ligne que le clavier tient. Un liseré plutôt qu'un fond : le
@@ -148,8 +156,9 @@ function Row({
       data-entry-path={entry.path}
       data-entry-kind={entry.kind}
       style={{ paddingLeft: 8 + depth * 12 }}
-      onClick={() => {
-        onFocusRow(entry.path)
+      onClick={(event) => {
+        // ⌘-clic et ⇧-clic composent une sélection ; seul le clic simple ouvre.
+        if (!onFocusRow(entry.path, event)) return
         if (entry.kind === "directory") onToggle(entry.path)
         else onOpen(entry.path)
       }}
@@ -171,16 +180,18 @@ function Row({
       draggable={Boolean(root)}
       onDragStart={(event) => {
         if (!root) return
-        const absolute = `${root.replace(/\/$/, "")}/${entry.path}`
+        // Un chemin par ligne : la sélection entière voyage, vers un autre
+        // dossier, vers le chat ou vers le terminal.
+        const absolus = dragPaths.map((p) => `${root.replace(/\/$/, "")}/${p}`).join("\n")
         // Notre type dit « ceci est un fichier désigné » ; le `text/plain`
         // qui l'accompagne est ce que toute autre application comprendra.
-        event.dataTransfer.setData(ZYVRO_PATH, absolute)
-        event.dataTransfer.setData("text/plain", absolute)
+        event.dataTransfer.setData(ZYVRO_PATH, absolus)
+        event.dataTransfer.setData("text/plain", absolus)
         // Le chemin relatif, pour l'arbre lui-même : lâchée sur un dossier, la
         // ligne y est déplacée.
-        event.dataTransfer.setData(ZYVRO_ENTRY, entry.path)
+        event.dataTransfer.setData(ZYVRO_ENTRY, dragPaths.join("\n"))
         event.dataTransfer.effectAllowed = "copyMove"
-        enMain = [entry.path]
+        enMain = dragPaths
       }}
       onDragEnd={() => {
         enMain = []
@@ -393,11 +404,21 @@ export function Explorer() {
     }
   }
 
-  const prendreLeFocus = (path: string): void => {
+  // La sélection multiple : ⌘-clic (Ctrl-clic ailleurs) et ⇧-clic. Rend vrai
+  // quand le clic doit aussi ouvrir, c'est-à-dire pour un clic simple.
+  const [selection, setSelection] = useState<Selection>({ paths: new Set(), anchor: null })
+  const prendreLeFocus = (path: string, event: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }): boolean => {
     setFocus(path)
+    const mac = window.zyvro.platform === "darwin"
+    const r = clickSelect(selection, path, lignes.map((l) => ({ path: l.entry.path })), {
+      toggle: mac ? event.metaKey : event.ctrlKey,
+      range: event.shiftKey,
+    })
+    setSelection({ paths: r.paths, anchor: r.anchor })
     // Le bouton cliqué rend la main à l'arbre : il peut disparaître au
     // prochain défilement, et le clavier avec lui.
     cadre.current?.focus({ preventScroll: true })
+    return r.act
   }
 
   const toutReplier = (): void => {
@@ -415,10 +436,20 @@ export function Explorer() {
       void renameEntry(entree, client)
       return
     }
-    // Suppr, et ⌘⌫ sur un Mac, dont le clavier n'a souvent pas de Suppr.
+    // Suppr, et ⌘⌫ sur un Mac, dont le clavier n'a souvent pas de Suppr. Toute
+    // la sélection quand la ligne tenue en fait partie.
     if (entree && (event.key === "Delete" || (event.key === "Backspace" && event.metaKey))) {
       event.preventDefault()
-      void trashEntry(entree, client)
+      const chemins = dragged(selection.paths, entree.path)
+      const entrees = lignes.filter((l) => chemins.includes(l.entry.path)).map((l) => l.entry)
+      void trashEntries(entrees, client).then((fait) => {
+        if (fait) setSelection({ paths: new Set(), anchor: null })
+      })
+      return
+    }
+    // Échap vide la sélection, comme partout.
+    if (event.key === "Escape" && selection.paths.size > 1) {
+      setSelection({ paths: new Set(focus ? [focus] : []), anchor: focus })
       return
     }
     const rows = lignes.map((l) => ({ path: l.entry.path, kind: l.entry.kind, depth: l.depth }))
@@ -643,6 +674,8 @@ export function Explorer() {
               isActive={activeTabId === `file:${entry.path}`}
               isDropTarget={cible !== null && cible !== "" && entry.path === cible}
               isFocused={focus === entry.path}
+              isSelected={selection.paths.size > 1 && selection.paths.has(entry.path)}
+              dragPaths={dragged(selection.paths, entry.path)}
               decor={deco?.files.get(entry.path)}
               folderTone={entry.kind === "directory" ? deco?.folders.get(entry.path) : undefined}
               onFocusRow={prendreLeFocus}

@@ -76,3 +76,42 @@ export function scrollToShow(index: number, rowHeight: number, scrollTop: number
   if (bottom > scrollTop + viewport) return Math.max(0, bottom - viewport)
   return null
 }
+
+// ---- la sélection multiple ---------------------------------------------------
+//
+// Les gestes du Finder et de VS Code : un clic choisit une ligne, ⌘-clic
+// (Ctrl-clic ailleurs) en ajoute ou en retire une, ⇧-clic prend tout ce qui est
+// entre la dernière choisie et celle-ci. Seul le clic simple ouvre : on ne
+// veut pas que composer une sélection ouvre dix onglets.
+
+export type Selection = { paths: Set<string>; anchor: string | null }
+
+export function clickSelect(
+  current: Selection,
+  path: string,
+  rows: { path: string }[],
+  mods: { toggle: boolean; range: boolean }
+): Selection & { act: boolean } {
+  if (mods.range && current.anchor) {
+    const a = rows.findIndex((r) => r.path === current.anchor)
+    const b = rows.findIndex((r) => r.path === path)
+    if (a >= 0 && b >= 0) {
+      const [lo, hi] = a < b ? [a, b] : [b, a]
+      return { paths: new Set(rows.slice(lo, hi + 1).map((r) => r.path)), anchor: current.anchor, act: false }
+    }
+  }
+  if (mods.toggle) {
+    const paths = new Set(current.paths)
+    if (paths.has(path)) paths.delete(path)
+    else paths.add(path)
+    return { paths, anchor: path, act: false }
+  }
+  return { paths: new Set([path]), anchor: path, act: true }
+}
+
+// dragged : ce qu'emporte une ligne qu'on attrape. Toute la sélection si elle
+// en fait partie — c'est ce qu'on a composé pour ça — sinon elle seule, comme
+// dans le Finder.
+export function dragged(selection: Set<string>, path: string): string[] {
+  return selection.has(path) && selection.size > 1 ? [...selection] : [path]
+}

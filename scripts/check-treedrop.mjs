@@ -214,7 +214,7 @@ const refus = async (fn) => {
     "importDropped doit prendre des File et appeler webUtils.getPathForFile lui-même"
   )
   const explorer = readFileSync(path.join(ROOT, "src/renderer/panels/Explorer.tsx"), "utf8")
-  check("l'arbre pose le chemin relatif sur ce qu'on attrape", /setData\(ZYVRO_ENTRY, entry\.path\)/.test(explorer))
+  check("l'arbre pose les chemins relatifs sur ce qu'on attrape, sélection comprise", /setData\(ZYVRO_ENTRY, dragPaths\.join/.test(explorer))
   check("et fait suivre les onglets après un déplacement", /movePath\(from, ecrit\)/.test(explorer))
   // Renommer vit dans `entryActions`, partagé par le clic droit et F2.
   const renommer = readFileSync(path.join(ROOT, "src/renderer/lib/entryActions.ts"), "utf8")

@@ -82,8 +82,27 @@ check("**une ligne visible ne fait pas défiler**", t.scrollToShow(5, 26, 0, 260
 check("au-dessus du cadre : on remonte jusqu'à elle", t.scrollToShow(2, 26, 200, 260) === 52)
 check("en dessous : juste assez pour la voir en bas", t.scrollToShow(20, 26, 0, 260) === 21 * 26 - 260)
 
+// ---- la sélection multiple --------------------------------------------------
+{
+  const lignes = rows.map((r) => ({ path: r.path }))
+  const vide = { paths: new Set(), anchor: null }
+  const un = t.clickSelect(vide, "src/lib", lignes, { toggle: false, range: false })
+  check("un clic simple choisit une ligne, et ouvre", [...un.paths].join() === "src/lib" && un.act)
+  const deux = t.clickSelect(un, "README.md", lignes, { toggle: true, range: false })
+  check("**⌘-clic en ajoute une, sans ouvrir**", [...deux.paths].sort().join() === "README.md,src/lib" && !deux.act)
+  const retire = t.clickSelect(deux, "src/lib", lignes, { toggle: true, range: false })
+  check("⌘-clic sur une ligne choisie la retire", [...retire.paths].join() === "README.md")
+  const plage = t.clickSelect(un, "src/main.ts", lignes, { toggle: false, range: true })
+  check("**⇧-clic prend tout ce qui est entre les deux**", [...plage.paths].join() === "src/lib,src/lib/a.ts,src/main.ts" && !plage.act, [...plage.paths].join())
+  const arriere = t.clickSelect(t.clickSelect(vide, "src/main.ts", lignes, { toggle: false, range: false }), "src", lignes, { toggle: false, range: true })
+  check("dans les deux sens", [...arriere.paths].join() === "src,src/lib,src/lib/a.ts,src/main.ts")
+  check("**attraper une ligne choisie emporte toute la sélection**", t.dragged(deux.paths, "README.md").length === 2)
+  check("attraper une ligne hors de la sélection n'emporte qu'elle", JSON.stringify(t.dragged(deux.paths, "docs")) === '["docs"]')
+}
+
 const explorer = readFileSync(path.join(ROOT, "src/renderer/panels/Explorer.tsx"), "utf8")
-check("**F2 et Suppr passent par les fonctions du clic droit**", /renameEntry\(entree, client\)/.test(explorer) && /trashEntry\(entree, client\)/.test(explorer))
+check("**F2 et Suppr passent par les fonctions du clic droit**", /renameEntry\(entree, client\)/.test(explorer) && /trashEntries\(entrees, client\)/.test(explorer))
+check("la sélection voyage quand on la glisse", /enMain = dragPaths/.test(explorer) && /setData\(ZYVRO_ENTRY, dragPaths\.join/.test(explorer))
 check("le fichier actif est révélé", /ancestorsOf\(actif\)/.test(explorer))
 check("et tout se replie d'un bouton", /title="Collapse Folders"/.test(explorer))
 const actions = readFileSync(path.join(ROOT, "src/renderer/lib/entryActions.ts"), "utf8")

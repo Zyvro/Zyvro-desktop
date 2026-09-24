@@ -49,6 +49,15 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.19
+
+**Select several files in the tree**, as in the Finder and VS Code: ⌘-click
+(Ctrl-click on Windows) adds or removes one, Shift-click takes everything between.
+Drag the selection to move it into a folder, onto the agent's message box, or
+onto the terminal, which writes every path. Delete moves the whole selection to
+the trash after one question. A plain click still opens a file; building up a
+selection does not open ten tabs.
+
 ## New in alpha.18
 
 **Zyvro Studio tells you when a newer version is out, and installs it.** A little

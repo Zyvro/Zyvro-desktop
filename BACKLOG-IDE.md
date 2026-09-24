@@ -9,22 +9,20 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
-   sait déjà transporter.
-2. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
+1. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
    (⌘⇧O) sur le plan du fichier.
-3. **Terminal : scinder.**
-4. **Fil d'Ariane** au-dessus de l'éditeur.
-5. **Éditeurs côte à côte** (⌘\).
-6. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
+2. **Terminal : scinder.**
+3. **Fil d'Ariane** au-dessus de l'éditeur.
+4. **Éditeurs côte à côte** (⌘\).
+5. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
    sautent à la ligne qui commence ainsi.
-7. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+6. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
     choix à l'enregistrement.
-8. **Fichiers récents** dans File › Open Recent, à côté des projets.
-9. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-10. **Réglages de plus** : paires de crochets colorées, défilement collant
+7. **Fichiers récents** dans File › Open Recent, à côté des projets.
+8. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+9. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-11. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+10. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -105,3 +103,6 @@ Petits correctifs repérés en passant :
   la barre d'état, téléchargement vérifié par l'empreinte des notes,
   installeur lancé sous Windows, image ouverte sur Mac ; la fenêtre ne choisit
   ni l'adresse ni le fichier exécuté.
+- **0.1.0-alpha.19 — la sélection multiple dans l'arbre.** ⌘-clic, ⇧-clic,
+  glisser la sélection (vers un dossier, le chat, le terminal), Suppr sur tout
+  avec une seule question ; seul le clic simple ouvre.
