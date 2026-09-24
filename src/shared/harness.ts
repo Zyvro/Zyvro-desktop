@@ -134,3 +134,21 @@ export function splitAimed(model: string | null): { provider: string; model: str
 export function joinAimed(provider: string, model: string): string {
   return `${provider}/${model}`
 }
+
+// interactiveCommand : la ligne à taper dans un terminal pour ouvrir le harnais
+// dans son interface à lui, sur la même conversation que le panneau.
+//
+// Le panneau pilote la CLI en mode « une question, une réponse » ; certaines
+// choses se font mieux dans son interface plein écran — ses propres commandes,
+// ses propres raccourcis, un long travail qu'on veut suivre. Les deux se
+// reprennent de la même façon qu'au panneau : `--resume` pour claude et qwen,
+// la sous-commande `resume` pour codex (`codex resume <id>`, identifiant
+// positionnel). Sans session encore, le harnais nu.
+export function interactiveCommand(kind: AgentKind, sessionId: string | null): string {
+  // Un identifiant de session est fait de lettres, chiffres et tirets ; tout
+  // autre caractère est refusé plutôt que cité — il part dans un shell.
+  const id = sessionId && /^[A-Za-z0-9_-]+$/.test(sessionId) ? sessionId : null
+  const bin = HARNESSES[kind].bin
+  if (!id) return bin
+  return kind === "codex" ? `${bin} resume ${id}` : `${bin} --resume ${id}`
+}

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 // peut pas demander la sienne à un crochet. C'est la même, celle que la
 // doctrine impose de tenir ici plutôt que d'en fabriquer une par rendu.
 import { queryClient } from "~/lib/queryClient"
-import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Repeat, Square, Target, X } from "lucide-react"
+import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Repeat, Square, SquareTerminal, Target, X } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -21,7 +21,7 @@ import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
-import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
+import { handTo, subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { engineReady, subscribeEngine } from "~/state/engine"
 import type { StoredTool } from "../../preload"
 
@@ -415,6 +415,15 @@ function finishTurn(id: string): void {
 // Tout ce dont un envoi a besoin vit déjà au niveau du module : l'état des
 // conversations, le client de requêtes, le projet, la permission. Il ne restait
 // dans le composant que ce qui touche à la zone de saisie.
+// openInTerminal : la commande que le principal compose — il est le seul à
+// connaître l'identifiant de session de la CLI — tapée dans le terminal, que
+// l'on ouvre s'il est replié. Le shell a déjà les outils MCP de ce projet.
+async function openInTerminal(kind: AgentKind, threadId: string): Promise<void> {
+  const commande = await window.zyvro.agent.interactiveCommand(kind, threadId)
+  useWorkspace.getState().setPanel("terminal", true)
+  handTo("terminal", `${commande}\n`)
+}
+
 async function dispatch(threadId: string, text: string, images: Attached[]): Promise<void> {
   const thread = threadById(threadId)
   const projectDir = useWorkspace.getState().project?.project ?? null
@@ -1524,6 +1533,17 @@ export function AgentPanel(): JSX.Element {
           <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">New session</span>
         )}
 
+        {/* La même conversation dans l'interface du harnais lui-même, dans le
+            terminal : ses commandes, ses raccourcis, un long travail suivi en
+            plein écran. Reprise là où le panneau l'a laissée. */}
+        <button
+          type="button"
+          onClick={() => void openInTerminal(kind, thread.id)}
+          title={started ? `Continue this session in the terminal (${kind})` : `Open ${kind} in the terminal`}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+        >
+          <SquareTerminal className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           onClick={openThread}

@@ -504,6 +504,22 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 }
 
 await appServer?.stop?.()
+// ---- ouvrir le harnais dans le terminal ------------------------------------
+//
+// Le panneau reprend une conversation d'une façon, la CLI plein écran de la
+// même : `--resume` pour claude et qwen, la sous-commande pour codex. Un
+// identifiant mal placé chez codex serait lu comme la question.
+{
+  const ic = mod.interactiveCommand
+  check("claude reprend sa session dans le terminal", ic("claude", "abc-123") === "claude --resume abc-123")
+  check("**codex par sa sous-commande, identifiant positionnel**", ic("codex", "abc-123") === "codex resume abc-123", ic("codex", "abc-123"))
+  check("qwen comme claude", ic("qwen", "abc-123") === "qwen --resume abc-123")
+  check("sans session encore : le harnais nu", ic("claude", null) === "claude")
+  check("**un identifiant qui n'en est pas un ne part pas dans le shell**", ic("claude", "x; rm -rf ~") === "claude")
+  const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+  check("le panneau a le bouton", /openInTerminal\(kind, thread\.id\)/.test(panneau))
+}
+
 console.log(
   failures === 0
     ? "\nTrois harnais, une liste, et chacun reçoit les drapeaux qui le font répondre."

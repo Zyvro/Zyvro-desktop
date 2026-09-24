@@ -387,6 +387,9 @@ const api = {
     // Les commandes en barre oblique que ce harnais annonce. Elles viennent de
     // lui et de ses greffons, jamais d'une liste écrite ici.
     commands: (kind: AgentKind): Promise<string[]> => invoke("agent:commands", kind),
+    /** La ligne à taper pour ouvrir ce harnais dans le terminal, sur cette conversation. */
+    interactiveCommand: (kind: AgentKind, conversationId: string): Promise<string> =>
+      invoke("agent:interactive-command", kind, conversationId),
     onCommands: (cb: (p: { kind: AgentKind; commands: string[] }) => void): Unsubscribe =>
       on("agent:commands", cb),
     // Ce vers quoi la session travaille. `goal: null` veut dire « il n'y en a

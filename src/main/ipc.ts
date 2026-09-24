@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
-import { harness, isAgentKind } from "../shared/harness"
+import { harness, interactiveCommand, isAgentKind } from "../shared/harness"
 import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
@@ -905,6 +905,13 @@ export function registerIpc(onRecents?: () => void): void {
   // the choice was between a second list that goes stale and a narrow parse of
   // what the tool states. A parse that finds nothing is not a failure: the
   // picker then offers the default and a box to type a full name in.
+  // La ligne qui ouvre le harnais dans le terminal, sur la même conversation.
+  ipcMain.handle("agent:interactive-command", async (event, kind: AgentKind, conversationId: string) => {
+    const { ws } = requireWorkspace(event)
+    if (!isAgentKind(kind)) throw new Error(`Unknown agent: ${String(kind)}`)
+    return interactiveCommand(kind, ws.agent.sessionFor(kind, String(conversationId ?? "")))
+  })
+
   ipcMain.handle("agent:models", async (event, kind: AgentKind) => {
     // Un harnais visable ne choisit pas parmi SES modèles : il choisit parmi
     // ceux des serveurs que ce projet a allumés. C'est la liste que la personne
