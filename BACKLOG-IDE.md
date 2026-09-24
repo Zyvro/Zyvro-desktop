@@ -13,16 +13,15 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
    désactivée par défaut.
 2. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-3. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
-4. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-5. **Réordonner les onglets en les glissant.**
-6. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-7. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+3. **Onglet d'aperçu en italique, et épinglage** par double-clic.
+4. **Réordonner les onglets en les glissant.**
+5. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+6. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-8. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-9. **Terminal : effacer (Cmd+K) et scinder.**
-10. **Éditeurs côte à côte et fil d'Ariane.**
-11. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+7. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+8. **Terminal : effacer (Cmd+K) et scinder.**
+9. **Éditeurs côte à côte et fil d'Ariane.**
+10. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -66,3 +65,6 @@ Petits correctifs repérés en passant :
   « Collapse Folders » replie tout. Renommer et supprimer vivent dans
   `lib/entryActions`, partagé avec le clic droit ; supprimer ferme les onglets
   propres du fichier parti.
+- **0.1.0-alpha.11 — git dans l'arbre.** Couleur et lettre par fichier (M, U,
+  A, D, conflit), point coloré sur les dossiers ; `projectPrefix` pour un
+  projet ouvert dans un sous-dossier du dépôt.

@@ -184,6 +184,12 @@ export type GitStatus = {
   // hides the one thing that needs doing first.
   conflicts: Change[]
   remotes: string[]
+  // Où est le projet ouvert dans le dépôt, en `/` : "" quand il en est la
+  // racine, "packages/app" quand on a ouvert un sous-dossier. Les chemins
+  // ci-dessus sont comptés depuis la racine du dépôt ; l'arbre de fichiers,
+  // lui, compte depuis le projet, et c'est ce préfixe qui passe de l'un à
+  // l'autre.
+  projectPrefix: string
 }
 
 export type NoRepository = { repository: false; root: string }
@@ -355,7 +361,14 @@ export async function status(root: string): Promise<GitStatus | NoRepository> {
 
   const remotes = (await run(root, ["remote"])).split("\n").map((r) => r.trim()).filter(Boolean)
 
-  return { repository: true, root: top, head, ...branchInfo, ...groups, remotes }
+  // Comparés après `realpath` des deux côtés : git rend le chemin résolu, et
+  // sur macOS /tmp est /private/tmp.
+  const projectReal = await fs.realpath(root).catch(() => root)
+  const topReal = await fs.realpath(top).catch(() => top)
+  const rel = path.relative(topReal, projectReal).split(path.sep).join("/")
+  const projectPrefix = rel.startsWith("..") ? "" : rel
+
+  return { repository: true, root: top, head, ...branchInfo, ...groups, remotes, projectPrefix }
 }
 
 // diff answers with a unified diff for one path, so the renderer can show the

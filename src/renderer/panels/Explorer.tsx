@@ -21,6 +21,18 @@ import { clearHeld, heldItem } from "~/state/clipboard"
 import { EntryMenu } from "~/panels/EntryMenu"
 import { ancestorsOf, navigate, scrollToShow } from "../../shared/treenav"
 import { renameEntry, trashEntry } from "~/lib/entryActions"
+import { useGitStatus } from "~/lib/git"
+import { decorations, type Decoration, type Tone } from "../../shared/gitdecor"
+
+// Les couleurs de git, celles de VS Code en thème sombre, à peu près. Ici et
+// pas dans `shared/gitdecor` : Tailwind ne lit que le rendu, et une classe
+// écrite ailleurs disparaîtrait du CSS.
+const TONE_CLASS: Record<Tone, string> = {
+  modified: "text-amber-300",
+  added: "text-emerald-300",
+  deleted: "text-rose-400",
+  conflicted: "text-fuchsia-300",
+}
 
 // The file tree loads one directory at a time. Reading the whole project up
 // front would be fine for a small folder and unusable for a real repository,
@@ -107,6 +119,8 @@ function Row({
   isActive,
   isDropTarget,
   isFocused,
+  decor,
+  folderTone,
   chargement,
   onFocusRow,
   onToggle,
@@ -120,6 +134,10 @@ function Row({
   isActive: boolean
   isDropTarget: boolean
   isFocused: boolean
+  /** Ce que git dit de ce fichier, s'il dit quelque chose. */
+  decor?: Decoration
+  /** La couleur la plus grave de ce que contient ce dossier. */
+  folderTone?: Tone
   chargement: boolean
   onFocusRow: (path: string) => void
   onToggle: (path: string) => void
@@ -190,7 +208,17 @@ function Row({
       ) : (
         <FileIcon className={cn("h-3.5 w-3.5 shrink-0", tintFor(entry.name))} />
       )}
-      <span className="truncate">{entry.name}</span>
+      <span className={cn("truncate", decor ? TONE_CLASS[decor.tone] : folderTone && TONE_CLASS[folderTone])}>
+        {entry.name}
+      </span>
+      {decor && (
+        <span className={cn("ml-auto shrink-0 pl-2 font-mono text-[11px]", TONE_CLASS[decor.tone])}>
+          {decor.letter}
+        </span>
+      )}
+      {!decor && folderTone && !chargement && (
+        <span className={cn("ml-auto shrink-0 pl-2 text-[10px]", TONE_CLASS[folderTone])}>●</span>
+      )}
       {chargement && <Loader2 className="ml-auto h-3 w-3 shrink-0 zy-spin opacity-60" />}
     </button>
   )
@@ -309,6 +337,15 @@ export function Explorer() {
   }, [parDossier, expanded])
 
   const enCours = new Set(ouverts.filter((_, index) => listes[index]?.isFetching))
+
+  // Git, dans l'arbre. La même requête que le panneau Git et la barre d'état —
+  // même clé, donc un seul `git status` pour les trois.
+  const git = useGitStatus(Boolean(project))
+  const deco = useMemo(() => {
+    const g = git.data
+    if (!g || !g.repository) return null
+    return decorations([...g.conflicts, ...g.staged, ...g.unstaged], g.projectPrefix ?? "")
+  }, [git.data])
   const racine = listes[0]
 
   // Ce qu'on voit du défilement. Deux nombres, et ils suffisent : la hauteur
@@ -616,6 +653,8 @@ export function Explorer() {
               isActive={activeTabId === `file:${entry.path}`}
               isDropTarget={cible !== null && cible !== "" && entry.path === cible}
               isFocused={focus === entry.path}
+              decor={deco?.files.get(entry.path)}
+              folderTone={entry.kind === "directory" ? deco?.folders.get(entry.path) : undefined}
               onFocusRow={prendreLeFocus}
               chargement={entry.kind === "directory" && enCours.has(entry.path)}
               onToggle={toggle}

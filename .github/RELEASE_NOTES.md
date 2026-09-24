@@ -49,6 +49,15 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.11
+
+**Git in the file tree.** Changed files are colored and carry their letter at the
+right, as in VS Code: **M** modified, **U** untracked, **A** added, **D** deleted,
+and conflicts in their own color. A folder that contains changes gets a dot in
+the most serious color among them, so you can see where you have been working
+without unfolding everything or opening the Git panel. It works when the project
+is a subfolder of a larger repository too.
+
 ## New in alpha.10
 
 **The file tree follows what you are looking at.** Open a file from Go to File,
