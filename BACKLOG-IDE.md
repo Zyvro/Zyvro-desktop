@@ -9,24 +9,23 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
+1. **Icônes par type de fichier**, celles de Material Icon Theme (MIT), dans
+   l'arbre, les onglets et ⌘P (demandé).
+2. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
    désactivée par défaut.
-2. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
+3. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-3. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-4. **Réordonner les onglets en les glissant.**
-5. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-6. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+4. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+5. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-7. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-8. **Terminal : effacer (Cmd+K) et scinder.**
-9. **Éditeurs côte à côte et fil d'Ariane.**
-10. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+6. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+7. **Terminal : effacer (Cmd+K) et scinder.**
+8. **Éditeurs côte à côte et fil d'Ariane.**
+9. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
 - fichiers récents à côté des projets récents ;
-- icône par type de fichier plutôt qu'une couleur sur une icône unique ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés.
 
 ## Livré
@@ -68,3 +67,6 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.11 — git dans l'arbre.** Couleur et lettre par fichier (M, U,
   A, D, conflit), point coloré sur les dossiers ; `projectPrefix` pour un
   projet ouvert dans un sous-dossier du dépôt.
+- **0.1.0-alpha.11 — les onglets de VS Code.** Aperçu en italique, épinglé
+  par double-clic ou par une modification (même enregistrée) ; onglets
+  réordonnés en les glissant.

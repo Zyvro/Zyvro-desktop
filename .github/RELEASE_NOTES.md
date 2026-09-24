@@ -58,6 +58,12 @@ the most serious color among them, so you can see where you have been working
 without unfolding everything or opening the Git panel. It works when the project
 is a subfolder of a larger repository too.
 
+**Tabs behave like VS Code's.** A file you only looked at opens as a preview,
+in italics, and the next file you open replaces it. Double-click the tab (or the
+file in the tree) to keep it. Editing a file keeps it too, even after you save;
+before, a saved file went back to being a preview and the next click in the
+tree replaced it. **Drag a tab** to reorder the tab bar.
+
 ## New in alpha.10
 
 **The file tree follows what you are looking at.** Open a file from Go to File,

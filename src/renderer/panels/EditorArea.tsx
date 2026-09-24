@@ -18,17 +18,32 @@ import { Favicon } from "./BrowserList"
 // file would lose its viewport, its selection and any run in progress, so tabs
 // are hidden rather than destroyed, and only the active one is visible.
 
+// Le type que pose un onglet qu'on attrape : son identifiant, pour le reposer
+// ailleurs dans la barre.
+const ZYVRO_TAB = "application/x-zyvro-tab"
+
 function TabButton({
   tab,
   active,
   onMenu,
+  dropBefore,
+  onDropHover,
+  onDropDone,
 }: {
   tab: Tab
   active: boolean
   onMenu: (tabId: string, at: { x: number; y: number }) => void
+  /** Un onglet va se poser juste avant celui-ci. */
+  dropBefore: boolean
+  onDropHover: (beforeId: string | null | undefined) => void
+  onDropDone: (draggedId: string) => void
 }) {
   const activateTab = useWorkspace((s) => s.activateTab)
   const dirty = useWorkspace((s) => tab.id in s.drafts)
+  // Un aperçu : un fichier regardé, jamais modifié ni épinglé, que le prochain
+  // fichier ouvert remplacera. En italique, comme dans VS Code — sans ce signe,
+  // voir son onglet disparaître a l'air d'un défaut.
+  const apercu = tab.kind === "file" && !tab.pinned && !dirty
 
   // A callback ref rather than an effect, per DOCTRINE-SANS-USEEFFECT: the
   // identity changes with `active`, so React runs it exactly when this tab
@@ -48,6 +63,31 @@ function TabButton({
         event.preventDefault()
         onMenu(tab.id, { x: event.clientX, y: event.clientY })
       }}
+      // Glisser un onglet le déplace dans la barre. Posé avant l'onglet survolé
+      // quand on vise sa moitié gauche, après quand on vise la droite.
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.setData(ZYVRO_TAB, tab.id)
+        event.dataTransfer.effectAllowed = "move"
+      }}
+      onDragOver={(event) => {
+        if (![...event.dataTransfer.types].includes(ZYVRO_TAB)) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = "move"
+        const box = event.currentTarget.getBoundingClientRect()
+        const avant = event.clientX < box.left + box.width / 2
+        const tabs = useWorkspace.getState().tabs
+        const i = tabs.findIndex((t) => t.id === tab.id)
+        onDropHover(avant ? tab.id : (tabs[i + 1]?.id ?? null))
+      }}
+      onDrop={(event) => {
+        const id = event.dataTransfer.getData(ZYVRO_TAB)
+        if (!id) return
+        event.preventDefault()
+        onDropDone(id)
+      }}
+      onDragEnd={() => onDropHover(undefined)}
+      onDoubleClick={() => useWorkspace.getState().pinTab(tab.id)}
       // Le clic du milieu ferme, comme dans un navigateur et dans VS Code.
       onAuxClick={(event) => {
         if (event.button !== 1) return
@@ -56,6 +96,8 @@ function TabButton({
       }}
       className={cn(
         "group flex h-9 max-w-[220px] shrink-0 items-center gap-2 border-r border-white/[0.06] pl-3 pr-2 text-[13px]",
+        // Où l'onglet qu'on tient va se poser.
+        dropBefore && "shadow-[inset_2px_0_0_0_rgb(56_189_248)]",
         active
           ? "bg-background text-foreground"
           : "bg-white/[0.02] text-muted-foreground hover:bg-white/[0.05]"
@@ -68,7 +110,7 @@ function TabButton({
         {/* Seuls les onglets de navigateur portent une icône : c'est ce qui les
             distingue entre eux, là où un fichier se distingue par son nom. */}
         {tab.kind === "browser" && <Favicon key={tab.icon} icon={tab.icon} className="h-3.5 w-3.5" />}
-        <span className="truncate">{tab.title}</span>
+        <span className={cn("truncate", apercu && "italic")}>{tab.title}</span>
       </button>
       <button
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
@@ -188,6 +230,9 @@ export function EditorArea() {
   const tabs = useWorkspace((s) => s.tabs)
   const activeTabId = useWorkspace((s) => s.activeTabId)
   const [menu, setMenu] = useState<{ tabId: string; at: { x: number; y: number } } | null>(null)
+  // Pendant qu'on déplace un onglet : avant qui il se posera (null : à la
+  // fin), ou undefined quand rien ne glisse.
+  const [poseAvant, setPoseAvant] = useState<string | null | undefined>(undefined)
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -208,6 +253,12 @@ export function EditorArea() {
             tab={tab}
             active={tab.id === activeTabId}
             onMenu={(tabId, at) => setMenu({ tabId, at })}
+            dropBefore={poseAvant === tab.id}
+            onDropHover={setPoseAvant}
+            onDropDone={(dragged) => {
+              if (poseAvant !== undefined) useWorkspace.getState().moveTab(dragged, poseAvant)
+              setPoseAvant(undefined)
+            }}
           />
         ))}
       </div>

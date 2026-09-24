@@ -171,6 +171,11 @@ function Row({
         if (entry.kind === "directory") onToggle(entry.path)
         else onOpen(entry.path)
       }}
+      // Double-clic : ouvrir et garder, comme dans VS Code. Le premier clic a
+      // déjà ouvert l'aperçu ; le second l'épingle.
+      onDoubleClick={() => {
+        if (entry.kind === "file") useWorkspace.getState().pinTab(`file:${entry.path}`)
+      }}
       title={entry.path}
       // Sans ça, Electron ouvre le sien par-dessus : vérifié, un
       // `preventDefault` ici suffit à l'en empêcher.

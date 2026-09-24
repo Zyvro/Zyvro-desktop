@@ -9,7 +9,10 @@ import { retarget } from "../../shared/treedrop"
 
 export type Tab =
   | { kind: "welcome"; id: "welcome"; title: string }
-  | { kind: "file"; id: string; path: string; title: string }
+  // `pinned` : gardé même sans modification — double-clic sur l'onglet ou sur
+  // la ligne de l'arbre, comme dans VS Code. Sans lui, un onglet propre est un
+  // aperçu, que le prochain fichier ouvert remplace.
+  | { kind: "file"; id: string; path: string; title: string; pinned?: boolean }
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "store"; id: "store"; title: string }
@@ -107,6 +110,10 @@ type WorkspaceState = {
   closeTab: (id: string) => void
   /** Rouvrir le dernier fichier fermé (⌘⇧T). */
   reopenClosed: () => void
+  /** Garder un onglet d'aperçu : il ne sera plus remplacé. */
+  pinTab: (id: string) => void
+  /** Déplacer un onglet dans la barre, à la place d'un autre. */
+  moveTab: (id: string, beforeId: string | null) => void
   activateTab: (id: string) => void
   renameTab: (id: string, title: string) => void
   /** Un fichier ou un dossier a changé de chemin : ses onglets et ses
@@ -162,10 +169,26 @@ function basename(p: string): string {
 function replacedByOpening(s: WorkspaceState, tab: Tab, openingID: string): boolean {
   return (
     tab.kind === "file" &&
+    !tab.pinned &&
     tab.id === s.activeTabId &&
     tab.id !== openingID &&
     !(tab.id in s.drafts)
   )
+}
+
+// reorder : `id` retiré de la barre et reposé avant `beforeId`, ou à la fin
+// quand `beforeId` est null. La même liste quand rien ne bouge, pour que le
+// magasin n'avertisse personne. Exportée pour `check-tabs`.
+export function reorder<T extends { id: string }>(tabs: T[], id: string, beforeId: string | null): T[] {
+  if (id === beforeId) return tabs
+  const from = tabs.findIndex((t) => t.id === id)
+  if (from < 0) return tabs
+  const moved = tabs[from]
+  const rest = tabs.filter((t) => t.id !== id)
+  const to = beforeId === null ? rest.length : rest.findIndex((t) => t.id === beforeId)
+  if (to < 0) return tabs
+  const out = [...rest.slice(0, to), moved, ...rest.slice(to)]
+  return out.every((t, i) => t === tabs[i]) ? tabs : out
 }
 
 function nextActive(tabs: Tab[], closedIndex: number): string {
@@ -331,6 +354,17 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return { tabs, drafts, closedFiles, activeTabId: s.activeTabId === id ? nextActive(tabs, index) : s.activeTabId }
     }),
 
+  pinTab: (id) =>
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === id && t.kind === "file" && !t.pinned ? { ...t, pinned: true } : t)),
+    })),
+
+  moveTab: (id, beforeId) =>
+    set((s) => {
+      const tabs = reorder(s.tabs, id, beforeId)
+      return tabs === s.tabs ? s : { tabs }
+    }),
+
   reopenClosed: () => {
     const { closedFiles, tabs } = get()
     // Le plus récent qui n'est pas déjà rouvert.
@@ -374,7 +408,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return { tabs, drafts, activeTabId: renamed.get(s.activeTabId) ?? s.activeTabId }
     }),
 
-  setDraft: (id, text) => set((s) => ({ drafts: { ...s.drafts, [id]: text } })),
+  // Modifier un fichier le garde : une fois enregistré, il redevient propre,
+  // et sans ça le prochain fichier ouvert le remplacerait — on perdrait
+  // l'onglet de ce sur quoi on vient de travailler.
+  setDraft: (id, text) =>
+    set((s) => {
+      const tab = s.tabs.find((t) => t.id === id)
+      const tabs =
+        tab && tab.kind === "file" && !tab.pinned
+          ? s.tabs.map((t) => (t.id === id ? { ...t, pinned: true } : t))
+          : s.tabs
+      return { drafts: { ...s.drafts, [id]: text }, tabs }
+    }),
   clearDraft: (id) =>
     set((s) => {
       const drafts = { ...s.drafts }
