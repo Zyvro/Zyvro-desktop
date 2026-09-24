@@ -16,7 +16,15 @@ import { clearActiveTerminal } from "~/panels/TerminalPanel"
 // The handlers here only touch the store. Anything that needs React context
 // reads the resulting state.
 
-type Command = "open-project" | "new-workflow" | "save" | "toggle-terminal" | "toggle-agent" | "find"
+type Command =
+  | "open-project"
+  | "new-workflow"
+  | "save"
+  | "toggle-terminal"
+  | "toggle-agent"
+  | "find"
+  | "go-to-symbol"
+  | "go-to-line"
 
 const listeners = new Map<Command, Set<() => void>>()
 
@@ -74,6 +82,13 @@ window.zyvro.menu.onMarkdownPreview(() => {
   const tab = store.tabs.find((t) => t.id === store.activeTabId)
   if (tab?.kind === "file" && /\.(md|markdown|mdx)$/i.test(tab.path)) store.openPreview(tab.path)
   else if (tab?.kind === "preview") store.openFile(tab.path)
+})
+// Le plan du fichier et la ligne : ils appartiennent à l'éditeur visible,
+// comme ⌘F.
+window.zyvro.menu.onGoToSymbol(() => fire("go-to-symbol"))
+window.zyvro.menu.onGoToLine(() => fire("go-to-line"))
+window.zyvro.menu.onProblems(() => {
+  useWorkspace.getState().openProblems()
 })
 window.zyvro.menu.onClearTerminal(() => {
   clearActiveTerminal()

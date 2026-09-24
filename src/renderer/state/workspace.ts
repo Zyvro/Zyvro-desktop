@@ -16,6 +16,7 @@ export type Tab =
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "settings"; id: "settings"; title: string }
+  | { kind: "problems"; id: "problems"; title: string }
   // L'aperçu d'un fichier Markdown, rendu, qui suit le texte pendant qu'on
   // l'écrit — brouillon compris.
   | { kind: "preview"; id: string; path: string; title: string }
@@ -109,6 +110,7 @@ type WorkspaceState = {
   openGitOutput: () => void
   openProviders: () => void
   openSettings: () => void
+  openProblems: () => void
   openPreview: (path: string) => void
   openStore: () => void
   openBrowser: (request?: { url?: string; reuse?: boolean }) => string
@@ -302,6 +304,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "preview", id, path, title: `Preview ${basename(path)}` }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
+  openProblems: () => {
+    const id = "problems"
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "problems", id, title: "Problems" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 

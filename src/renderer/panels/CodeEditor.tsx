@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, FileWarning, Loader2 } from "lucide-react"
-import { languageFor, monaco } from "~/lib/monaco"
+import { languageFor, modelUri, monaco } from "~/lib/monaco"
 import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
@@ -107,9 +107,18 @@ export function CodeEditor({ tabId, path }: Props) {
       if (loaded === null) return
 
       const reglages = getSettings()
+      // Un modèle à l'adresse du fichier (voir `modelUri`). Celui d'un onglet
+      // précédent du même fichier est remplacé : deux modèles ne peuvent pas
+      // porter la même adresse.
+      const uri = modelUri(path)
+      monaco.editor.getModel(uri)?.dispose()
+      const model = monaco.editor.createModel(draft ?? loaded, languageFor(path), uri)
+      // L'indentation se règle sur le modèle : passée à l'éditeur, elle ne
+      // valait que pour un modèle qu'il aurait créé lui-même.
+      if (reglages.detectIndentation) model.detectIndentation(reglages.insertSpaces, reglages.tabSize)
+      else model.updateOptions({ tabSize: reglages.tabSize, insertSpaces: reglages.insertSpaces })
       const editor = monaco.editor.create(node, {
-        value: draft ?? loaded,
-        language: languageFor(path),
+        model,
         theme: "zyvro-dark",
         automaticLayout: true,
         ...optionsFrom(reglages),
@@ -287,10 +296,25 @@ export function CodeEditor({ tabId, path }: Props) {
         editor.focus()
         void editor.getAction("actions.find")?.run()
       })
+      // Le plan du fichier (⇧⌘O) et Go to Line (⌃G) : les actions de Monaco,
+      // pour l'éditeur visible seulement, comme ⌘F.
+      const visible = () => node.isConnected && node.offsetParent !== null
+      const menuSymbol = onCommand("go-to-symbol", () => {
+        if (!visible()) return
+        editor.focus()
+        void editor.getAction("editor.action.quickOutline")?.run()
+      })
+      const menuLine = onCommand("go-to-line", () => {
+        if (!visible()) return
+        editor.focus()
+        void editor.getAction("editor.action.gotoLine")?.run()
+      })
 
       teardownRef.current = () => {
         offReveal()
         menuFind()
+        menuSymbol()
+        menuLine()
         unregister()
         unregisterEditor()
         offSettings()

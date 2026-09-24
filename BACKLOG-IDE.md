@@ -9,20 +9,18 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
-   (⌘⇧O) sur le plan du fichier.
-2. **Terminal : scinder.**
-3. **Fil d'Ariane** au-dessus de l'éditeur.
-4. **Éditeurs côte à côte** (⌘\).
-5. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
+1. **Terminal : scinder.**
+2. **Fil d'Ariane** au-dessus de l'éditeur.
+3. **Éditeurs côte à côte** (⌘\).
+4. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
    sautent à la ligne qui commence ainsi.
-6. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+5. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
     choix à l'enregistrement.
-7. **Fichiers récents** dans File › Open Recent, à côté des projets.
-8. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-9. **Réglages de plus** : paires de crochets colorées, défilement collant
+6. **Fichiers récents** dans File › Open Recent, à côté des projets.
+7. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+8. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-10. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+9. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -106,3 +104,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.19 — la sélection multiple dans l'arbre.** ⌘-clic, ⇧-clic,
   glisser la sélection (vers un dossier, le chat, le terminal), Suppr sur tout
   avec une seule question ; seul le clic simple ouvre.
+- **0.1.0-alpha.20 — Problems, Go to Symbol, Go to Line.** Les marqueurs de
+  Monaco en liste et en compteur ; les modèles portent l'adresse de leur
+  fichier (JSX compris dans un `.tsx`) ; « Cannot find module » tu, faute de
+  `node_modules` visible.

@@ -320,6 +320,11 @@ function buildMenu(): void {
       label: "View",
       submenu: [
         {
+          label: "Problems",
+          accelerator: "CmdOrCtrl+Shift+M",
+          click: (_item, win) => send(win as BrowserWindow, "menu:problems"),
+        },
+        {
           label: "Open Markdown Preview",
           accelerator: "CmdOrCtrl+Shift+V",
           click: (_item, win) => send(win as BrowserWindow, "menu:markdown-preview"),
@@ -371,6 +376,16 @@ function buildMenu(): void {
           label: "Go to File…",
           accelerator: "CmdOrCtrl+P",
           click: (_item, win) => send(win as BrowserWindow, "menu:quick-open"),
+        },
+        {
+          label: "Go to Symbol in Editor…",
+          accelerator: "CmdOrCtrl+Shift+O",
+          click: (_item, win) => send(win as BrowserWindow, "menu:go-to-symbol"),
+        },
+        {
+          label: "Go to Line…",
+          accelerator: "Ctrl+G",
+          click: (_item, win) => send(win as BrowserWindow, "menu:go-to-line"),
         },
         {
           label: "Command Palette…",

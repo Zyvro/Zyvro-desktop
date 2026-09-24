@@ -13,6 +13,7 @@ import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
 import { SettingsTab } from "./SettingsTab"
 import { PreviewTab } from "./PreviewTab"
+import { ProblemsTab } from "./ProblemsTab"
 import { StorePanel } from "./StorePanel"
 import { BrowserTab } from "./BrowserTab"
 import { Favicon } from "./BrowserList"
@@ -148,6 +149,8 @@ function TabBody({ tab }: { tab: Tab }) {
       return <SettingsTab />
     case "preview":
       return <PreviewTab path={tab.path} />
+    case "problems":
+      return <ProblemsTab />
     case "store":
       return <StorePanel />
     case "browser":

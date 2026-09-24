@@ -61,6 +61,47 @@ monaco.editor.defineTheme("zyvro-dark", {
   },
 })
 
+// TypeScript et JavaScript, réglés pour un éditeur qui ne voit pas
+// `node_modules`.
+//
+// Monaco vérifie chaque fichier ouvert seul, sans le projet autour : chaque
+// `import` d'un paquet y devenait « Cannot find module 'react' », et le panneau
+// Problems s'en remplissait jusqu'à cacher les vraies erreurs. Ces codes-là —
+// ce que seul le projet entier saurait résoudre — sont tus ; les fautes de
+// frappe, de syntaxe et de types restent. Et le JSX est compris dans un
+// `.tsx`, maintenant que chaque modèle porte le nom de son fichier.
+const IGNORES = [
+  2307, // Cannot find module
+  2792, // Cannot find module, did you mean to set moduleResolution
+  7016, // Could not find a declaration file for module
+  2875, // This JSX tag requires the module path … to exist
+]
+for (const defaults of [monaco.languages.typescript.typescriptDefaults, monaco.languages.typescript.javascriptDefaults]) {
+  defaults.setCompilerOptions({
+    ...defaults.getCompilerOptions(),
+    target: monaco.languages.typescript.ScriptTarget.ESNext,
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+    allowJs: true,
+    allowNonTsExtensions: true,
+    esModuleInterop: true,
+  })
+  defaults.setDiagnosticsOptions({ ...defaults.getDiagnosticsOptions(), diagnosticCodesToIgnore: IGNORES })
+}
+
+// modelUri : l'adresse du modèle d'un fichier du projet. Le chemin relatif, en
+// `file:///` : c'est ce qui dit à TypeScript qu'un `.tsx` contient du JSX, et
+// ce qui permet au panneau Problems de dire de quel fichier vient une erreur.
+export function modelUri(path: string): monaco.Uri {
+  return monaco.Uri.from({ scheme: "file", path: `/${path}` })
+}
+
+/** L'inverse de `modelUri`, ou null pour un modèle qui n'est pas un fichier. */
+export function pathOfUri(uri: monaco.Uri): string | null {
+  return uri.scheme === "file" ? uri.path.replace(/^\//, "") : null
+}
+
 const BY_EXTENSION: Record<string, string> = {
   ts: "typescript",
   tsx: "typescript",

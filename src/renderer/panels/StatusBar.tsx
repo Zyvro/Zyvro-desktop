@@ -7,6 +7,7 @@ import { UsageToggle } from "~/panels/UsageToggle"
 import { ShotButton } from "~/panels/ShotPicker"
 import { useWorkspace } from "~/state/workspace"
 import { UpdatePill } from "~/panels/UpdateDialog"
+import { ProblemsPill } from "~/panels/ProblemsTab"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 import { engineDown, subscribeEngine } from "~/state/engine"
 import { gitRunning, subscribeGit, type GitRunning } from "~/state/git"
@@ -265,6 +266,7 @@ export function StatusBar() {
       )}
 
       <GitPill />
+      <ProblemsPill />
 
       <div className="flex-1" />
 

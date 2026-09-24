@@ -21,6 +21,8 @@ import { QuickOpen } from "~/panels/QuickOpen"
 import { UpdateDialog } from "~/panels/UpdateDialog"
 // La vérification automatique des mises à jour s'installe à l'import.
 import "~/state/update"
+// Et les problèmes des fichiers ouverts, suivis dès le départ.
+import "~/state/problems"
 // Imported for its side effect: the menu listeners register once, at import
 // time, which is how this app subscribes to anything without a useEffect.
 import "~/lib/menuBridge"

@@ -49,6 +49,21 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.20
+
+**Problems (⇧⌘M / Ctrl+Shift+M).** The errors and warnings in your open files,
+grouped by file, most serious first; click one to go to its line. A counter at the
+bottom of the window shows how many there are, as in VS Code. Noise is kept out:
+the editor sees one file at a time and not your `node_modules`, so "Cannot find
+module" for every package import is left out, and the real mistakes stay visible.
+
+**Go to Symbol in Editor (⇧⌘O / Ctrl+Shift+O)** lists the file's functions,
+classes and variables to jump to, and **Go to Line (⌃G)** is in the Go menu and
+the command palette.
+
+**TypeScript understands JSX in `.tsx` files.** Each editor now knows the name of
+its file, so a React component is no longer full of red underlines on every tag.
+
 ## New in alpha.19
 
 **Select several files in the tree**, as in the Finder and VS Code: ⌘-click
