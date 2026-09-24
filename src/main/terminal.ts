@@ -1,5 +1,5 @@
 import { execFileSync, spawn as spawnPipe, type ChildProcess } from "node:child_process"
-import { readlinkSync } from "node:fs"
+import { mkdirSync, readlinkSync, renameSync, writeFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 import fs from "node:fs/promises"
@@ -185,13 +185,22 @@ export class Terminals {
     // shell de plus dans le panneau, pas un second panneau.
     command: { file: string; args: string[] } | null = null,
     /** L'étiquette d'une session persistante, retenue pour la reprise. */
-    label?: string
+    label?: string,
+    /**
+     * Le défilement d'une session précédente, quand ce shell la remplace.
+     *
+     * Semé dans ce qu'il a « vu » : sans ça, la prochaine sauvegarde ne
+     * retiendrait que ce qu'il a écrit depuis, et l'historique repris
+     * disparaîtrait à la deuxième réouverture.
+     */
+    seed = ""
   ): { id: string; pty: boolean; banner?: string } {
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
     const lieu = cwd || os.homedir()
     const pty = makePty(lieu, cols, rows, wired?.env, command)
-    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: "", attached: command !== null, label })
+    const vu = seed ? `${seed.slice(-SHELL_MAX_BYTES)}\r\n` : ""
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, attached: command !== null, label })
 
     pty.onData((data) => {
       this.remember(id, data)
@@ -320,7 +329,17 @@ export class Terminals {
    */
   async disposeAll(cwd?: string): Promise<void> {
     const vivants = [...this.sessions.values()]
-    if (cwd) await this.keepHistory(cwd, vivants)
+    // Synchrone : à ⌘Q, `before-quit` n'attend pas une promesse, et
+    // l'application sortait avant que l'écriture asynchrone ait eu lieu. Le
+    // fichier gardait alors les shells de la fois d'avant — y compris ceux
+    // qu'on avait fermés — et ils revenaient à la réouverture.
+    //
+    // Et seulement s'il reste des shells : à la fermeture, `disposeAll` passe
+    // deux fois — `before-quit`, puis la fenêtre qui se ferme — et le second
+    // passage, qui ne trouve plus rien, écrasait la sauvegarde du premier par
+    // une liste vide. Un fichier qui doit devenir vide l'est déjà : fermer le
+    // dernier shell à la main l'a réécrit (`close`).
+    if (cwd && vivants.length > 0) this.keepHistory(cwd, vivants)
     for (const id of [...this.sessions.keys()]) this.dispose(id)
   }
 
@@ -363,29 +382,50 @@ export class Terminals {
     return path.join(app.getPath("userData"), "shells", `${key}.json`)
   }
 
-  private async keepHistory(projectDir: string, sessions: Session[]): Promise<void> {
+  /**
+   * Fermer un shell parce qu'on n'en veut plus — la croix de son onglet — et
+   * le retirer de ce qu'on rouvrira.
+   *
+   * Sans ça le fichier gardait le shell fermé : replier puis rouvrir le
+   * terminal relisait ce fichier, et le shell qu'on venait de fermer revenait.
+   * Distinct de `dispose`, qui sert aussi quand un onglet disparaît parce
+   * qu'on change de projet : là, rien n'a été refusé, et réécrire le fichier
+   * effacerait l'historique qu'on veut retrouver.
+   */
+  close(id: string, projectDir: string | null): void {
+    this.dispose(id)
+    if (projectDir) this.keepHistory(projectDir, [...this.sessions.values()])
+  }
+
+  private keepHistory(projectDir: string, sessions: Session[]): void {
+    const racine = path.resolve(projectDir)
     const shells = sessions.filter(
       (session) =>
         // Pas les sessions persistantes : leur défilement est chez `screen` ou
         // `tmux`, et le garder ici en ferait un second, plus vieux, affiché
         // dans un shell mort qu'on croirait vivant.
-        !session.attached && (session.cwd === path.resolve(projectDir) || session.cwd === projectDir)
+        //
+        // Et tout shell du projet, sous-dossier compris : un shell rouvert dans
+        // `server/` n'était pas retenu, puisque son dossier n'était pas
+        // exactement la racine.
+        !session.attached &&
+        (session.cwd === racine || session.cwd === projectDir || session.cwd.startsWith(racine + path.sep))
     )
     try {
       const file = this.historyFile(projectDir)
-      await fs.mkdir(path.dirname(file), { recursive: true })
+      mkdirSync(path.dirname(file), { recursive: true })
       // Un fichier temporaire puis un renommage : une fenêtre qui se ferme
       // pendant l'écriture laisserait sinon un JSON tronqué, et la réouverture
       // suivante perdrait tout l'historique au lieu d'en perdre la fin.
       const temp = `${file}.${process.pid}.tmp`
-      await fs.writeFile(
+      writeFileSync(
         temp,
         JSON.stringify({
           shells: shells.map((session) => ({ seen: session.seen, cwd: this.cwdOf(session.pty.pid) ?? session.cwd })),
         }),
         "utf8"
       )
-      await fs.rename(temp, file)
+      renameSync(temp, file)
     } catch {
       // Un historique qu'on ne sait pas écrire n'est pas une raison de refuser
       // de fermer la fenêtre.

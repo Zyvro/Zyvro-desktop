@@ -9,22 +9,25 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+1. **Mise à jour automatique** (demandée) : détecter qu'une version plus
+   récente est publiée sur GitHub, la proposer, et l'installer — `.dmg` et
+   `.exe`, en restant honnête sur l'absence de signature.
+2. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
    sait déjà transporter.
-2. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
+3. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
    (⌘⇧O) sur le plan du fichier.
-3. **Terminal : effacer (Cmd+K) et scinder.**
-4. **Fil d'Ariane** au-dessus de l'éditeur.
-5. **Éditeurs côte à côte** (⌘\).
-6. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
+4. **Terminal : scinder.**
+5. **Fil d'Ariane** au-dessus de l'éditeur.
+6. **Éditeurs côte à côte** (⌘\).
+7. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
    sautent à la ligne qui commence ainsi.
-7. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+8. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
     choix à l'enregistrement.
-8. **Fichiers récents** dans File › Open Recent, à côté des projets.
-9. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-10. **Réglages de plus** : paires de crochets colorées, défilement collant
+9. **Fichiers récents** dans File › Open Recent, à côté des projets.
+10. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+11. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-11. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+12. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -92,3 +95,8 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.16 — aperçu Markdown (⇧⌘V).** Un onglet qui suit le
   brouillon, le rendu du chat sans HTML brut, un bouton Preview dans les
   fichiers Markdown ; renommer le fichier renomme l'aperçu.
+- **0.1.0-alpha.17 — l'agent dans le terminal, effacer le terminal, et les
+  shells fermés ne reviennent plus.** Bouton « ouvrir dans le terminal » qui
+  reprend la conversation (`claude --resume`, `codex resume`) ; ⌘K ; la
+  sauvegarde des shells synchrone, une seule fois, et réécrite quand on en
+  ferme un ; une ligne remise au terminal attend que son shell naisse.

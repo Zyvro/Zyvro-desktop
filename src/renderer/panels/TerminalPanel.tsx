@@ -321,7 +321,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
             return { ...session, reprise: false }
           })
       : window.zyvro.terminal
-          .create(term.cols, term.rows, readStatus(key).cwd)
+          .create(term.cols, term.rows, readStatus(key).cwd, readStatus(key).history)
           .then((session) => ({ ...session, reprise: false }))
 
   void ouvrir
@@ -467,6 +467,10 @@ export function TerminalPanel(): JSX.Element {
   // quelqu'un, qui la voit, qui a son historique, et qui peut remonter dessus.
   // Un `cd` est ce qu'il y a de plus inoffensif à envoyer ainsi ; rien d'autre
   // ne passe par ce canal.
+  // L'onglet actif, lisible depuis un rappel différé : la ligne remise au
+  // terminal attend parfois que son shell existe.
+  const actifRef = useRef(activeKey)
+  actifRef.current = activeKey
   const remis = useSyncExternalStore(subscribeHandoff("terminal"), () => tokenOf("terminal"), () => 0)
   const attendait = useRef(0)
   if (remis !== attendait.current) {
@@ -477,10 +481,22 @@ export function TerminalPanel(): JSX.Element {
     // celui qu'on jette. Le `cd` n'arrivait jamais dans le shell.
     window.queueMicrotask(() => {
       const ligne = takeHandoff("terminal")
-      const ptyId = readStatus(activeKey).ptyId
-      // Sans shell vivant il n'y a nulle part où écrire : mieux vaut ne rien
-      // faire que d'en ouvrir un qui surprendrait.
-      if (ligne && ptyId) void window.zyvro.terminal.write(ptyId, ligne)
+      if (!ligne) return
+      // Le terminal vient peut-être de s'ouvrir pour recevoir cette ligne — un
+      // agent qu'on ouvre dans le terminal, un `cd` depuis l'arbre alors qu'il
+      // était replié — et son shell n'existe pas encore. La ligne attend qu'il
+      // naisse, quelques secondes au plus ; avant, elle était jetée, et le
+      // bouton semblait ne rien faire.
+      let essais = 0
+      const ecrire = (): void => {
+        const ptyId = readStatus(actifRef.current).ptyId
+        if (ptyId) {
+          void window.zyvro.terminal.write(ptyId, ligne)
+          return
+        }
+        if (++essais < 50) setTimeout(ecrire, 100)
+      }
+      ecrire()
     })
   }
 
@@ -637,6 +653,11 @@ export function TerminalPanel(): JSX.Element {
   }
 
   const closeSession = (key: string): void => {
+    // Fermé à la main : le principal l'oublie aussi dans ce qu'il rouvrira.
+    // Démonter l'onglet appelle ensuite `dispose`, sans effet sur un shell déjà
+    // parti — et c'est `dispose` seul qui sert quand on change de projet.
+    const ptyId = readStatus(key).ptyId
+    if (ptyId) void window.zyvro.terminal.close(ptyId)
     setSessions((current) => {
       const index = current.indexOf(key)
       if (index < 0) return current

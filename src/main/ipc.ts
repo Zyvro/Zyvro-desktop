@@ -620,7 +620,7 @@ export function registerIpc(onRecents?: () => void): void {
     }
   )
 
-  ipcMain.handle("terminal:create", async (event, cols: number, rows: number, cwd?: string) => {
+  ipcMain.handle("terminal:create", async (event, cols: number, rows: number, cwd?: string, history?: string) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)
 
@@ -639,10 +639,19 @@ export function registerIpc(onRecents?: () => void): void {
 
     // Le démon du projet part avec le shell : un agent lancé à la main dedans
     // doit pouvoir joindre les mêmes serveurs MCP que celui du panneau.
-    return ws.terminals.create(event.sender, lieu, cols || 80, rows || 24, {
-      daemonOrigin: ws.daemon.current?.origin,
-      daemonToken: ws.daemon.current?.token,
-    })
+    return ws.terminals.create(
+      event.sender,
+      lieu,
+      cols || 80,
+      rows || 24,
+      {
+        daemonOrigin: ws.daemon.current?.origin,
+        daemonToken: ws.daemon.current?.token,
+      },
+      null,
+      undefined,
+      typeof history === "string" ? history : ""
+    )
   })
 
   // Reprendre les shells d'un projet après un rechargement du rendu.
@@ -751,6 +760,13 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("terminal:dispose", async (event, id: string) => {
     const { ws } = requireWorkspace(event)
     ws.terminals.dispose(id)
+    return true
+  })
+
+  // La croix d'un onglet de shell : le fermer, et ne plus le rouvrir.
+  ipcMain.handle("terminal:close", async (event, id: string) => {
+    const { ws } = requireWorkspace(event)
+    ws.terminals.close(id, ws.project)
     return true
   })
 

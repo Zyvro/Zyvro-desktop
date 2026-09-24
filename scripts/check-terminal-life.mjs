@@ -167,12 +167,14 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   const term = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   check(
     "**fermer la fenêtre garde le défilement**",
-    /async disposeAll\(cwd\?: string\)/.test(term) && term.includes("await this.keepHistory(cwd, vivants)"),
+    // Synchrone depuis que ⌘Q n'attendait pas l'écriture (voir
+    // check-shell-history, qui l'exerce pour de vrai).
+    /async disposeAll\(cwd\?: string\)/.test(term) && term.includes("if (cwd && vivants.length > 0) this.keepHistory(cwd, vivants)"),
     "tout est perdu à la fermeture, y compris ce qui aurait tenu"
   )
   // Écrit par un temporaire puis renommé : une fenêtre qui se ferme pendant
   // l'écriture laisserait sinon un JSON tronqué.
-  check("écrit sans pouvoir être tronqué", term.includes("await fs.rename(temp, file)"))
+  check("écrit sans pouvoir être tronqué", term.includes("renameSync(temp, file)"))
   // Fermer un onglet à la main dit « je n'en veux plus » : ça ne doit pas
   // écrire d'historique.
   check(

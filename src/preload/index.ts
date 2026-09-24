@@ -301,8 +301,14 @@ const api = {
      * Ouvrir un shell. `cwd` ne sert qu'à rouvrir là où on était : le principal
      * ne l'accepte que s'il l'a lui-même gardé pour ce projet.
      */
-    create: (cols: number, rows: number, cwd?: string): Promise<{ id: string; pty: boolean; banner?: string }> =>
-      invoke("terminal:create", cols, rows, cwd),
+    create: (
+      cols: number,
+      rows: number,
+      cwd?: string,
+      history?: string
+    ): Promise<{ id: string; pty: boolean; banner?: string }> => invoke("terminal:create", cols, rows, cwd, history),
+    /** Fermer un shell pour de bon : il ne sera pas rouvert avec le projet. */
+    close: (id: string): Promise<boolean> => invoke("terminal:close", id),
     /**
      * Les shells de ce projet qui tournent encore.
      *

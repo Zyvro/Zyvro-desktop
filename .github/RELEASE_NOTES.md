@@ -49,6 +49,31 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.17
+
+**Open the agent in the terminal.** A new button at the top of the agent panel
+starts the session's CLI (`claude`, `codex` or `qwen`) in the terminal, in its own
+full-screen interface, and continues the same conversation you started in the
+panel. The terminal opens if it was hidden.
+
+**Clear the terminal** with ⌘K on a Mac, as in Terminal.app and VS Code, or with
+**Clear Terminal** from the command palette. Ctrl+K elsewhere is left to the
+shell, which uses it to delete to the end of the line.
+
+## Fixed in alpha.17
+
+- **Shells you closed came back.** Closing a restored shell did not remove it
+  from what the project reopens, so hiding and showing the terminal, or quitting
+  and relaunching, brought it back. Closing a shell with its × now removes it
+  for good.
+- **Quitting sometimes lost the shells you wanted back, or kept old ones.** The
+  shells were saved twice on quit, and whichever write finished last won,
+  sometimes an empty list. They are now saved once, and before the app exits.
+- **A shell opened in a subfolder was not saved**, and a restored shell's
+  history disappeared at the second reopening. Both are kept now.
+- **Sending something to a hidden terminal did nothing**: "Open in terminal"
+  from the file tree, for example. The text now waits for the shell to start.
+
 ## New in alpha.16
 
 **Markdown preview (⇧⌘V / Ctrl+Shift+V)**, as in VS Code, or the **Preview**

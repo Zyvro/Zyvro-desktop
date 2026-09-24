@@ -271,7 +271,9 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
   // Sans shell vivant il n'y a nulle part où écrire.
   check(
     "**et le terminal n'écrit que s'il a un shell**",
-    terminal.includes("if (ligne && ptyId)"),
+    // La ligne attend que le shell naisse — quelques secondes au plus — puis
+    // renonce : on n'en ouvre pas un qui surprendrait.
+    terminal.includes("if (ptyId) {") && terminal.includes("if (++essais < 50) setTimeout(ecrire, 100)"),
     "on écrit dans le vide quand aucun shell ne tourne"
   )
 }
