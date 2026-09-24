@@ -3,6 +3,7 @@ import { useQueries, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
   File as FileIcon,
   FilePlus2,
   FolderPlus,
@@ -18,6 +19,8 @@ import { ZYVRO_PATH } from "../../shared/dropped"
 import { ZYVRO_ENTRY, canMove, dropFolder, entriesFromText, parentOf, topmost } from "../../shared/treedrop"
 import { clearHeld, heldItem } from "~/state/clipboard"
 import { EntryMenu } from "~/panels/EntryMenu"
+import { ancestorsOf, navigate, scrollToShow } from "../../shared/treenav"
+import { renameEntry, trashEntry } from "~/lib/entryActions"
 
 // The file tree loads one directory at a time. Reading the whole project up
 // front would be fine for a small folder and unusable for a real repository,
@@ -103,7 +106,9 @@ function Row({
   isOpen,
   isActive,
   isDropTarget,
+  isFocused,
   chargement,
+  onFocusRow,
   onToggle,
   onOpen,
   onMenu,
@@ -114,7 +119,9 @@ function Row({
   isOpen: boolean
   isActive: boolean
   isDropTarget: boolean
+  isFocused: boolean
   chargement: boolean
+  onFocusRow: (path: string) => void
   onToggle: (path: string) => void
   onOpen: (path: string) => void
   onMenu: (entry: DirEntry, at: { x: number; y: number }) => void
@@ -128,14 +135,24 @@ function Row({
           ? "bg-sky-400/[0.18] text-foreground ring-1 ring-inset ring-sky-400/50"
           : isActive
             ? "bg-white/[0.08] text-foreground"
-            : "text-foreground/80 hover:bg-white/[0.05]"
+            : "text-foreground/80 hover:bg-white/[0.05]",
+        // La ligne que le clavier tient. Un liseré plutôt qu'un fond : le
+        // fond dit déjà « fichier ouvert », et les deux peuvent différer.
+        isFocused && "ring-1 ring-inset ring-sky-400/40"
       )}
+      // Hors de l'ordre de tabulation : c'est l'arbre entier qui prend le
+      // focus, et les flèches qui choisissent la ligne.
+      tabIndex={-1}
       // Lues par l'arbre au survol et au lâcher : un seul écouteur pour toutes
       // les lignes, comme le menu contextuel.
       data-entry-path={entry.path}
       data-entry-kind={entry.kind}
       style={{ paddingLeft: 8 + depth * 12 }}
-      onClick={() => (entry.kind === "directory" ? onToggle(entry.path) : onOpen(entry.path))}
+      onClick={() => {
+        onFocusRow(entry.path)
+        if (entry.kind === "directory") onToggle(entry.path)
+        else onOpen(entry.path)
+      }}
       title={entry.path}
       // Sans ça, Electron ouvre le sien par-dessus : vérifié, un
       // `preventDefault` ici suffit à l'en empêcher.
@@ -199,6 +216,14 @@ export function Explorer() {
   // Ce qui a mal tourné au dernier dépôt, dit sous l'en-tête plutôt qu'avalé.
   const [erreurDepot, setErreurDepot] = useState("")
   const survol = useRef<{ path: string; timer: ReturnType<typeof setTimeout> } | null>(null)
+
+  // La ligne que tient le clavier, et le cadre qui défile — pour y ramener la
+  // ligne quand les flèches la font sortir de vue.
+  const [focus, setFocus] = useState<string | null>(null)
+  const cadre = useRef<HTMLDivElement | null>(null)
+  // Un chemin à amener dans le cadre dès que sa ligne existe : ses dossiers
+  // parents se déplient d'abord, et leur contenu arrive après.
+  const aMontrer = useRef<string | null>(null)
 
   // Ouvrir un dossier, c'est aussi demander à le surveiller ; le replier, c'est
   // cesser. La surveillance suit donc exactement ce qui est affiché, et rien de
@@ -291,7 +316,95 @@ export function Explorer() {
   const [scrollTop, setScrollTop] = useState(0)
   const [hauteur, setHauteur] = useState(600)
   const mesurer = (node: HTMLDivElement | null): void => {
+    cadre.current = node
     if (node) setHauteur(node.clientHeight || 600)
+  }
+
+  // Amener une ligne dans le cadre. L'arbre est virtualisé : la ligne visée
+  // n'existe peut-être pas encore dans le DOM, donc on défile par le calcul,
+  // pas par `scrollIntoView`.
+  const montrer = (path: string): boolean => {
+    const index = lignes.findIndex((l) => l.entry.path === path)
+    const node = cadre.current
+    if (index < 0 || !node) return false
+    const cible = scrollToShow(index, ROW_HEIGHT, node.scrollTop, node.clientHeight || hauteur)
+    if (cible !== null) node.scrollTop = cible
+    return true
+  }
+  if (aMontrer.current) {
+    const chemin = aMontrer.current
+    // Après le rendu : défiler est un effet sur le DOM, pas un calcul.
+    window.queueMicrotask(() => {
+      if (aMontrer.current === chemin && montrer(chemin)) aMontrer.current = null
+    })
+  }
+
+  // Révéler le fichier actif, comme VS Code : ouvrir un fichier par ⌘P, par la
+  // recherche ou par l'agent déplie l'arbre jusqu'à lui et le montre. Décidé
+  // pendant le rendu, en comparant à ce qu'on a déjà révélé — c'est la forme
+  // que prend ici ce que d'autres écriraient dans un effet.
+  const actif = activeTabId.startsWith("file:") ? activeTabId.slice(5) : null
+  const [revele, setRevele] = useState<string | null>(null)
+  if (project && actif !== revele) {
+    setRevele(actif)
+    if (actif) {
+      const manquants = ancestorsOf(actif).filter((d) => !expanded.has(d))
+      if (manquants.length > 0) {
+        setExpanded((current) => {
+          const next = new Set(current)
+          for (const d of manquants) {
+            if (!next.has(d)) {
+              next.add(d)
+              watchDir(d)
+            }
+          }
+          return next
+        })
+      }
+      setFocus(actif)
+      aMontrer.current = actif
+    }
+  }
+
+  const prendreLeFocus = (path: string): void => {
+    setFocus(path)
+    // Le bouton cliqué rend la main à l'arbre : il peut disparaître au
+    // prochain défilement, et le clavier avec lui.
+    cadre.current?.focus({ preventScroll: true })
+  }
+
+  const toutReplier = (): void => {
+    setExpanded((current) => {
+      for (const d of current) unwatchDir(d)
+      return new Set()
+    })
+  }
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (menu) return
+    const entree = focus ? lignes.find((l) => l.entry.path === focus)?.entry : undefined
+    if (entree && event.key === "F2") {
+      event.preventDefault()
+      void renameEntry(entree, client)
+      return
+    }
+    // Suppr, et ⌘⌫ sur un Mac, dont le clavier n'a souvent pas de Suppr.
+    if (entree && (event.key === "Delete" || (event.key === "Backspace" && event.metaKey))) {
+      event.preventDefault()
+      void trashEntry(entree, client)
+      return
+    }
+    const rows = lignes.map((l) => ({ path: l.entry.path, kind: l.entry.kind, depth: l.depth }))
+    const r = navigate(rows, focus, event.key, expanded)
+    if (Object.keys(r).length === 0) return
+    event.preventDefault()
+    if (r.expand) deplier(r.expand)
+    if (r.collapse) toggle(r.collapse)
+    if (r.open) openFile(r.open)
+    if (r.focus) {
+      setFocus(r.focus)
+      montrer(r.focus)
+    }
   }
 
   if (!project) {
@@ -448,6 +561,13 @@ export function Explorer() {
         </button>
         <button
           className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
+          title="Collapse Folders"
+          onClick={toutReplier}
+        >
+          <ChevronsDownUp className="h-3.5 w-3.5" />
+        </button>
+        <button
+          className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
           title="Refresh"
           onClick={() => void client.invalidateQueries({ queryKey: ["files", "list"] })}
         >
@@ -471,11 +591,13 @@ export function Explorer() {
       <div
         ref={mesurer}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={(event) => void onDrop(event)}
         className={cn(
-          "zy-scroll min-h-0 flex-1 overflow-y-auto pb-2 pr-1",
+          "zy-scroll min-h-0 flex-1 overflow-y-auto pb-2 pr-1 outline-none",
           // La racine n'a pas de ligne à allumer : c'est l'arbre entier qui
           // dit « ici ».
           cible === "" && "rounded-md ring-1 ring-inset ring-sky-400/50 bg-sky-400/[0.06]"
@@ -493,6 +615,8 @@ export function Explorer() {
               isOpen={expanded.has(entry.path)}
               isActive={activeTabId === `file:${entry.path}`}
               isDropTarget={cible !== null && cible !== "" && entry.path === cible}
+              isFocused={focus === entry.path}
+              onFocusRow={prendreLeFocus}
               chargement={entry.kind === "directory" && enCours.has(entry.path)}
               onToggle={toggle}
               onOpen={openFile}

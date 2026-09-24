@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import type { DirEntry } from "../../preload"
 import { askConfirm, askName } from "~/state/prompt"
 import { handTo } from "~/state/handoff"
+import { renameEntry, trashEntry } from "~/lib/entryActions"
 import { clearHeld, heldItem, hold, released, subscribeClipboard } from "~/state/clipboard"
 import { askSearchFocus } from "~/state/reveal"
 import { quotePath } from "../../shared/dropped"
@@ -79,46 +80,9 @@ export function EntryMenu({
     if (kind === "file") openFile(`${entry.path}/${propre}`)
   }
 
-  const renommer = async () => {
-    const nom = await askName({
-      title: "Rename",
-      label: entry.path,
-      confirmLabel: "Rename",
-      initial: entry.name,
-    })
-    const propre = nom?.trim()
-    if (!propre || propre === entry.name) return
-    const vers = parent ? `${parent}/${propre}` : propre
-    await window.zyvro.files.rename(entry.path, vers)
-    useWorkspace.getState().movePath(entry.path, vers)
-    relire(parent)
-  }
-
-  // Supprimer demande, et ce qui part va à la corbeille.
-  //
-  // Les deux ensemble, parce qu'aucun des deux ne suffit : une confirmation
-  // seule fait dire oui à ce qu'on croit avoir visé, et une corbeille seule
-  // laisse un dossier disparaître d'un clic. La question nomme le chemin
-  // entier, pas seulement le fichier — c'est la seule façon de voir qu'on
-  // s'est trompé de ligne.
+  const renommer = () => renameEntry(entry, client)
   const supprimer = async () => {
-    const oui = await askConfirm({
-      title: dossier ? `Delete the folder ${entry.name}?` : `Delete ${entry.name}?`,
-      label: dossier
-        ? `${entry.path} and everything inside it moves to the trash.`
-        : `${entry.path} moves to the trash.`,
-      confirmLabel: "Move to trash",
-    })
-    if (!oui) return
-    await window.zyvro.files.remove(entry.path)
-    relire(parent)
-    // Ce qui part à la corbeille ne peut plus être collé. Le garder dans le
-    // presse-papiers offrirait un « Paste "notes.txt" » qui échouerait par
-    // « notes.txt is no longer there » — une erreur pour un geste qu'on n'avait
-    // aucune raison de proposer. Un dossier supprimé emporte ce qu'il
-    // contenait.
-    const garde = heldItem()
-    if (garde && (garde.path === entry.path || garde.path.startsWith(`${entry.path}/`))) clearHeld()
+    await trashEntry(entry, client)
   }
 
   const copier = (texte: string) => {

@@ -52,7 +52,11 @@ const check = (name, ok, detail = "") => {
   else { console.log(`  FAIL  ${name}${detail ? `\n        ${detail}` : ""}`); failures++ }
 }
 
-const menu = readFileSync(path.join(ROOT, "src/renderer/panels/EntryMenu.tsx"), "utf8")
+// Le menu et le module qu'il partage avec le clavier (F2, Suppr) : renommer et
+// supprimer y vivent, pour que les deux chemins fassent la même chose.
+const menu =
+  readFileSync(path.join(ROOT, "src/renderer/panels/EntryMenu.tsx"), "utf8") +
+  readFileSync(path.join(ROOT, "src/renderer/lib/entryActions.ts"), "utf8")
 const explorer = readFileSync(path.join(ROOT, "src/renderer/panels/Explorer.tsx"), "utf8")
 const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
 
@@ -157,7 +161,9 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
   // Ce qui part à la corbeille ne peut plus être collé.
   check(
     "**et supprimer ce qu'on tenait le retire du presse-papiers**",
-    menu.includes("clearHeld()") && menu.includes("garde.path.startsWith(`${entry.path}/`)"),
+    // `isInside` compare par segments — `src` n'est pas dans `src-old` —
+    // et `check-treedrop` le vérifie.
+    menu.includes("clearHeld()") && menu.includes("isInside(garde.path, entry.path)"),
     "« Paste » proposerait un fichier qui n'existe plus"
   )
   clearHeld()

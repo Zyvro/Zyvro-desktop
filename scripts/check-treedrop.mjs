@@ -216,8 +216,13 @@ const refus = async (fn) => {
   const explorer = readFileSync(path.join(ROOT, "src/renderer/panels/Explorer.tsx"), "utf8")
   check("l'arbre pose le chemin relatif sur ce qu'on attrape", /setData\(ZYVRO_ENTRY, entry\.path\)/.test(explorer))
   check("et fait suivre les onglets après un déplacement", /movePath\(from, ecrit\)/.test(explorer))
+  // Renommer vit dans `entryActions`, partagé par le clic droit et F2.
+  const renommer = readFileSync(path.join(ROOT, "src/renderer/lib/entryActions.ts"), "utf8")
   const menu = readFileSync(path.join(ROOT, "src/renderer/panels/EntryMenu.tsx"), "utf8")
-  check("renommer par le menu fait suivre les onglets aussi", /movePath\(entry\.path, vers\)/.test(menu))
+  check(
+    "renommer, par le menu ou par F2, fait suivre les onglets aussi",
+    /movePath\(entry\.path, vers\)/.test(renommer) && /renameEntry\(entry, client\)/.test(menu)
+  )
 }
 
 if (failures) {

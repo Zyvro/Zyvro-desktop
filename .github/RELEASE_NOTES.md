@@ -49,6 +49,21 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.10
+
+**The file tree follows what you are looking at.** Open a file from Go to File,
+from a search result or from the agent, and the tree unfolds down to it and
+points at it, as in VS Code. **Collapse Folders** (the new button in the tree's
+header) folds everything back.
+
+**The file tree works from the keyboard.** Click in it, then: up and down move
+between rows; right opens a folder, then steps into it; left closes a folder, or
+goes up to the parent; Enter opens a file or toggles a folder; **F2** renames;
+**Delete** (or ⌘⌫ on a Mac) moves to the trash, after asking.
+
+Moving a file to the trash also closes its tab, unless the tab has unsaved
+changes: those stay open, since that text now exists nowhere else.
+
 ## New in alpha.9
 
 **Command Palette (⇧⌘P / Ctrl+Shift+P).** Every command in the app's menus, one

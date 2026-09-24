@@ -14,18 +14,15 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 2. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
 3. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
-4. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
-5. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
-   l'arbre.
-6. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-7. **Réordonner les onglets en les glissant.**
-8. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-9. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+4. **Onglet d'aperçu en italique, et épinglage** par double-clic.
+5. **Réordonner les onglets en les glissant.**
+6. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+7. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-10. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-11. **Terminal : effacer (Cmd+K) et scinder.**
-12. **Éditeurs côte à côte et fil d'Ariane.**
-13. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+8. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+9. **Terminal : effacer (Cmd+K) et scinder.**
+10. **Éditeurs côte à côte et fil d'Ariane.**
+11. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -64,3 +61,8 @@ Petits correctifs repérés en passant :
   the Right, Close All (une seule question pour tous les fichiers modifiés),
   Copy Path, Copy Relative Path, Reveal in Finder. Et un fichier revenu à son
   texte enregistré n'est plus « modifié ».
+- **0.1.0-alpha.10 — l'arbre au clavier, et qui suit le fichier actif.**
+  Flèches, Home/End, Entrée, F2, Suppr (⌘⌫) ; le fichier actif se révèle, et
+  « Collapse Folders » replie tout. Renommer et supprimer vivent dans
+  `lib/entryActions`, partagé avec le clic droit ; supprimer ferme les onglets
+  propres du fichier parti.
