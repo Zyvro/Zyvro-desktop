@@ -69,6 +69,9 @@ window.zyvro.menu.onReopenTab(() => {
 window.zyvro.menu.onQuickOpen(() => {
   openQuickOpen()
 })
+window.zyvro.menu.onCommandPalette(() => {
+  openQuickOpen(">")
+})
 window.zyvro.menu.onOpenPath((dir) => {
   void openProject(dir)
 })

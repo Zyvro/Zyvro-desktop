@@ -350,6 +350,11 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+P",
           click: (_item, win) => send(win as BrowserWindow, "menu:quick-open"),
         },
+        {
+          label: "Command Palette…",
+          accelerator: "CmdOrCtrl+Shift+P",
+          click: (_item, win) => send(win as BrowserWindow, "menu:command-palette"),
+        },
       ],
     },
     // Écrit à la main plutôt que par le rôle tout fait : sous Windows et Linux

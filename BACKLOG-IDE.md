@@ -9,29 +9,27 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Palette de commandes (Cmd+Shift+P).** Un registre de commandes, dont le
-   menu et la palette lisent la même liste.
-2. **Barre d'état de l'éditeur.** Ligne/colonne, langage, fin de ligne,
+1. **Barre d'état de l'éditeur.** Ligne/colonne, langage, fin de ligne,
    indentation.
-3. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
+2. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
    All, Copy Path, Reveal in Explorer.
-4. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
+3. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
    désactivée par défaut.
-5. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
+4. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-6. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
-7. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
-8. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
+5. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
+6. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
+7. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
    l'arbre.
-9. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-10. **Réordonner les onglets en les glissant.**
-11. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-12. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+8. **Onglet d'aperçu en italique, et épinglage** par double-clic.
+9. **Réordonner les onglets en les glissant.**
+10. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+11. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-13. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-14. **Terminal : effacer (Cmd+K) et scinder.**
-15. **Éditeurs côte à côte et fil d'Ariane.**
-16. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+12. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+13. **Terminal : effacer (Cmd+K) et scinder.**
+14. **Éditeurs côte à côte et fil d'Ariane.**
+15. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -59,3 +57,7 @@ Petits correctifs repérés en passant :
   qui lisent les sources voient la même chose partout.
 - **0.1.0-alpha.8 — Go to File (⌘P).** Recherche floue sur les chemins du
   projet (`shared/fuzzy`), récents d'abord, `chemin:ligne:colonne` accepté.
+- **0.1.0-alpha.9 — palette de commandes (⇧⌘P).** La même boîte que ⌘P, `>`
+  en tête. Elle lit le menu de l'application au principal (`main/menulist`)
+  et passe par lui pour agir : une seule liste, un seul endroit où écrire un
+  raccourci.

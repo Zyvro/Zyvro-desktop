@@ -49,6 +49,16 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.9
+
+**Command Palette (⇧⌘P / Ctrl+Shift+P).** Every command in the app's menus, one
+fuzzy search away, with its shortcut beside it: type `>` and a few letters
+(`>togterm` for Toggle Terminal, `>zoom` for the zoom levels). It is the same
+box as Go to File, as in VS Code: delete the `>` to search files instead.
+
+The palette reads the menu itself rather than keeping its own list, so a command
+and its shortcut are only ever written in one place.
+
 ## New in alpha.8
 
 Drag and drop, the way VS Code and Cursor do it.

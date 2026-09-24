@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, webContents } from "electron"
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell, webContents } from "electron"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
@@ -38,6 +38,7 @@ import * as attachments from "./attachments"
 import * as importing from "./importing"
 import * as sharing from "./sharing"
 import * as commitMessage from "./commitmessage"
+import { findMenuItem, flattenMenu } from "./menulist"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
 // the shells running in it and the agent turns in flight. Bundling them means
@@ -573,6 +574,18 @@ export function registerIpc(onRecents?: () => void): void {
   // Le remplacement passe par le même portail que tout le reste : un chemin
   // vient du rendu, donc il est vérifié contre le dossier ouvert avant qu'on y
   // écrive — même quand il sort de notre propre recherche.
+  // La palette de commandes lit le menu, et passe par lui pour agir : une
+  // seule liste, et chaque commande fait exactement ce que fait son entrée de
+  // menu, rôles d'Electron compris (zoom, plein écran, outils).
+  ipcMain.handle("menu:list", async () => flattenMenu(Menu.getApplicationMenu()))
+  ipcMain.handle("menu:run", async (event, id: string) => {
+    const { win } = requireWorkspace(event)
+    const item = findMenuItem(Menu.getApplicationMenu(), String(id ?? ""))
+    if (!item) return false
+    item.click(undefined, win, win.webContents)
+    return true
+  })
+
   // Tous les chemins du projet, pour Quick Open.
   ipcMain.handle("files:all", async (event) => {
     const { ws } = requireWorkspace(event)

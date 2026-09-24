@@ -124,3 +124,28 @@ export function splitLine(query: string): { query: string; line: number | null; 
   if (!m) return { query, line: null, column: null }
   return { query: m[1], line: Number(m[2]), column: m[3] ? Number(m[3]) : null }
 }
+
+// formatAccelerator : un raccourci d'Electron, écrit comme la plateforme
+// l'écrit. `CmdOrCtrl+Shift+P` se lit ⇧⌘P sur un Mac et Ctrl+Shift+P
+// ailleurs — l'ordre des symboles est celui des menus d'Apple, pas celui de la
+// chaîne.
+export function formatAccelerator(accelerator: string, platform: string): string {
+  if (!accelerator) return ""
+  const parts = accelerator.split("+")
+  const touche = parts.pop() ?? ""
+  const mods = new Set(parts.map((p) => p.toLowerCase()))
+  const mac = platform === "darwin"
+  const commande = mods.has("cmdorctrl") || mods.has("commandorcontrol") || mods.has("cmd") || mods.has("command")
+  const ctrl = mods.has("ctrl") || mods.has("control")
+  const alt = mods.has("alt") || mods.has("option")
+  const shift = mods.has("shift")
+  if (mac) {
+    return `${ctrl ? "⌃" : ""}${alt ? "⌥" : ""}${shift ? "⇧" : ""}${commande ? "⌘" : ""}${touche.toUpperCase()}`
+  }
+  const out: string[] = []
+  if (commande || ctrl) out.push("Ctrl")
+  if (alt) out.push("Alt")
+  if (shift) out.push("Shift")
+  out.push(touche.length === 1 ? touche.toUpperCase() : touche)
+  return out.join("+")
+}

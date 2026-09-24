@@ -580,6 +580,12 @@ const api = {
     onCloseTab: (cb: () => void): Unsubscribe => on("menu:close-tab", cb),
     onReopenTab: (cb: () => void): Unsubscribe => on("menu:reopen-tab", cb),
     onQuickOpen: (cb: () => void): Unsubscribe => on("menu:quick-open", cb),
+    onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),
+    /** Le menu de l'application, à plat, pour la palette de commandes. */
+    list: (): Promise<{ id: string; label: string; group: string; accelerator: string }[]> =>
+      invoke("menu:list"),
+    /** Faire ce que fait une entrée du menu, désignée par son chemin. */
+    run: (id: string): Promise<boolean> => invoke("menu:run", id),
     onToggleTerminal: (cb: () => void): Unsubscribe => on("menu:toggle-terminal", cb),
     onFindInFile: (cb: () => void): Unsubscribe => on("menu:find-in-file", cb),
     onFindInProject: (cb: () => void): Unsubscribe => on("menu:find-in-project", cb),

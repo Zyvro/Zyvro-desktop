@@ -29,7 +29,7 @@ const rel = (p) => path.join(ROOT, p).replace(/\\/g, "/")
 writeFileSync(path.join(dir, "electron.js"), `module.exports = { shell: {}, app: {} }\n`)
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export * from "${rel("src/shared/fuzzy")}"\nexport { listFiles } from "${rel("src/main/search")}"\n`
+  `export * from "${rel("src/shared/fuzzy")}"\nexport { listFiles } from "${rel("src/main/search")}"\nexport * from "${rel("src/main/menulist")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -112,6 +112,40 @@ check(
   }
 }
 
+// ---- la palette de commandes ------------------------------------------------
+{
+  check("**⇧⌘P sur un Mac**", f.formatAccelerator("CmdOrCtrl+Shift+P", "darwin") === "⇧⌘P", f.formatAccelerator("CmdOrCtrl+Shift+P", "darwin"))
+  check("**Ctrl+Shift+P ailleurs**", f.formatAccelerator("CmdOrCtrl+Shift+P", "win32") === "Ctrl+Shift+P")
+  check("⌥⌘S : l'ordre des symboles d'Apple", f.formatAccelerator("CmdOrCtrl+Alt+S", "darwin") === "⌥⌘S")
+  check("sans raccourci, rien", f.formatAccelerator("", "darwin") === "")
+
+  const item = (o) => ({ type: "normal", visible: true, enabled: true, label: "", ...o })
+  const menu = {
+    items: [
+      item({ label: "&File", submenu: { items: [
+        item({ label: "Save", accelerator: "CmdOrCtrl+S" }),
+        item({ type: "separator" }),
+        item({ label: "Open Recent", submenu: { items: [item({ label: "proj" })] } }),
+        item({ label: "Disabled", enabled: false }),
+      ] } }),
+      item({ label: "Edit", submenu: { items: [item({ label: "Copy", role: "copy" }), item({ label: "Find in File" })] } }),
+      item({ label: "View", submenu: { items: [item({ label: "Zoom In", role: "zoomIn" })] } }),
+    ],
+  }
+  const plat = f.flattenMenu(menu)
+  const ids = plat.map((c) => c.id)
+  check(
+    "**le menu mis à plat, chemins compris**",
+    ids.join("|") === "File › Save|File › Open Recent › proj|Edit › Find in File|View › Zoom In",
+    ids.join("|")
+  )
+  check("le raccourci suit l'entrée", plat[0].accelerator === "CmdOrCtrl+S" && plat[0].group === "File")
+  check("**Copy n'est pas dans la palette : il copierait la requête**", !ids.includes("Edit › Copy"))
+  check("une entrée grisée n'y est pas", !ids.some((id) => id.includes("Disabled")))
+  check("**et chaque identifiant retrouve son entrée**", plat.every((c) => f.findMenuItem(menu, c.id)?.label.replace(/&/g, "") === c.label))
+  check("un chemin inconnu ne trouve rien", f.findMenuItem(menu, "File › Nope") === null && f.findMenuItem(menu, "File") === null)
+}
+
 // ---- le câblage ---------------------------------------------------------------
 {
   const menu = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
@@ -120,6 +154,7 @@ check(
   check("le rendu l'écoute", /onQuickOpen\(\(\) => \{\s*openQuickOpen\(\)/.test(bridge))
   const app = readFileSync(path.join(ROOT, "src/renderer/App.tsx"), "utf8")
   check("et la boîte est montée", /<QuickOpen \/>/.test(app))
+  check("**⇧⌘P ouvre la palette, qui est la même boîte**", /label: "Command Palette…",\s*accelerator: "CmdOrCtrl\+Shift\+P"/.test(menu) && /openQuickOpen\(">"\)/.test(bridge))
 }
 
 if (failures) {
