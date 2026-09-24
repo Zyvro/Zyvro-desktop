@@ -330,3 +330,21 @@ export async function deleteEntry(root: string, relative: string): Promise<void>
   // dos de quelqu'un qui a lu « mettre à la corbeille ».
   await shell.trashItem(target)
 }
+
+// existingFiles : lesquels de ces chemins sont des fichiers du projet.
+//
+// Pour les liens du terminal : un texte qui ressemble à un chemin — `e.g`,
+// `v1.2` — n'en devient un lien que s'il désigne vraiment un fichier. Par le
+// portail comme le reste : un chemin hors du projet répond non, sans erreur.
+export async function existingFiles(root: string, relatives: string[]): Promise<boolean[]> {
+  return Promise.all(
+    relatives.slice(0, 200).map(async (relative) => {
+      try {
+        const file = await resolveInside(root, String(relative))
+        return (await fs.stat(file)).isFile()
+      } catch {
+        return false
+      }
+    })
+  )
+}

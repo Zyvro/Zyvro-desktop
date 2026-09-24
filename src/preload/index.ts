@@ -239,6 +239,8 @@ const api = {
       }
       return invoke("files:import", sources, intoDir)
     },
+    /** Lesquels de ces chemins relatifs sont des fichiers du projet. */
+    exist: (relatives: string[]): Promise<boolean[]> => invoke("files:exist", relatives),
     /** Tous les fichiers du projet, relatifs, pour Quick Open (⌘P). */
     all: (): Promise<{ files: string[]; truncated: boolean }> => invoke("files:all"),
     watch: (relative: string): Promise<boolean> => invoke("files:watch", relative),

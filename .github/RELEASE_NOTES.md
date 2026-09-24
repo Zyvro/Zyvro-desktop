@@ -49,6 +49,16 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.14
+
+**Click a file path in the terminal to open it at that line.** Compiler errors,
+failing tests and stack traces all say where to look: `src/app.ts:12:5`,
+`src/app.ts(12,5)`, Python's `File "app/main.py", line 12`, the absolute paths
+in a Node stack trace. They are now links, underlined when you point at them,
+that open the file in the editor with the cursor on the line and column. Only
+paths that name a real file in the project become links, so `e.g.` or `v1.2.3`
+stay plain text, and web addresses still open in your browser.
+
 ## New in alpha.13
 
 **Settings (⌘, / Ctrl+,).** Font size, tab size, spaces or tabs, whether to

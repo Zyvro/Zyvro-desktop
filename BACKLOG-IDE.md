@@ -9,17 +9,28 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-2. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
-    sait déjà transporter.
-3. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-4. **Terminal : effacer (Cmd+K) et scinder.**
-5. **Éditeurs côte à côte et fil d'Ariane.**
-6. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+1. **Git dans la marge de l'éditeur.** Les lignes ajoutées, modifiées,
+   supprimées, en couleur à gauche du texte, comme VS Code ; clic pour voir
+   l'ancien texte.
+2. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+3. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+   sait déjà transporter.
+4. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
+   (⌘⇧O) sur le plan du fichier.
+5. **Terminal : effacer (Cmd+K) et scinder.**
+6. **Fil d'Ariane** au-dessus de l'éditeur.
+7. **Éditeurs côte à côte** (⌘\).
+8. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
+   sautent à la ligne qui commence ainsi.
+9. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+    choix à l'enregistrement.
+10. **Fichiers récents** dans File › Open Recent, à côté des projets.
+11. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+12. **Réglages de plus** : paires de crochets colorées, défilement collant
+    (sticky scroll), zoom de la fenêtre retenu.
 
 Petits correctifs repérés en passant :
 
-- fichiers récents à côté des projets récents ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés.
 
 ## Livré
@@ -71,3 +82,6 @@ Petits correctifs repérés en passant :
   tabulation, indentation devinée ou non, retour à la ligne, minimap, numéros
   de ligne, espaces visibles ; appliqués aux éditeurs ouverts. Sauvegarde
   après un délai ou à la perte du focus, éteinte par défaut.
+- **0.1.0-alpha.14 — les chemins du terminal sont des liens.** `a.ts:12:5`,
+  `a.ts(12,5)`, `File "a.py", line 12`, traces de Node ; seulement les vrais
+  fichiers du projet (`files:exist`), et les adresses web restent au lien web.

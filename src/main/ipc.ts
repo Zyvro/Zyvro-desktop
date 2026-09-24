@@ -586,6 +586,11 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  ipcMain.handle("files:exist", async (event, relatives: string[]) => {
+    const { ws } = requireWorkspace(event)
+    return files.existingFiles(requireRoot(ws), Array.isArray(relatives) ? relatives : [])
+  })
+
   // Tous les chemins du projet, pour Quick Open.
   ipcMain.handle("files:all", async (event) => {
     const { ws } = requireWorkspace(event)

@@ -5,6 +5,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links"
 import { Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { droppedText } from "../../shared/dropped"
+import { findPathLinks, toProjectPath, type PathLink } from "../../shared/termlinks"
+import { revealAt } from "~/state/reveal"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
@@ -163,6 +165,41 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       void window.zyvro.openExternal(uri)
     })
   )
+
+  // Les chemins de fichiers aussi : une erreur de compilation ou une trace de
+  // pile s'ouvre dans l'éditeur, à la ligne dite, d'un clic — comme dans VS
+  // Code. Seulement ce qui désigne un vrai fichier du projet (`shared/termlinks`).
+  term.registerLinkProvider({
+    provideLinks(y, callback) {
+      const root = useWorkspace.getState().project?.project
+      const ligne = term.buffer.active.getLine(y - 1)?.translateToString(true) ?? ""
+      if (!root || !ligne) return callback(undefined)
+      const trouves = findPathLinks(ligne)
+        .map((l) => ({ l, rel: toProjectPath(l.path, root, window.zyvro.platform) }))
+        .filter((x): x is { l: PathLink; rel: string } => x.rel !== null)
+      if (trouves.length === 0) return callback(undefined)
+      void window.zyvro.files.exist(trouves.map((x) => x.rel)).then(
+        (existe) =>
+          callback(
+            trouves
+              .filter((_, i) => existe[i])
+              .map(({ l, rel }) => ({
+                // xterm compte ses colonnes à partir de 1, fin incluse.
+                range: { start: { x: l.start + 1, y }, end: { x: l.end, y } },
+                text: ligne.slice(l.start, l.end),
+                decorations: { pointerCursor: true, underline: true },
+                activate: () => {
+                  useWorkspace.getState().openFile(rel)
+                  if (l.line !== null) {
+                    revealAt({ path: rel, line: l.line - 1, column: Math.max(0, (l.column ?? 1) - 1), length: 0 })
+                  }
+                },
+              }))
+          ),
+        () => callback(undefined)
+      )
+    },
+  })
 
   term.open(node)
   if (hasSize(node)) fitAddon.fit()
