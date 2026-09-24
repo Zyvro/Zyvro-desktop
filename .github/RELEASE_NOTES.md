@@ -49,6 +49,17 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.12
+
+**An icon for every kind of file**, as in VS Code and Cursor: the TypeScript,
+React, Go, Python or Docker logo, a green `package.json`, a flask for a test file,
+and folders drawn after what they hold (`src`, `components`, `tests`, `docs`,
+`.github`). They are in the file tree, on the editor tabs and in Go to File.
+
+The icons are [Material Icon Theme](https://github.com/material-extensions/vscode-material-icon-theme)'s,
+the most installed icon theme for both editors, used under its MIT license; the
+notice ships with the app in `THIRD-PARTY-NOTICES.md`.
+
 ## New in alpha.11
 
 **Git in the file tree.** Changed files are colored and carry their letter at the

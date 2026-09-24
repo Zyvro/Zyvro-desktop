@@ -1,7 +1,8 @@
 import { useCallback, useMemo, useState, useSyncExternalStore } from "react"
 import * as Dialog from "@radix-ui/react-dialog"
 import { useQuery } from "@tanstack/react-query"
-import { File as FileIcon, Loader2, SquareTerminal } from "lucide-react"
+import { Loader2, SquareTerminal } from "lucide-react"
+import { FileTypeIcon } from "~/lib/fileIcons"
 import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { revealAt } from "~/state/reveal"
@@ -254,7 +255,7 @@ function QuickOpenDialog() {
                   onMouseMove={() => setChoisi(i)}
                   onClick={() => ouvrir(r.path)}
                 >
-                  <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <FileTypeIcon name={nom} className="h-3.5 w-3.5" />
                   <span className="shrink-0">
                     <Surligne texte={nom} positions={positions} debut={coupe} />
                   </span>

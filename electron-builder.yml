@@ -13,6 +13,9 @@ files:
   # buildResources are inputs to the packager, not files it copies. The window
   # and taskbar icon is looked up at runtime, so it has to be shipped too.
   - resources/icon.png
+  # Les icônes de fichiers viennent de Material Icon Theme, sous licence MIT,
+  # qui demande que sa notice voyage avec toute copie : elle est dans l'app.
+  - THIRD-PARTY-NOTICES.md
 
   # Everything the renderer uses is already bundled into out/ by Vite, so the
   # packages themselves are dead weight: monaco-editor alone is 98 MB of source

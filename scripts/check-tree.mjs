@@ -47,6 +47,19 @@ await build({
   alias: { "@": path.join(ROOT, "../Zyvro-frontend/src"), "~": path.join(ROOT, "src/renderer") },
   define: { "process.env.NEXT_PUBLIC_API_URL": '"http://127.0.0.1:0"' },
   absWorkingDir: ROOT, logLevel: "silent",
+  // Les icônes de fichiers passent par `import.meta.glob`, que seul Vite sait
+  // lire, et par Monaco : ni l'un ni l'autre n'a sa place dans une
+  // vérification de la liste à plat. Une icône vide les remplace ici.
+  plugins: [{
+    name: "icones-vides",
+    setup(b) {
+      b.onResolve({ filter: /lib\/fileIcons$/ }, () => ({ path: "fileIcons", namespace: "vide" }))
+      b.onLoad({ filter: /.*/, namespace: "vide" }, () => ({
+        contents: "export const FileTypeIcon = () => null",
+        loader: "js",
+      }))
+    },
+  }],
 })
 const { aplatir, ROW_HEIGHT, OVERSCAN } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
 

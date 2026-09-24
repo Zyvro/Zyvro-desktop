@@ -4,7 +4,6 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
-  File as FileIcon,
   FilePlus2,
   FolderPlus,
   Loader2,
@@ -22,6 +21,7 @@ import { EntryMenu } from "~/panels/EntryMenu"
 import { ancestorsOf, navigate, scrollToShow } from "../../shared/treenav"
 import { renameEntry, trashEntry } from "~/lib/entryActions"
 import { useGitStatus } from "~/lib/git"
+import { FileTypeIcon } from "~/lib/fileIcons"
 import { decorations, type Decoration, type Tone } from "../../shared/gitdecor"
 
 // Les couleurs de git, celles de VS Code en thème sombre, à peu près. Ici et
@@ -40,24 +40,6 @@ const TONE_CLASS: Record<Tone, string> = {
 
 function dirKey(path: string) {
   return ["files", "list", path] as const
-}
-
-const FILE_TINT: Record<string, string> = {
-  ts: "text-sky-300",
-  tsx: "text-sky-300",
-  js: "text-amber-300",
-  jsx: "text-amber-300",
-  json: "text-amber-200",
-  go: "text-cyan-300",
-  md: "text-blue-200",
-  css: "text-fuchsia-300",
-  py: "text-emerald-300",
-  zyvro: "text-violet-300",
-}
-
-function tintFor(name: string): string {
-  const ext = name.split(".").pop()?.toLowerCase() ?? ""
-  return FILE_TINT[ext] ?? "text-muted-foreground"
 }
 
 // ROW_HEIGHT : la hauteur d'une ligne, en pixels, et elle doit être exacte.
@@ -204,6 +186,8 @@ function Row({
         enMain = []
       }}
     >
+      {/* Le chevron, ou sa place : un fichier s'aligne sur le dossier voisin,
+          comme dans VS Code, et les icônes font une colonne. */}
       {entry.kind === "directory" ? (
         isOpen ? (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -211,8 +195,9 @@ function Row({
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )
       ) : (
-        <FileIcon className={cn("h-3.5 w-3.5 shrink-0", tintFor(entry.name))} />
+        <span className="h-3.5 w-3.5 shrink-0" />
       )}
+      <FileTypeIcon name={entry.name} folder={entry.kind === "directory"} open={isOpen} />
       <span className={cn("truncate", decor ? TONE_CLASS[decor.tone] : folderTone && TONE_CLASS[folderTone])}>
         {entry.name}
       </span>

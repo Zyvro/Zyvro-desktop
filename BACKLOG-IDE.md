@@ -9,19 +9,17 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Icônes par type de fichier**, celles de Material Icon Theme (MIT), dans
-   l'arbre, les onglets et ⌘P (demandé).
-2. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
+1. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
    désactivée par défaut.
-3. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
+2. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-4. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-5. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+3. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+4. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-6. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-7. **Terminal : effacer (Cmd+K) et scinder.**
-8. **Éditeurs côte à côte et fil d'Ariane.**
-9. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+5. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+6. **Terminal : effacer (Cmd+K) et scinder.**
+7. **Éditeurs côte à côte et fil d'Ariane.**
+8. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -70,3 +68,6 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.11 — les onglets de VS Code.** Aperçu en italique, épinglé
   par double-clic ou par une modification (même enregistrée) ; onglets
   réordonnés en les glissant.
+- **0.1.0-alpha.12 — une icône par type de fichier.** Celles de Material Icon
+  Theme (MIT, notice dans THIRD-PARTY-NOTICES.md), résolues selon les règles
+  de VS Code (`shared/fileicons`), dans l'arbre, les onglets et ⌘P.

@@ -4,6 +4,7 @@ import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Tab } from "~/state/workspace"
 import { requestCloseTab, requestCloseTabs, tabsToClose } from "~/lib/closing"
+import { FileTypeIcon } from "~/lib/fileIcons"
 import { CodeEditor } from "./CodeEditor"
 import { GraphTab } from "./GraphTab"
 import { DiffView } from "./DiffView"
@@ -107,9 +108,12 @@ function TabButton({
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
         onClick={() => activateTab(tab.id)}
       >
-        {/* Seuls les onglets de navigateur portent une icône : c'est ce qui les
-            distingue entre eux, là où un fichier se distingue par son nom. */}
+        {/* Une page porte son favicon, un fichier l'icône de son type — la même
+            que dans l'arbre, pour qu'on reconnaisse l'un dans l'autre. */}
         {tab.kind === "browser" && <Favicon key={tab.icon} icon={tab.icon} className="h-3.5 w-3.5" />}
+        {(tab.kind === "file" || tab.kind === "diff") && (
+          <FileTypeIcon name={tab.path.slice(tab.path.lastIndexOf("/") + 1)} className="h-3.5 w-3.5" />
+        )}
         <span className={cn("truncate", apercu && "italic")}>{tab.title}</span>
       </button>
       <button
