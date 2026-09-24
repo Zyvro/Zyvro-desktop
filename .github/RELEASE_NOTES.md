@@ -49,6 +49,16 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.15
+
+**Git in the editor's margin.** As in VS Code, the gutter beside the line numbers
+shows what changed since the last commit: a green bar for added lines, a blue
+bar for modified ones, and a small red triangle where lines were deleted. The
+same marks appear along the scrollbar, so you can find your changes in a long
+file. They follow your typing and refresh after a commit or a checkout. It works
+when the project is a subfolder of a larger repository, and it stays out of Git
+Output, which remains a log of what you ran.
+
 ## New in alpha.14
 
 **Click a file path in the terminal to open it at that line.** Compiler errors,

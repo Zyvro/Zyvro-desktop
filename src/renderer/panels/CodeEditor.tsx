@@ -8,6 +8,7 @@ import { useWorkspace } from "~/state/workspace"
 import { registerSaver } from "~/state/savers"
 import { getSettings, subscribeSettings } from "~/state/settings"
 import { lineHeightFor, type EditorSettings } from "../../shared/settings"
+import { lineChanges, type LineChange } from "../../shared/linediff"
 import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 
 // Monaco is imperative: it wants a DOM node and gives back an instance to
@@ -16,6 +17,31 @@ import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 // and with null on unmount, which is the whole lifecycle we need.
 
 type Props = { tabId: string; path: string }
+
+// Les marques de git dans la marge, comme VS Code : une barre verte pour ce
+// qui est ajouté, bleue pour ce qui est modifié, un triangle rouge là où des
+// lignes ont disparu. Et leur rappel dans l'ascenseur, à gauche.
+const GIT_MARK: Record<LineChange["kind"], { className: string; color: string }> = {
+  added: { className: "zy-git-added", color: "#2ea04399" },
+  modified: { className: "zy-git-modified", color: "#1f6febaa" },
+  deleted: { className: "zy-git-deleted", color: "#f8514999" },
+}
+
+function gitDecorations(changes: LineChange[]): monaco.editor.IModelDeltaDecoration[] {
+  return changes.map((c) => {
+    // Une suppression tout en haut se marque sur la première ligne, par le haut.
+    const ligne = Math.max(1, c.start)
+    const mark = GIT_MARK[c.kind]
+    return {
+      range: new monaco.Range(ligne, 1, c.kind === "deleted" ? ligne : c.end, 1),
+      options: {
+        isWholeLine: true,
+        linesDecorationsClassName: c.kind === "deleted" && c.start === 0 ? "zy-git-deleted-top" : mark.className,
+        overviewRuler: { color: mark.color, position: monaco.editor.OverviewRulerLane.Left },
+      },
+    }
+  })
+}
 
 // Ce que les réglages changent dans un éditeur déjà ouvert. Les mêmes options à
 // la création et à chaque changement : deux listes, c'est un réglage qui ne
@@ -133,6 +159,42 @@ export function CodeEditor({ tabId, path }: Props) {
         if (getSettings().autoSave === "onFocusChange") sauverSiModifie()
       }
       const blurred = editor.onDidBlurEditorText(perdFocus)
+
+      // La marge de git. Le texte du dernier commit est demandé à l'ouverture,
+      // puis de nouveau quand HEAD bouge — un commit, un checkout — que le
+      // statut de git, déjà sondé pour le panneau, dit sans rien coûter de
+      // plus. Le diff se refait après la frappe, pas à chaque touche.
+      const marques = editor.createDecorationsCollection()
+      let head: string | null = null
+      let headDe = ""
+      let calcul: ReturnType<typeof setTimeout> | null = null
+      const recalculer = () => {
+        if (calcul) clearTimeout(calcul)
+        calcul = setTimeout(() => {
+          calcul = null
+          marques.set(head === null ? [] : gitDecorations(lineChanges(head, editor.getValue())))
+        }, 250)
+      }
+      const relireHead = () => {
+        void window.zyvro.git.headText(path).then(
+          (texte) => {
+            head = texte
+            recalculer()
+          },
+          () => undefined
+        )
+      }
+      relireHead()
+      const offGit = client.getQueryCache().subscribe((event) => {
+        const key = event.query.queryKey
+        if (event.type !== "updated" || key[0] !== "git" || key[1] !== "status") return
+        const data = event.query.state.data as { repository?: boolean; head?: string | null } | undefined
+        const sha = data?.repository ? (data.head ?? "") : ""
+        if (sha !== headDe) {
+          headDe = sha
+          relireHead()
+        }
+      })
       window.addEventListener("blur", perdFocus)
 
       // Ce que la barre d'état affiche de cet éditeur. Publié à chaque
@@ -190,6 +252,7 @@ export function CodeEditor({ tabId, path }: Props) {
           setDraft(tabId, texte)
           apresFrappe()
         }
+        recalculer()
       })
 
       // Aller à un résultat de recherche : le panneau ouvre le fichier et
@@ -231,6 +294,9 @@ export function CodeEditor({ tabId, path }: Props) {
         unregister()
         unregisterEditor()
         offSettings()
+        offGit()
+        if (calcul) clearTimeout(calcul)
+        marques.clear()
         blurred.dispose()
         window.removeEventListener("blur", perdFocus)
         if (minuterie) clearTimeout(minuterie)

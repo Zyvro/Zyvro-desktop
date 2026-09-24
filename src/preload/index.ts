@@ -525,6 +525,8 @@ const api = {
     commit: (message: string, options: CommitOptions = {}): Promise<void> =>
       invoke("git:commit", message, options),
     diff: (path: string, staged: boolean): Promise<string> => invoke("git:diff", path, staged),
+    /** Le fichier au dernier commit, chemin relatif au projet ; null s'il n'y en a pas. */
+    headText: (path: string): Promise<string | null> => invoke("git:head-text", path),
     fileAt: (path: string, revision: string): Promise<string> =>
       invoke("git:file-at", path, revision),
     log: (limit?: number): Promise<LogEntry[]> => invoke("git:log", limit),

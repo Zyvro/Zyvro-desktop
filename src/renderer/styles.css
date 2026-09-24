@@ -135,3 +135,35 @@ button,
 .zy-progress {
   animation: zy-progress 1.15s ease-in-out infinite;
 }
+
+/* La marge de git dans l'éditeur, comme VS Code : une barre pour les lignes
+   ajoutées ou modifiées, un triangle là où des lignes ont disparu. Monaco pose
+   ces classes dans la colonne entre les numéros et le texte. */
+.monaco-editor .zy-git-added,
+.monaco-editor .zy-git-modified {
+  width: 3px !important;
+  margin-left: 3px;
+}
+.monaco-editor .zy-git-added {
+  background: #2ea043;
+}
+.monaco-editor .zy-git-modified {
+  background: #1f6feb;
+}
+.monaco-editor .zy-git-deleted::after,
+.monaco-editor .zy-git-deleted-top::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid #f85149;
+}
+.monaco-editor .zy-git-deleted::after {
+  bottom: -4px;
+}
+.monaco-editor .zy-git-deleted-top::after {
+  top: -4px;
+}

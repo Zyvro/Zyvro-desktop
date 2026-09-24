@@ -52,6 +52,10 @@ type RunOptions = {
   // Commands that answer with a non-zero code in an ordinary situation say so
   // here, so "nothing to do" does not raise.
   allow?: number[]
+  // Hors du journal de Git Output : ce que l'application demande pour
+  // elle-même à chaque fichier ouvert — la marge de l'éditeur — et que
+  // personne n'a lancé. Le journal est là pour les gestes de la personne.
+  quiet?: boolean
 }
 
 // Show Git Output, which VS Code has and which is the only honest answer to
@@ -116,7 +120,9 @@ function run(root: string, args: string[], options: RunOptions = {}): Promise<st
     })
     child.on("close", (code) => {
       const status = code ?? -1
-      record({ at: new Date().toISOString(), args, code: status, stderr: err.trim(), ms: Date.now() - started })
+      if (!options.quiet) {
+        record({ at: new Date().toISOString(), args, code: status, stderr: err.trim(), ms: Date.now() - started })
+      }
       if (status === 0 || options.allow?.includes(status)) return resolve(out)
       reject(new GitError(firstLine(err) || `git ${args[0]} failed (${status})`, status, err))
     })
@@ -379,6 +385,20 @@ export async function diff(root: string, relative: string, staged: boolean): Pro
   if (staged) args.push("--staged")
   args.push("--", relative)
   return run(root, args)
+}
+
+// headText : ce que contient un fichier au dernier commit, pour la marge de
+// l'éditeur. Le chemin est relatif au *projet* : `HEAD:./chemin` se lit depuis
+// le dossier courant, là où `HEAD:chemin` se lirait depuis la racine du dépôt
+// et manquerait tout projet ouvert dans un sous-dossier. null quand il n'y a
+// rien à comparer — pas de dépôt, pas de commit, fichier jamais commité.
+export async function headText(root: string, relative: string): Promise<string | null> {
+  await resolveInside(root, relative)
+  try {
+    return await run(root, ["show", `HEAD:./${relative.replace(/\\/g, "/")}`], { quiet: true })
+  } catch {
+    return null
+  }
 }
 
 // fileAt reads a path as of a revision, which is what a side-by-side diff needs
