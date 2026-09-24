@@ -101,7 +101,9 @@ export function toProjectPath(linkPath: string, root: string, platform: string):
 // Code. Pas de raccourci ailleurs, comme dans VS Code : Ctrl+K y appartient au
 // shell (effacer jusqu'à la fin de la ligne), et le voler casserait readline.
 export function estEffacement(
-  e: Pick<KeyboardEvent, "type" | "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+  // Une forme et pas `KeyboardEvent` : ce module est aussi compilé pour le
+  // processus principal, qui n'a pas le DOM.
+  e: { type: string; key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean },
   platform: string
 ): boolean {
   return (
