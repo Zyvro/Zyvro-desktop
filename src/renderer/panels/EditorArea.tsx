@@ -1,8 +1,9 @@
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
+import * as Menu from "@radix-ui/react-dropdown-menu"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Tab } from "~/state/workspace"
-import { requestCloseTab } from "~/lib/closing"
+import { requestCloseTab, requestCloseTabs, tabsToClose } from "~/lib/closing"
 import { CodeEditor } from "./CodeEditor"
 import { GraphTab } from "./GraphTab"
 import { DiffView } from "./DiffView"
@@ -17,7 +18,15 @@ import { Favicon } from "./BrowserList"
 // file would lose its viewport, its selection and any run in progress, so tabs
 // are hidden rather than destroyed, and only the active one is visible.
 
-function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
+function TabButton({
+  tab,
+  active,
+  onMenu,
+}: {
+  tab: Tab
+  active: boolean
+  onMenu: (tabId: string, at: { x: number; y: number }) => void
+}) {
   const activateTab = useWorkspace((s) => s.activateTab)
   const dirty = useWorkspace((s) => tab.id in s.drafts)
 
@@ -35,6 +44,10 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
   return (
     <div
       ref={reveal}
+      onContextMenu={(event) => {
+        event.preventDefault()
+        onMenu(tab.id, { x: event.clientX, y: event.clientY })
+      }}
       // Le clic du milieu ferme, comme dans un navigateur et dans VS Code.
       onAuxClick={(event) => {
         if (event.button !== 1) return
@@ -92,9 +105,89 @@ function TabBody({ tab }: { tab: Tab }) {
   }
 }
 
+const itemMenu =
+  "flex cursor-default select-none items-center justify-between gap-6 rounded px-2 py-1 text-[12px] outline-none data-[highlighted]:bg-white/[0.09] data-[disabled]:opacity-40"
+
+// Le clic droit sur un onglet : ce que VS Code y propose et que cette
+// application sait faire. Un seul menu pour toute la barre, ancré au curseur.
+function TabMenu({
+  tabId,
+  at,
+  onClose,
+}: {
+  tabId: string
+  at: { x: number; y: number }
+  onClose: () => void
+}) {
+  const tabs = useWorkspace((s) => s.tabs)
+  const root = useWorkspace((s) => s.project?.project ?? null)
+  const tab = tabs.find((t) => t.id === tabId)
+  if (!tab) return null
+  const ids = tabs.map((t) => t.id)
+  const puis = (action: () => void | Promise<unknown>) => () => {
+    onClose()
+    void action()
+  }
+  const chemin = tab.kind === "file" || tab.kind === "diff" ? tab.path : null
+  // Le chemin absolu s'écrit avec les séparateurs du système : c'est ce qu'on
+  // colle ensuite dans un shell ou dans l'Explorateur Windows.
+  const sep = window.zyvro.platform === "win32" ? "\\" : "/"
+  const absolu =
+    chemin && root ? `${root.replace(/[\\/]$/, "")}${sep}${chemin.split("/").join(sep)}` : null
+  const revelerDans = window.zyvro.platform === "darwin" ? "Reveal in Finder" : "Reveal in File Explorer"
+  return (
+    <Menu.Root open onOpenChange={(open) => !open && onClose()}>
+      <Menu.Trigger asChild>
+        <span className="pointer-events-none fixed h-0 w-0" style={{ left: at.x, top: at.y }} />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Content className="panel z-50 min-w-[200px] p-1" align="start" sideOffset={0}>
+          <Menu.Item className={itemMenu} onSelect={puis(() => requestCloseTab(tabId))}>
+            Close
+          </Menu.Item>
+          <Menu.Item
+            className={itemMenu}
+            disabled={ids.length < 2}
+            onSelect={puis(() => requestCloseTabs(tabsToClose(ids, tabId, "others")))}
+          >
+            Close Others
+          </Menu.Item>
+          <Menu.Item
+            className={itemMenu}
+            disabled={ids.indexOf(tabId) === ids.length - 1}
+            onSelect={puis(() => requestCloseTabs(tabsToClose(ids, tabId, "right")))}
+          >
+            Close to the Right
+          </Menu.Item>
+          <Menu.Item className={itemMenu} onSelect={puis(() => requestCloseTabs(tabsToClose(ids, tabId, "all")))}>
+            Close All
+          </Menu.Item>
+          {chemin && (
+            <>
+              <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+              {absolu && (
+                <Menu.Item className={itemMenu} onSelect={puis(() => navigator.clipboard.writeText(absolu))}>
+                  Copy Path
+                </Menu.Item>
+              )}
+              <Menu.Item className={itemMenu} onSelect={puis(() => navigator.clipboard.writeText(chemin))}>
+                Copy Relative Path
+              </Menu.Item>
+              <Menu.Item className={itemMenu} onSelect={puis(() => window.zyvro.files.reveal(chemin))}>
+                {revelerDans}
+              </Menu.Item>
+            </>
+          )}
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu.Root>
+  )
+}
+
 export function EditorArea() {
   const tabs = useWorkspace((s) => s.tabs)
   const activeTabId = useWorkspace((s) => s.activeTabId)
+  const [menu, setMenu] = useState<{ tabId: string; at: { x: number; y: number } } | null>(null)
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -110,9 +203,16 @@ export function EditorArea() {
         hidden={tabs.length === 0}
       >
         {tabs.map((tab) => (
-          <TabButton key={tab.id} tab={tab} active={tab.id === activeTabId} />
+          <TabButton
+            key={tab.id}
+            tab={tab}
+            active={tab.id === activeTabId}
+            onMenu={(tabId, at) => setMenu({ tabId, at })}
+          />
         ))}
       </div>
+
+      {menu && <TabMenu key={`${menu.tabId}:${menu.at.x}:${menu.at.y}`} {...menu} onClose={() => setMenu(null)} />}
 
       <div className="relative min-h-0 flex-1">
         {tabs.map((tab) => (

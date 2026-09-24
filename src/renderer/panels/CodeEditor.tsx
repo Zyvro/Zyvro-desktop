@@ -130,8 +130,16 @@ export function CodeEditor({ tabId, path }: Props) {
         },
       })
 
+      // Revenu exactement au texte enregistré — une frappe puis son
+      // effacement, ou une annulation jusqu'au bout — le fichier n'est plus
+      // modifié : c'est ce que fait VS Code, et c'est ce qu'on voit. Sans ça
+      // l'onglet gardait son point, et le fermer posait une question sur des
+      // modifications qui n'existaient pas.
       const changed = editor.onDidChangeModelContent(() => {
-        setDraft(tabId, editor.getValue())
+        const texte = editor.getValue()
+        const enregistre = client.getQueryData<{ text?: string }>(["files", "read", path])?.text
+        if (texte === enregistre) clearDraft(tabId)
+        else setDraft(tabId, texte)
       })
 
       // Aller à un résultat de recherche : le panneau ouvre le fichier et
@@ -182,7 +190,7 @@ export function CodeEditor({ tabId, path }: Props) {
     // `draft` is deliberately absent: it is the seed value only. Including it
     // would rebuild the editor on every keystroke and throw away the cursor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [loaded, path, save, setDraft, tabId]
+    [client, clearDraft, loaded, path, save, setDraft, tabId]
   )
 
   if (file.isLoading) {

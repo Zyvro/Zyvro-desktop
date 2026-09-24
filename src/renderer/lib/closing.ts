@@ -98,3 +98,52 @@ async function demanderAvantDeFermer(combien: number): Promise<void> {
     questionEnCours = false
   }
 }
+
+// tabsToClose : ce que désignent Close Others, Close to the Right et Close All,
+// dans l'ordre de la barre. Pur, pour le vérifier sans fenêtre.
+export function tabsToClose(
+  tabIds: string[],
+  target: string,
+  which: "others" | "right" | "all"
+): string[] {
+  if (which === "all") return [...tabIds]
+  if (which === "others") return tabIds.filter((id) => id !== target)
+  const i = tabIds.indexOf(target)
+  return i < 0 ? [] : tabIds.slice(i + 1)
+}
+
+/**
+ * Fermer plusieurs onglets. Une seule question pour tous ceux qui ont des
+ * modifications, comme VS Code — vingt boîtes à la suite pour « Close All »,
+ * c'est vingt occasions de cliquer le mauvais bouton. Rend vrai quand tout est
+ * fermé.
+ */
+export async function requestCloseTabs(tabIds: string[]): Promise<boolean> {
+  const store = useWorkspace.getState()
+  const modifies = tabIds.filter((id) => id in store.drafts)
+  if (modifies.length === 1) {
+    // Un seul : la question habituelle, avec son nom.
+    for (const id of tabIds) if (!(id in store.drafts)) store.closeTab(id)
+    return requestCloseTab(modifies[0])
+  }
+  if (modifies.length > 1) {
+    const choix = await askChoice({
+      title: `Save the changes to ${modifies.length} files?`,
+      label: modifies.map(nomDe).join(", "),
+      confirmLabel: "Save All",
+      alternativeLabel: "Don't Save",
+    })
+    if (choix === null) return false
+    if (choix === "confirm") {
+      const echecs = await saveTabs(modifies)
+      if (echecs.length > 0) {
+        // Ce qui a été enregistré se ferme ; ce qui a échoué reste, devant.
+        for (const id of tabIds) if (!echecs.includes(id)) useWorkspace.getState().closeTab(id)
+        useWorkspace.getState().activateTab(echecs[0])
+        return false
+      }
+    }
+  }
+  for (const id of tabIds) useWorkspace.getState().closeTab(id)
+  return true
+}

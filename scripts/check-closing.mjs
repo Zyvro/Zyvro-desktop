@@ -30,7 +30,7 @@ const rel = (p) => path.join(ROOT, p).replace(/\\/g, "/")
 writeFileSync(
   path.join(dir, "h.ts"),
   [
-    `export { requestCloseTab, saveAll } from "${rel("src/renderer/lib/closing")}"`,
+    `export { requestCloseTab, requestCloseTabs, saveAll, tabsToClose } from "${rel("src/renderer/lib/closing")}"`,
     `export { registerSaver, saveTab } from "${rel("src/renderer/state/savers")}"`,
     `export { getPending, settle } from "${rel("src/renderer/state/prompt")}"`,
     `export { useWorkspace } from "${rel("src/renderer/state/workspace")}"`,
@@ -136,6 +136,40 @@ function etat(tabs, drafts = {}) {
   offEchec()
 }
 
+// ---- fermer plusieurs onglets -------------------------------------------------
+{
+  const ids = ["a", "b", "c", "d"]
+  check("Close Others", t.tabsToClose(ids, "b", "others").join() === "a,c,d")
+  check("**Close to the Right**", t.tabsToClose(ids, "b", "right").join() === "c,d")
+  check("rien à droite du dernier", t.tabsToClose(ids, "d", "right").length === 0)
+  check("Close All", t.tabsToClose(ids, "b", "all").join() === "a,b,c,d")
+
+  etat(["a.ts", "b.ts", "c.ts"], { "file:b.ts": "x", "file:c.ts": "y" })
+  let fini = t.requestCloseTabs(["file:a.ts", "file:b.ts", "file:c.ts"])
+  await tick()
+  const question = t.getPending()
+  check("**une seule question pour tous les fichiers modifiés**", /2 files/.test(question?.title ?? ""), question?.title)
+  t.settle(null)
+  check("Cancel ne ferme rien, pas même les propres", (await fini) === false && t.useWorkspace.getState().tabs.length === 3)
+
+  fini = t.requestCloseTabs(["file:a.ts", "file:b.ts", "file:c.ts"])
+  await tick()
+  t.settle("alternative")
+  check("Don't Save ferme tout", (await fini) === true && t.useWorkspace.getState().tabs.length === 0)
+
+  etat(["a.ts", "b.ts", "c.ts"], { "file:b.ts": "x", "file:c.ts": "y" })
+  const offB = t.registerSaver("file:b.ts", async () => (t.useWorkspace.getState().clearDraft("file:b.ts"), true))
+  const offC = t.registerSaver("file:c.ts", async () => false)
+  fini = t.requestCloseTabs(["file:a.ts", "file:b.ts", "file:c.ts"])
+  await tick()
+  t.settle("yes")
+  const ok = await fini
+  const restants = t.useWorkspace.getState().tabs.map((x) => x.id).join()
+  check("**Save All : ce qui a échoué reste ouvert, le reste se ferme**", ok === false && restants === "file:c.ts", restants)
+  offB()
+  offC()
+}
+
 // ---- le câblage ------------------------------------------------------------
 {
   const lire = (p) => readFileSync(path.join(ROOT, p), "utf8")
@@ -144,7 +178,14 @@ function etat(tabs, drafts = {}) {
     "**aucun éditeur n'écoute la commande Save du menu**",
     !/onCommand\("save"/.test(editeur) && /registerSaver\(tabId, save\)/.test(editeur)
   )
-  check("la croix d'un onglet demande", /requestCloseTab\(tab\.id\)/.test(lire("src/renderer/panels/EditorArea.tsx")))
+  const zone = lire("src/renderer/panels/EditorArea.tsx")
+  check(
+    "**revenu au texte enregistré, un fichier n'est plus modifié**",
+    /if \(texte === enregistre\) clearDraft\(tabId\)/.test(editeur),
+    "une frappe puis son effacement laissaient le point, et une question à la fermeture"
+  )
+  check("la croix d'un onglet demande", /requestCloseTab\(tab\.id\)/.test(zone))
+  check("et le clic droit offre de fermer les autres", /requestCloseTabs\(tabsToClose\(ids, tabId, "others"\)\)/.test(zone))
   const menu = lire("src/main/index.ts")
   check("**⌘W est Close Editor**", /label: "Close Editor",\s*accelerator: "CmdOrCtrl\+W"/.test(menu))
   check("et le rôle `windowMenu`, qui le reprenait sous Windows, n'est plus là", !/role: "windowMenu"/.test(menu))

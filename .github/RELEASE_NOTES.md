@@ -65,6 +65,14 @@ front of you, at the right of the status bar, as in VS Code. Each one is a
 button: the position opens Go to Line, `LF`/`CRLF` switches the file's line
 endings, and the indentation lets you choose spaces or tabs and their width.
 
+**Right-click a tab** for Close, Close Others, Close to the Right, Close All,
+Copy Path, Copy Relative Path, and Reveal in Finder (File Explorer on Windows).
+Closing several modified files asks once for all of them, not once per file.
+
+**A file you edit back to what is saved is no longer "modified".** Type a
+character and delete it, or undo all the way: the dot on the tab goes away, as in
+VS Code, and closing it no longer asks about changes that are not there.
+
 ## New in alpha.8
 
 Drag and drop, the way VS Code and Cursor do it.

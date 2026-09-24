@@ -9,25 +9,23 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
-   All, Copy Path, Reveal in Explorer.
-2. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
+1. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
    désactivée par défaut.
-3. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
+2. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-4. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
-5. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
-6. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
+3. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
+4. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
+5. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
    l'arbre.
-7. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-8. **Réordonner les onglets en les glissant.**
-9. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-10. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+6. **Onglet d'aperçu en italique, et épinglage** par double-clic.
+7. **Réordonner les onglets en les glissant.**
+8. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+9. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-11. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-12. **Terminal : effacer (Cmd+K) et scinder.**
-13. **Éditeurs côte à côte et fil d'Ariane.**
-14. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+10. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+11. **Terminal : effacer (Cmd+K) et scinder.**
+12. **Éditeurs côte à côte et fil d'Ariane.**
+13. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -62,3 +60,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.9 — la barre d'état de l'éditeur.** Ln/Col et sélection,
   indentation, LF/CRLF, langue ; chacun cliquable (Go to Line, bascule des
   fins de ligne, choix de l'indentation).
+- **0.1.0-alpha.9 — le clic droit sur un onglet.** Close, Close Others, Close to
+  the Right, Close All (une seule question pour tous les fichiers modifiés),
+  Copy Path, Copy Relative Path, Reveal in Finder. Et un fichier revenu à son
+  texte enregistré n'est plus « modifié ».
