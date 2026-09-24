@@ -316,6 +316,11 @@ function buildMenu(): void {
       label: "View",
       submenu: [
         {
+          label: "Open Markdown Preview",
+          accelerator: "CmdOrCtrl+Shift+V",
+          click: (_item, win) => send(win as BrowserWindow, "menu:markdown-preview"),
+        },
+        {
           label: "Toggle Sidebar",
           accelerator: "CmdOrCtrl+B",
           click: (_item, win) => send(win as BrowserWindow, "menu:toggle-sidebar"),

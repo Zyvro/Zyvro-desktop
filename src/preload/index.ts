@@ -585,6 +585,7 @@ const api = {
     onReopenTab: (cb: () => void): Unsubscribe => on("menu:reopen-tab", cb),
     onQuickOpen: (cb: () => void): Unsubscribe => on("menu:quick-open", cb),
     onOpenSettings: (cb: () => void): Unsubscribe => on("menu:open-settings", cb),
+    onMarkdownPreview: (cb: () => void): Unsubscribe => on("menu:markdown-preview", cb),
     onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),
     /** Le menu de l'application, à plat, pour la palette de commandes. */
     list: (): Promise<{ id: string; label: string; group: string; accelerator: string }[]> =>

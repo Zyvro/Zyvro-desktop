@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.16
+
+**Markdown preview (⇧⌘V / Ctrl+Shift+V)**, as in VS Code, or the **Preview**
+button at the top right of any Markdown file. It opens in its own tab and follows
+what you type, before you save. The same shortcut takes you back to the text.
+HTML inside a Markdown file is shown as text, never run, so a README from
+somewhere else cannot put anything into the window.
+
 ## New in alpha.15
 
 **Git in the editor's margin.** As in VS Code, the gutter beside the line numbers

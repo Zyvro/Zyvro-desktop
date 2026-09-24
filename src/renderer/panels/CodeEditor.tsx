@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { FileWarning, Loader2 } from "lucide-react"
+import { Eye, FileWarning, Loader2 } from "lucide-react"
 import { languageFor, monaco } from "~/lib/monaco"
 import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
@@ -371,7 +371,24 @@ export function CodeEditor({ tabId, path }: Props) {
           {saveError}
         </p>
       )}
-      <div ref={attach} className="min-h-0 flex-1" />
+      <div className="relative min-h-0 flex-1">
+        <div ref={attach} className="absolute inset-0" />
+        {/* Un fichier Markdown s'ouvre aussi rendu, d'un clic, comme dans VS
+            Code. En haut à droite, là où la minimap ne vient pas. */}
+        {isMarkdown(path) && (
+          <button
+            className="absolute right-5 top-2 z-10 flex items-center gap-1 rounded-md border border-white/[0.1] bg-background/80 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground"
+            title="Open Preview (⇧⌘V)"
+            onClick={() => useWorkspace.getState().openPreview(path)}
+          >
+            <Eye className="h-3 w-3" /> Preview
+          </button>
+        )}
+      </div>
     </div>
   )
+}
+
+export function isMarkdown(path: string): boolean {
+  return /\.(md|markdown|mdx)$/i.test(path)
 }

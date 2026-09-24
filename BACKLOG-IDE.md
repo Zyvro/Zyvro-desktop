@@ -9,28 +9,29 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-2. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+1. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
    sait déjà transporter.
-3. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
+2. **Panneau Problems**, depuis les marqueurs de Monaco, et **Go to Symbol**
    (⌘⇧O) sur le plan du fichier.
-4. **Terminal : effacer (Cmd+K) et scinder.**
-5. **Fil d'Ariane** au-dessus de l'éditeur.
-6. **Éditeurs côte à côte** (⌘\).
-7. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
+3. **Terminal : effacer (Cmd+K) et scinder.**
+4. **Fil d'Ariane** au-dessus de l'éditeur.
+5. **Éditeurs côte à côte** (⌘\).
+6. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
    sautent à la ligne qui commence ainsi.
-8. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+7. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
     choix à l'enregistrement.
-9. **Fichiers récents** dans File › Open Recent, à côté des projets.
-10. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-11. **Réglages de plus** : paires de crochets colorées, défilement collant
+8. **Fichiers récents** dans File › Open Recent, à côté des projets.
+9. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+10. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-12. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+11. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
 
-- `movePath` pourrait aussi faire suivre la pile des onglets fermés.
+- `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
+- l'aperçu Markdown garde la typographie du chat : des titres de document
+  plus grands, et les images relatives du dépôt.
 
 ## Livré
 
@@ -88,3 +89,6 @@ Petits correctifs repérés en passant :
   bleues, triangle rouge, et leur rappel dans l'ascenseur ; diff de lignes à la
   Myers (`shared/linediff`) borné en temps et en mémoire, `HEAD:./chemin` pour
   un projet dans un sous-dossier, hors du journal Git Output.
+- **0.1.0-alpha.16 — aperçu Markdown (⇧⌘V).** Un onglet qui suit le
+  brouillon, le rendu du chat sans HTML brut, un bouton Preview dans les
+  fichiers Markdown ; renommer le fichier renomme l'aperçu.

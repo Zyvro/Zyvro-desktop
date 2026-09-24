@@ -66,6 +66,14 @@ window.zyvro.menu.onCloseTab(() => {
 window.zyvro.menu.onReopenTab(() => {
   useWorkspace.getState().reopenClosed()
 })
+// L'aperçu du fichier Markdown qu'on regarde. Depuis l'aperçu lui-même, on
+// revient au texte : le même raccourci fait l'aller et le retour.
+window.zyvro.menu.onMarkdownPreview(() => {
+  const store = useWorkspace.getState()
+  const tab = store.tabs.find((t) => t.id === store.activeTabId)
+  if (tab?.kind === "file" && /\.(md|markdown|mdx)$/i.test(tab.path)) store.openPreview(tab.path)
+  else if (tab?.kind === "preview") store.openFile(tab.path)
+})
 window.zyvro.menu.onOpenSettings(() => {
   useWorkspace.getState().openSettings()
 })

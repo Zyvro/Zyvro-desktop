@@ -12,6 +12,7 @@ import { GitOutput } from "./GitOutput"
 import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
 import { SettingsTab } from "./SettingsTab"
+import { PreviewTab } from "./PreviewTab"
 import { StorePanel } from "./StorePanel"
 import { BrowserTab } from "./BrowserTab"
 import { Favicon } from "./BrowserList"
@@ -112,7 +113,7 @@ function TabButton({
         {/* Une page porte son favicon, un fichier l'icône de son type — la même
             que dans l'arbre, pour qu'on reconnaisse l'un dans l'autre. */}
         {tab.kind === "browser" && <Favicon key={tab.icon} icon={tab.icon} className="h-3.5 w-3.5" />}
-        {(tab.kind === "file" || tab.kind === "diff") && (
+        {(tab.kind === "file" || tab.kind === "diff" || tab.kind === "preview") && (
           <FileTypeIcon name={tab.path.slice(tab.path.lastIndexOf("/") + 1)} className="h-3.5 w-3.5" />
         )}
         <span className={cn("truncate", apercu && "italic")}>{tab.title}</span>
@@ -145,6 +146,8 @@ function TabBody({ tab }: { tab: Tab }) {
       return <ProvidersTab />
     case "settings":
       return <SettingsTab />
+    case "preview":
+      return <PreviewTab path={tab.path} />
     case "store":
       return <StorePanel />
     case "browser":
@@ -177,7 +180,7 @@ function TabMenu({
     onClose()
     void action()
   }
-  const chemin = tab.kind === "file" || tab.kind === "diff" ? tab.path : null
+  const chemin = tab.kind === "file" || tab.kind === "diff" || tab.kind === "preview" ? tab.path : null
   // Le chemin absolu s'écrit avec les séparateurs du système : c'est ce qu'on
   // colle ensuite dans un shell ou dans l'Explorateur Windows.
   const sep = window.zyvro.platform === "win32" ? "\\" : "/"

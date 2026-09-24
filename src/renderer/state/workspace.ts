@@ -16,6 +16,9 @@ export type Tab =
   | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "settings"; id: "settings"; title: string }
+  // L'aperçu d'un fichier Markdown, rendu, qui suit le texte pendant qu'on
+  // l'écrit — brouillon compris.
+  | { kind: "preview"; id: string; path: string; title: string }
   | { kind: "store"; id: "store"; title: string }
   // Plusieurs vues de navigateur, comme plusieurs onglets : une page de
   // connexion d'un côté, la page qu'on teste de l'autre, et un agent qui pilote
@@ -106,6 +109,7 @@ type WorkspaceState = {
   openGitOutput: () => void
   openProviders: () => void
   openSettings: () => void
+  openPreview: (path: string) => void
   openStore: () => void
   openBrowser: (request?: { url?: string; reuse?: boolean }) => string
   setBrowserPage: (id: string, url: string, title: string, icon?: string) => void
@@ -291,6 +295,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 
+  openPreview: (path) => {
+    const id = `preview:${path}`
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "preview", id, path, title: `Preview ${basename(path)}` }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
   openSettings: () => {
     const id = "settings"
     if (get().tabs.some((t) => t.id === id)) {
@@ -407,12 +421,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set((s) => {
       const renamed = new Map<string, string>()
       const tabs = s.tabs.map((t) => {
-        if (t.kind !== "file") return t
+        if (t.kind !== "file" && t.kind !== "preview") return t
         const path = retarget(t.path, from, to)
         if (path === null) return t
-        const id = `file:${path}`
+        const id = `${t.kind}:${path}`
         renamed.set(t.id, id)
-        return { ...t, id, path, title: basename(path) }
+        return { ...t, id, path, title: t.kind === "preview" ? `Preview ${basename(path)}` : basename(path) }
       })
       if (renamed.size === 0) return s
       const drafts: Record<string, string> = {}
