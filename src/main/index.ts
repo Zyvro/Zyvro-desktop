@@ -330,6 +330,13 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+`",
           click: (_item, win) => send(win as BrowserWindow, "menu:toggle-terminal"),
         },
+        // Sans raccourci dans le menu : ⌘K appartient à l'éditeur quand il a le
+        // focus (ses accords ⌘K ⌘C…), et au terminal seulement quand c'est lui
+        // — le terminal le prend lui-même. Ici, pour la palette.
+        {
+          label: "Clear Terminal",
+          click: (_item, win) => send(win as BrowserWindow, "menu:clear-terminal"),
+        },
         {
           label: "Toggle Agent",
           accelerator: "CmdOrCtrl+Shift+A",

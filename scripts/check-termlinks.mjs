@@ -84,9 +84,16 @@ check("Windows, sans la casse", t.toProjectPath("c:\\Work\\P\\src\\a.ts", "C:\\w
   }
 }
 
+const touche = (o) => ({ type: "keydown", key: "k", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...o })
+check("**⌘K efface le terminal sur un Mac**", t.estEffacement(touche({ metaKey: true }), "darwin"))
+check("**Ctrl+K reste au shell** (effacer jusqu'à la fin de la ligne)", !t.estEffacement(touche({ ctrlKey: true }), "linux") && !t.estEffacement(touche({ ctrlKey: true }), "darwin"))
+check("et ⌘⇧K n'est pas ⌘K", !t.estEffacement(touche({ metaKey: true, shiftKey: true }), "darwin"))
+
 const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
 check("le terminal fournit ces liens", /term\.registerLinkProvider\(/.test(panneau) && /findPathLinks\(ligne\)/.test(panneau))
 check("après avoir demandé s'ils existent", /window\.zyvro\.files\.exist\(/.test(panneau))
+check("le terminal s'efface lui-même sur ⌘K", /estEffacement\(event, window\.zyvro\.platform\)/.test(panneau) && /term\.clear\(\)/.test(panneau))
+check("et « Clear Terminal » vise le dernier qui a eu le focus", /dernierTerminal\?\.clear\(\)/.test(panneau))
 check("et un clic ouvre à la ligne", /revealAt\(\{ path: rel, line: l\.line - 1/.test(panneau))
 
 if (failures) {

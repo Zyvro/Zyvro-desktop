@@ -96,3 +96,21 @@ export function toProjectPath(linkPath: string, root: string, platform: string):
   if (p.length <= base.length || !pareil(p.slice(0, base.length), base) || p[base.length] !== "/") return null
   return p.slice(base.length + 1)
 }
+
+// estEffacement : ⌘K sur un Mac, la touche de Terminal.app, d'iTerm et de VS
+// Code. Pas de raccourci ailleurs, comme dans VS Code : Ctrl+K y appartient au
+// shell (effacer jusqu'à la fin de la ligne), et le voler casserait readline.
+export function estEffacement(
+  e: Pick<KeyboardEvent, "type" | "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+  platform: string
+): boolean {
+  return (
+    platform === "darwin" &&
+    e.type === "keydown" &&
+    e.metaKey &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !e.shiftKey &&
+    e.key.toLowerCase() === "k"
+  )
+}

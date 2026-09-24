@@ -5,7 +5,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links"
 import { Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { droppedText } from "../../shared/dropped"
-import { findPathLinks, toProjectPath, type PathLink } from "../../shared/termlinks"
+import { estEffacement, findPathLinks, toProjectPath, type PathLink } from "../../shared/termlinks"
 import { revealAt } from "~/state/reveal"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
@@ -145,6 +145,15 @@ function hasSize(node: HTMLElement): boolean {
 // mountTerminal owns one shell end to end. It returns the teardown the callback
 // ref runs when the node goes away, which is the only place a session is ever
 // destroyed.
+// Le dernier terminal qui a eu le focus : celui que « Clear Terminal » vise
+// depuis le menu ou la palette, comme VS Code vise le terminal actif.
+let dernierTerminal: Terminal | null = null
+
+/** Effacer le terminal actif, défilement compris. */
+export function clearActiveTerminal(): void {
+  dernierTerminal?.clear()
+}
+
 function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const term = new Terminal({
     allowProposedApi: true,
@@ -201,8 +210,19 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     },
   })
 
+  term.attachCustomKeyEventHandler((event) => {
+    if (!estEffacement(event, window.zyvro.platform)) return true
+    event.preventDefault()
+    term.clear()
+    return false
+  })
+
   term.open(node)
   if (hasSize(node)) fitAddon.fit()
+  dernierTerminal = term
+  term.textarea?.addEventListener("focus", () => {
+    dernierTerminal = term
+  })
 
   let ptyId: string | null = null
   let disposed = false
@@ -350,6 +370,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
 
   return () => {
     disposed = true
+    if (dernierTerminal === term) dernierTerminal = null
     observer.disconnect()
     node.removeEventListener("dragover", onDragOver)
     node.removeEventListener("drop", onDrop)

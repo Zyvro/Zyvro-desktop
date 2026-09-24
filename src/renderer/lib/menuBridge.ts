@@ -6,6 +6,7 @@ import { engineStopped } from "~/state/engine"
 import { saveTab } from "~/state/savers"
 import { requestCloseTab, saveAll } from "./closing"
 import { openQuickOpen } from "~/panels/QuickOpen"
+import { clearActiveTerminal } from "~/panels/TerminalPanel"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -73,6 +74,9 @@ window.zyvro.menu.onMarkdownPreview(() => {
   const tab = store.tabs.find((t) => t.id === store.activeTabId)
   if (tab?.kind === "file" && /\.(md|markdown|mdx)$/i.test(tab.path)) store.openPreview(tab.path)
   else if (tab?.kind === "preview") store.openFile(tab.path)
+})
+window.zyvro.menu.onClearTerminal(() => {
+  clearActiveTerminal()
 })
 window.zyvro.menu.onOpenSettings(() => {
   useWorkspace.getState().openSettings()
