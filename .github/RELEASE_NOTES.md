@@ -59,6 +59,12 @@ box as Go to File, as in VS Code: delete the `>` to search files instead.
 The palette reads the menu itself rather than keeping its own list, so a command
 and its shortcut are only ever written in one place.
 
+**The editor in the status bar.** The cursor's line and column (and how much is
+selected), the indentation, the line endings and the language of the file in
+front of you, at the right of the status bar, as in VS Code. Each one is a
+button: the position opens Go to Line, `LF`/`CRLF` switches the file's line
+endings, and the indentation lets you choose spaces or tabs and their width.
+
 ## New in alpha.8
 
 Drag and drop, the way VS Code and Cursor do it.

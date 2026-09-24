@@ -6,6 +6,7 @@ import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
 import { registerSaver } from "~/state/savers"
+import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 
 // Monaco is imperative: it wants a DOM node and gives back an instance to
 // dispose. The project bans useEffect, and this is precisely the case the
@@ -87,6 +88,48 @@ export function CodeEditor({ tabId, path }: Props) {
       })
       editorRef.current = editor
 
+      // Ce que la barre d'état affiche de cet éditeur. Publié à chaque
+      // mouvement du curseur et à chaque changement d'options du modèle ; le
+      // magasin ignore ce qui n'a pas bougé.
+      const langue = languageFor(path)
+      const nomDeLangue =
+        monaco.languages.getLanguages().find((l) => l.id === langue)?.aliases?.[0] ?? langue
+      const publier = (): void => {
+        const model = editor.getModel()
+        if (!model) return
+        const position = editor.getPosition()
+        const selection = editor.getSelection()
+        const options = model.getOptions()
+        publishEditorStatus(tabId, {
+          line: position?.lineNumber ?? 1,
+          column: position?.column ?? 1,
+          selected: selection && !selection.isEmpty() ? model.getValueInRange(selection).length : 0,
+          language: nomDeLangue,
+          eol: model.getEOL() === "\r\n" ? "CRLF" : "LF",
+          insertSpaces: options.insertSpaces,
+          tabSize: options.tabSize,
+        })
+      }
+      publier()
+      const cursorMoved = editor.onDidChangeCursorSelection(publier)
+      const optionsChanged = editor.getModel()?.onDidChangeOptions(publier)
+      const unregisterEditor = registerEditor(tabId, {
+        goToLine: () => {
+          editor.focus()
+          void editor.getAction("editor.action.gotoLine")?.run()
+        },
+        // Changer les fins de ligne change le texte : c'est un brouillon comme
+        // un autre, à enregistrer, et Monaco le signale par un changement de
+        // contenu.
+        setEol: (eol) => {
+          editor.getModel()?.pushEOL(eol === "CRLF" ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF)
+          publier()
+        },
+        setIndentation: (insertSpaces, tabSize) => {
+          editor.getModel()?.updateOptions({ insertSpaces, tabSize })
+        },
+      })
+
       const changed = editor.onDidChangeModelContent(() => {
         setDraft(tabId, editor.getValue())
       })
@@ -128,6 +171,9 @@ export function CodeEditor({ tabId, path }: Props) {
         offReveal()
         menuFind()
         unregister()
+        unregisterEditor()
+        cursorMoved.dispose()
+        optionsChanged?.dispose()
         changed.dispose()
         editor.getModel()?.dispose()
         editor.dispose()

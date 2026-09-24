@@ -9,27 +9,25 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Barre d'état de l'éditeur.** Ligne/colonne, langage, fin de ligne,
-   indentation.
-2. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
+1. **Menu contextuel des onglets.** Close Others, Close to the Right, Close
    All, Copy Path, Reveal in Explorer.
-3. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
+2. **Sauvegarde automatique** (après un délai, ou au changement d'onglet),
    désactivée par défaut.
-4. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
+3. **Réglages.** Taille de police, tabulation, retour à la ligne, minimap —
    aujourd'hui en dur dans `CodeEditor.tsx`.
-5. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
-6. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
-7. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
+4. **État git dans l'arbre.** Couleur et lettre M/U/A par fichier.
+5. **Navigation au clavier dans l'arbre.** Flèches, Entrée, F2, Suppr.
+6. **Révéler le fichier actif, tout replier.** Deux boutons dans l'en-tête de
    l'arbre.
-8. **Onglet d'aperçu en italique, et épinglage** par double-clic.
-9. **Réordonner les onglets en les glissant.**
-10. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
-11. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
+7. **Onglet d'aperçu en italique, et épinglage** par double-clic.
+8. **Réordonner les onglets en les glissant.**
+9. **Aperçu Markdown**, avec le rendu déjà utilisé par le chat.
+10. **Sélection multiple dans l'arbre** (Cmd/Maj-clic), que le glisser-déposer
     sait déjà transporter.
-12. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
-13. **Terminal : effacer (Cmd+K) et scinder.**
-14. **Éditeurs côte à côte et fil d'Ariane.**
-15. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+11. **Panneau Problems et plan du fichier**, depuis les marqueurs de Monaco.
+12. **Terminal : effacer (Cmd+K) et scinder.**
+13. **Éditeurs côte à côte et fil d'Ariane.**
+14. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
 
 Petits correctifs repérés en passant :
 
@@ -61,3 +59,6 @@ Petits correctifs repérés en passant :
   en tête. Elle lit le menu de l'application au principal (`main/menulist`)
   et passe par lui pour agir : une seule liste, un seul endroit où écrire un
   raccourci.
+- **0.1.0-alpha.9 — la barre d'état de l'éditeur.** Ln/Col et sélection,
+  indentation, LF/CRLF, langue ; chacun cliquable (Go to Line, bascule des
+  fins de ligne, choix de l'indentation).

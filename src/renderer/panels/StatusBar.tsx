@@ -9,12 +9,85 @@ import { useWorkspace } from "~/state/workspace"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 import { engineDown, subscribeEngine } from "~/state/engine"
 import { gitRunning, subscribeGit, type GitRunning } from "~/state/git"
+import * as Menu from "@radix-ui/react-dropdown-menu"
+import {
+  editorActionsOf,
+  editorStatusOf,
+  indentationText,
+  positionText,
+  subscribeEditorStatus,
+} from "~/state/editorStatus"
 
 const IDLE_GIT: GitRunning = { verb: "", done: false, failed: false }
 
 // The one line that answers "can this project actually run anything right now".
 // On a desktop app that question is mostly about which CLIs are installed, so
 // that is what it leads with.
+
+// Ce que VS Code affiche à droite de sa barre, pour l'éditeur actif : la
+// position, l'indentation, les fins de ligne et la langue. Chaque morceau est
+// aussi un bouton, comme là-bas : la position mène à « Go to Line », les fins
+// de ligne basculent entre LF et CRLF, l'indentation se choisit.
+const itemMenu =
+  "flex cursor-default select-none items-center gap-2 rounded px-2 py-1 text-[12px] outline-none data-[highlighted]:bg-white/[0.09]"
+
+function EditorPills() {
+  const tabId = useWorkspace((s) => s.activeTabId)
+  const status = useSyncExternalStore(
+    subscribeEditorStatus,
+    () => editorStatusOf(tabId),
+    () => null
+  )
+  if (!status) return null
+  const actions = editorActionsOf(tabId)
+  const bouton = "rounded px-1 hover:bg-white/[0.08] hover:text-foreground"
+  return (
+    <>
+      <button className={bouton} title="Go to Line" onClick={() => actions?.goToLine()}>
+        {positionText(status)}
+      </button>
+      <Menu.Root>
+        <Menu.Trigger asChild>
+          <button className={bouton} title="Select Indentation">
+            {indentationText(status)}
+          </button>
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Content side="top" align="end" sideOffset={6} className="panel z-50 min-w-[180px] p-1">
+            {[
+              [true, 2],
+              [true, 4],
+              [false, 2],
+              [false, 4],
+            ].map(([spaces, size]) => (
+              <Menu.Item
+                key={`${spaces}-${size}`}
+                className={itemMenu}
+                onSelect={() => actions?.setIndentation(spaces as boolean, size as number)}
+              >
+                <Check
+                  className={cn(
+                    "h-3 w-3",
+                    status.insertSpaces === spaces && status.tabSize === size ? "opacity-100" : "opacity-0"
+                  )}
+                />
+                {spaces ? `Indent using spaces: ${size}` : `Indent using tabs: ${size}`}
+              </Menu.Item>
+            ))}
+          </Menu.Content>
+        </Menu.Portal>
+      </Menu.Root>
+      <button
+        className={bouton}
+        title={status.eol === "LF" ? "Change end of line sequence to CRLF" : "Change end of line sequence to LF"}
+        onClick={() => actions?.setEol(status.eol === "LF" ? "CRLF" : "LF")}
+      >
+        {status.eol}
+      </button>
+      <span>{status.language}</span>
+    </>
+  )
+}
 
 type LocalStatus = {
   project: string
@@ -202,6 +275,8 @@ export function StatusBar() {
           {dirtyCount} unsaved file{dirtyCount === 1 ? "" : "s"}
         </span>
       )}
+
+      <EditorPills />
     </footer>
   )
 }
