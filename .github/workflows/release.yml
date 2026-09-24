@@ -16,6 +16,17 @@ on:
       version:
         description: "Version to build, e.g. 0.1.0-alpha.2"
         required: true
+      # Publier depuis un lancement manuel : le tag `v<version>` est posé par
+      # GitHub sur le commit construit, puis la release est créée comme pour un
+      # tag poussé. Faux par défaut, pour qu'un lancement à la main reste ce
+      # qu'il était — construire et laisser regarder.
+      #
+      # Il existe pour les sessions qui ne peuvent pousser qu'une branche : sans
+      # lui, une version ne devient jamais une release qu'on télécharge.
+      publish:
+        description: "Tag v<version> on this commit and publish the release"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -186,9 +197,10 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    # Only a tag publishes. A manual run builds and leaves the artifacts to be
-    # looked at, which is the point of being able to trigger it by hand.
-    if: startsWith(github.ref, 'refs/tags/v')
+    # A tag publishes. A manual run builds and leaves the artifacts to be
+    # looked at, which is the point of being able to trigger it by hand —
+    # unless it was asked to publish, in which case it tags the commit itself.
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.publish)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -199,6 +211,8 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+          # Le tag poussé, ou celui qu'un lancement manuel demande de poser.
+          TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('v{0}', inputs.version) }}
         run: |
           # The notes promise a hash for every file, and an unsigned download
           # has no other integrity check at all. Appending them here rather
@@ -218,7 +232,7 @@ jobs:
 
           # Anything with a suffix after the patch number is a pre-release.
           PRERELEASE=""
-          case "${GITHUB_REF_NAME}" in *-*) PRERELEASE="--prerelease";; esac
+          case "${TAG}" in *-*) PRERELEASE="--prerelease";; esac
 
           # La page d'abord, les fichiers ensuite, et en deux temps pour une
           # raison vécue : `gh release create` qui reçoit ses fichiers abandonne
@@ -231,15 +245,18 @@ jobs:
           # Créée seulement si elle n'existe pas : relancer ce travail après un
           # échec de téléversement doit reprendre là où il s'est arrêté, pas
           # buter sur « release already exists ».
-          if ! gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release create "${GITHUB_REF_NAME}" $PRERELEASE \
-              --title "Zyvro Studio ${GITHUB_REF_NAME}" \
+          if ! gh release view "${TAG}" >/dev/null 2>&1; then
+            # `--target` : quand le tag n'existe pas encore — lancement manuel —
+            # GitHub le pose sur le commit construit, et sur aucun autre.
+            gh release create "${TAG}" $PRERELEASE \
+              --target "${GITHUB_SHA}" \
+              --title "Zyvro Studio ${TAG}" \
               --notes-file /tmp/notes.md
           fi
 
           for f in artifacts/*; do
             for attempt in 1 2 3; do
-              if gh release upload "${GITHUB_REF_NAME}" "$f" --clobber; then
+              if gh release upload "${TAG}" "$f" --clobber; then
                 break
               fi
               if [ "$attempt" = "3" ]; then
@@ -253,7 +270,7 @@ jobs:
 
           # Une page sans ses fichiers est pire qu'une page absente : elle a
           # l'air d'une release.
-          published=$(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets | length')
+          published=$(gh release view "${TAG}" --json assets --jq '.assets | length')
           expected=$(ls artifacts | wc -l | tr -d ' ')
           if [ "$published" != "$expected" ]; then
             echo "::error::$published files on the release, $expected were built"

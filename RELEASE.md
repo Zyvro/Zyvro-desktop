@@ -46,6 +46,13 @@ looked at before they are public:
 gh release create v0.1.0-alpha.1 --prerelease --title "..." --notes-file NOTES.md dist/*.dmg dist/*.exe
 ```
 
+### Without pushing a tag
+
+Some sessions can push a branch but not a tag. The Release workflow can then be
+run by hand on that branch with `publish` checked: it builds the same three
+installers, lets GitHub put the `v<version>` tag on the commit it built, and
+publishes the release exactly as a pushed tag would.
+
 ## Version numbering
 
 `MAJOR.MINOR.PATCH` with a pre-release suffix while the product is young:

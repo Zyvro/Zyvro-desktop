@@ -20,6 +20,8 @@
 //     node scripts/check-engine-death.mjs
 import { build } from "esbuild"
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
+import { tmpdir } from "node:os"
 import path from "node:path"
 import { createRequire } from "node:module"
 
@@ -57,10 +59,13 @@ const check = (name, ok, detail = "") => {
 
 // Un faux moteur : il fait la poignée de main comme le vrai, puis meurt. C'est
 // exactement ce qu'on n'a aucun moyen de provoquer à la main sur le vrai.
-const faux = path.join(dir, "zyvrod")
-writeFileSync(
-  faux,
-  `#!/usr/bin/env node
+//
+// Un script `#!/usr/bin/env node` sur macOS et Linux. Pas sous Windows, qui ne
+// lit pas les shebangs : `spawn` y rendait ENOENT, que le démon traduit — à
+// raison — par « Could not find the local engine », et la release alpha.7 s'est
+// arrêtée là, sans .exe. Là-bas le faux moteur est un vrai exécutable, compilé
+// avec le Go que la construction exige déjà pour le moteur.
+const FAUX_JS = `
 const vivre = Number(process.env.FAUX_VIE_MS || "0")
 process.stdout.write(JSON.stringify({
   ready: true, port: 65500, token: "jeton-d-essai",
@@ -69,9 +74,54 @@ process.stdout.write(JSON.stringify({
 if (vivre > 0) setTimeout(() => process.exit(7), vivre)
 else setInterval(() => {}, 1000)
 `
+const FAUX_GO = `package main
+
+import (
+	"encoding/json"
+	"os"
+	"strconv"
+	"time"
 )
-chmodSync(faux, 0o755)
+
+func main() {
+	projet := ""
+	for i, a := range os.Args {
+		if a == "--project" && i+1 < len(os.Args) {
+			projet = os.Args[i+1]
+		}
+	}
+	ligne, _ := json.Marshal(map[string]any{"ready": true, "port": 65500, "token": "jeton-d-essai", "project": projet, "version": "essai"})
+	os.Stdout.Write(append(ligne, '\\n'))
+	vivre, _ := strconv.Atoi(os.Getenv("FAUX_VIE_MS"))
+	if vivre > 0 {
+		time.Sleep(time.Duration(vivre) * time.Millisecond)
+		os.Exit(7)
+	}
+	select {}
+}
+`
+let faux
+if (process.platform === "win32") {
+  const source = path.join(dir, "faux-go")
+  mkdirSync(source, { recursive: true })
+  writeFileSync(path.join(source, "main.go"), FAUX_GO)
+  writeFileSync(path.join(source, "go.mod"), "module faux\n\ngo 1.21\n")
+  faux = path.join(dir, "zyvrod.exe")
+  const go = spawnSync("go", ["build", "-o", faux, "."], { cwd: source, encoding: "utf8" })
+  if (go.status !== 0) {
+    console.log(`  FAIL  le faux moteur ne se compile pas\n        ${go.stderr || go.error}`)
+    process.exit(1)
+  }
+} else {
+  faux = path.join(dir, "zyvrod")
+  writeFileSync(faux, `#!/usr/bin/env node${FAUX_JS}`)
+  chmodSync(faux, 0o755)
+}
 process.env.ZYVROD_PATH = faux
+
+// Un dossier qui existe partout : "/tmp" n'existe pas sous Windows, et `spawn`
+// avec un `cwd` absent rend lui aussi ENOENT.
+const ICI = tmpdir()
 
 const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
 
@@ -79,7 +129,7 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
 {
   process.env.FAUX_VIE_MS = "0"
   const d = new Daemon()
-  const info = await d.start("/tmp")
+  const info = await d.start(ICI)
   check("**le moteur démarre et se présente**", info.port === 65500 && info.token === "jeton-d-essai", JSON.stringify(info))
   check("et l'application le tient pour vivant", d.current !== null)
   await d.stop()
@@ -94,7 +144,7 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
 {
   process.env.FAUX_VIE_MS = "250"
   const d = new Daemon()
-  await d.start("/tmp")
+  await d.start(ICI)
   check("il est vivant juste après la poignée de main", d.current !== null)
 
   await attendre(900)
@@ -118,7 +168,7 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
   d.onStopped((raison) => {
     annonce = raison
   })
-  await d.start("/tmp")
+  await d.start(ICI)
   await attendre(900)
   check("**et la mort est annoncée**", annonce !== null, "personne n'apprend que le moteur est parti")
   check("avec le code de sortie, qui est la moitié du diagnostic", String(annonce?.code) === "7", JSON.stringify(annonce))
@@ -137,7 +187,7 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
   d.onStopped(() => {
     annonce = "prévenu"
   })
-  await d.start("/tmp")
+  await d.start(ICI)
   await d.stop()
   await attendre(200)
   check("**fermer soi-même ne déclenche pas l'alerte**", annonce === null, "une alerte à chaque fermeture de projet")
