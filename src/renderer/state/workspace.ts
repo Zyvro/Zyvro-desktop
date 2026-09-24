@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { OpenResult } from "../../preload"
+import { retarget } from "../../shared/treedrop"
 
 // The workspace is the window's whole model: which project is open, what is in
 // the editor tabs, and which panels are showing. It lives in a store rather
@@ -104,6 +105,9 @@ type WorkspaceState = {
   closeTab: (id: string) => void
   activateTab: (id: string) => void
   renameTab: (id: string, title: string) => void
+  /** Un fichier ou un dossier a changé de chemin : ses onglets et ses
+   *  brouillons le suivent. */
+  movePath: (from: string, to: string) => void
 
   setDraft: (id: string, text: string) => void
   clearDraft: (id: string) => void
@@ -318,6 +322,29 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   renameTab: (id, title) =>
     set((s) => ({ tabs: s.tabs.map((t) => (t.id === id ? { ...t, title } : t)) })),
+
+  // Les onglets suivent ce qu'on déplace ou renomme.
+  //
+  // Sans ça, l'onglet garde l'ancien chemin : il affiche encore le texte, et
+  // la sauvegarde suivante recrée le fichier là où il n'est plus — un doublon
+  // silencieux, à côté du vrai. Le brouillon suit aussi, sinon un fichier
+  // modifié puis renommé perdrait ce qu'on n'avait pas enregistré.
+  movePath: (from, to) =>
+    set((s) => {
+      const renamed = new Map<string, string>()
+      const tabs = s.tabs.map((t) => {
+        if (t.kind !== "file") return t
+        const path = retarget(t.path, from, to)
+        if (path === null) return t
+        const id = `file:${path}`
+        renamed.set(t.id, id)
+        return { ...t, id, path, title: basename(path) }
+      })
+      if (renamed.size === 0) return s
+      const drafts: Record<string, string> = {}
+      for (const [id, text] of Object.entries(s.drafts)) drafts[renamed.get(id) ?? id] = text
+      return { tabs, drafts, activeTabId: renamed.get(s.activeTabId) ?? s.activeTabId }
+    }),
 
   setDraft: (id, text) => set((s) => ({ drafts: { ...s.drafts, [id]: text } })),
   clearDraft: (id) =>

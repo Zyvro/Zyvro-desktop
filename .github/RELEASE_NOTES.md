@@ -49,6 +49,27 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.8
+
+Drag and drop, the way VS Code and Cursor do it.
+
+- **Drop files and folders from the Finder or Windows Explorer onto the file
+  tree** to copy them into the project. Drop on a folder to put them inside it,
+  on a file to put them beside it, or on the empty space to put them at the
+  root. Nothing is ever overwritten: a name that is taken gets a free one
+  (`notes 2.txt`), and the originals stay where they were.
+- **Drag a file or folder inside the tree to move it.** Hold Alt (Option on a
+  Mac) to copy instead. A collapsed folder opens when you hover over it, so you
+  can drop three levels down without letting go. A folder cannot be dropped
+  into itself; the tree does not light up when you try.
+- **Open tabs follow the file.** Moving or renaming a file that is open in a tab
+  keeps the tab, with its unsaved changes. Before, the next save would have
+  written the old path back to disk.
+- **Drop a folder on the window to open it as the project.** If a project is
+  already open, the app asks first and says how many unsaved files would be
+  lost.
+- **Drop a file from the project onto the editor to open it in a tab.**
+
 ## New in alpha.6
 
 **A browser, inside the IDE, that the agent drives.** A page with its own

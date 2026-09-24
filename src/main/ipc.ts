@@ -499,6 +499,15 @@ export function registerIpc(onRecents?: () => void): void {
     return files.pasteEntry(requireRoot(ws), from, intoDir, mode === "move" ? "move" : "copy")
   })
 
+  // Ce qu'on a lâché sur l'arbre depuis le Finder, copié dans un dossier du
+  // projet. Les chemins viennent du pont, qui les a tirés des `File` du dépôt
+  // — voir `importEntries` pour pourquoi c'est lui et pas le rendu.
+  ipcMain.handle("files:import", async (event, sources: string[], intoDir: string) => {
+    const { ws } = requireWorkspace(event)
+    const list = Array.isArray(sources) ? sources.filter((s) => typeof s === "string") : []
+    return files.importEntries(requireRoot(ws), list, String(intoDir ?? ""))
+  })
+
   ipcMain.handle("files:delete", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
     await files.deleteEntry(requireRoot(ws), relative)

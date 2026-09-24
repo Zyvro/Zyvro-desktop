@@ -20,6 +20,8 @@ import { NamePrompt } from "~/panels/NamePrompt"
 // Imported for its side effect: the menu listeners register once, at import
 // time, which is how this app subscribes to anything without a useEffect.
 import "~/lib/menuBridge"
+// Pareil pour les dépôts sur la fenêtre : un dossier lâché s'ouvre en projet.
+import "~/lib/windowDrop"
 
 const LIMITS = { sidebar: [180, 520], agent: [280, 720], terminal: [120, 640] } as const
 

@@ -218,6 +218,27 @@ const api = {
         return ""
       }
     },
+    /**
+     * Copier dans le projet des fichiers lâchés depuis le Finder.
+     *
+     * Prend les `File` du dépôt, pas des chemins : c'est ici, et nulle part
+     * ailleurs, que ces fichiers deviennent des chemins. Le rendu ne peut pas
+     * nommer un fichier du disque qu'il n'a pas reçu d'un geste de la
+     * personne, et ce qui ne vient pas du disque rend un chemin vide, écarté.
+     * Rend les chemins écrits, relatifs au projet.
+     */
+    importDropped: (dropped: File[], intoDir: string): Promise<string[]> => {
+      const sources: string[] = []
+      for (const file of dropped) {
+        try {
+          const absolute = webUtils.getPathForFile(file)
+          if (absolute) sources.push(absolute)
+        } catch {
+          // Une image collée depuis une page n'a pas d'emplacement.
+        }
+      }
+      return invoke("files:import", sources, intoDir)
+    },
     watch: (relative: string): Promise<boolean> => invoke("files:watch", relative),
     unwatch: (relative: string): Promise<boolean> => invoke("files:unwatch", relative),
     onChanged: (cb: (payload: { dir: string }) => void): Unsubscribe => on("files:changed", cb),

@@ -75,6 +75,10 @@ export function CodeEditor({ tabId, path }: Props) {
         tabSize: 2,
         wordWrap: "off",
         scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+        // Un fichier lâché depuis le Finder sur l'éditeur s'ouvre dans un
+        // onglet, comme dans VS Code (`lib/windowDrop.ts`). Monaco, lui,
+        // voudrait coller son chemin dans le texte, et il passerait avant.
+        dropIntoEditor: { enabled: false },
       })
       editorRef.current = editor
 

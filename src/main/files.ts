@@ -237,7 +237,47 @@ export async function pasteEntry(
   }
 
   const rootReal = await fs.realpath(root)
-  return path.relative(rootReal, target)
+  // Séparateurs POSIX : c'est ce que parle l'arbre, et un `\\` venu de Windows
+  // ferait un onglet dont le chemin ne correspond à aucune ligne.
+  return toRelative(rootReal, target)
+}
+
+// importEntries : copier dans le projet ce qu'on a lâché depuis le Finder.
+//
+// Les sources sont des chemins absolus hors du projet, et c'est la seule
+// fonction de ce module qui en accepte. Elle ne les reçoit pas du rendu : le
+// pont les tire lui-même des `File` du dépôt par `webUtils.getPathForFile`,
+// qui ne rend un chemin que pour un fichier venu du disque par un geste de la
+// personne. Un rendu compromis ne peut donc pas s'en servir pour aspirer
+// `~/.ssh` dans le projet, où il pourrait ensuite le lire.
+//
+// Copier, jamais déplacer : lâcher un fichier dans un éditeur ne doit rien
+// retirer du bureau. Rien n'est écrasé non plus — un nom pris en fait naître
+// un libre, comme au collage. Rend les chemins écrits, relatifs au projet.
+export async function importEntries(root: string, sources: string[], intoDir: string): Promise<string[]> {
+  const destinationDir = await resolveInside(root, intoDir)
+  const into = await fs.stat(destinationDir).catch(() => null)
+  if (!into?.isDirectory()) throw new Error(`${intoDir || "the project root"} is not a folder.`)
+
+  const rootReal = await fs.realpath(root)
+  const written: string[] = []
+  for (const source of sources) {
+    if (typeof source !== "string" || !path.isAbsolute(source)) continue
+    const info = await fs.stat(source).catch(() => null)
+    if (!info) throw new Error(`${path.basename(source)} is no longer there.`)
+    // Le projet lui-même, ou un dossier qui contient la destination : la copie
+    // se recopierait dans elle-même jusqu'au disque plein.
+    if (info.isDirectory()) {
+      const dedans = path.relative(await fs.realpath(source), await fs.realpath(destinationDir))
+      if (dedans === "" || (!dedans.startsWith("..") && !path.isAbsolute(dedans))) {
+        throw new Error(`${path.basename(source)} cannot be copied into itself.`)
+      }
+    }
+    const target = await freeName(destinationDir, path.basename(source))
+    await fs.cp(source, target, { recursive: true, force: false, errorOnExist: true })
+    written.push(path.relative(rootReal, target).split(path.sep).join("/"))
+  }
+  return written
 }
 
 // freeName : un nom qui n'écrase personne, dans le goût du Finder.

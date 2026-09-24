@@ -15,6 +15,8 @@ import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
 import { subscribeFiles, unwatchDir, versionOf, watchDir } from "~/state/fileWatch"
 import { ZYVRO_PATH } from "../../shared/dropped"
+import { ZYVRO_ENTRY, canMove, dropFolder, entriesFromText, parentOf, topmost } from "../../shared/treedrop"
+import { clearHeld, heldItem } from "~/state/clipboard"
 import { EntryMenu } from "~/panels/EntryMenu"
 
 // The file tree loads one directory at a time. Reading the whole project up
@@ -82,11 +84,25 @@ export function aplatir(
   }
 }
 
+// Ce que l'arbre est en train de faire glisser, relatif à la racine.
+//
+// Gardé ici parce qu'un survol ne peut pas lire ce qu'il transporte : le
+// navigateur ne rend les données qu'au lâcher. Or c'est au survol qu'il faut
+// savoir si la destination a un sens — un dossier qu'on survole avec lui-même
+// ne doit pas s'allumer.
+let enMain: string[] = []
+
+// Combien de temps survoler un dossier replié avant qu'il s'ouvre. Le temps
+// qu'il faut pour viser, pas assez pour s'impatienter : c'est ce que fait le
+// Finder, et c'est ce qui permet de déposer trois niveaux plus bas sans lâcher.
+const OPEN_ON_HOVER_MS = 600
+
 function Row({
   entry,
   depth,
   isOpen,
   isActive,
+  isDropTarget,
   chargement,
   onToggle,
   onOpen,
@@ -97,6 +113,7 @@ function Row({
   depth: number
   isOpen: boolean
   isActive: boolean
+  isDropTarget: boolean
   chargement: boolean
   onToggle: (path: string) => void
   onOpen: (path: string) => void
@@ -107,8 +124,16 @@ function Row({
     <button
       className={cn(
         "flex w-full items-center gap-1.5 rounded-md py-[3px] pr-2 text-left text-[13px] leading-5",
-        isActive ? "bg-white/[0.08] text-foreground" : "text-foreground/80 hover:bg-white/[0.05]"
+        isDropTarget
+          ? "bg-sky-400/[0.18] text-foreground ring-1 ring-inset ring-sky-400/50"
+          : isActive
+            ? "bg-white/[0.08] text-foreground"
+            : "text-foreground/80 hover:bg-white/[0.05]"
       )}
+      // Lues par l'arbre au survol et au lâcher : un seul écouteur pour toutes
+      // les lignes, comme le menu contextuel.
+      data-entry-path={entry.path}
+      data-entry-kind={entry.kind}
       style={{ paddingLeft: 8 + depth * 12 }}
       onClick={() => (entry.kind === "directory" ? onToggle(entry.path) : onOpen(entry.path))}
       title={entry.path}
@@ -129,7 +154,14 @@ function Row({
         // qui l'accompagne est ce que toute autre application comprendra.
         event.dataTransfer.setData(ZYVRO_PATH, absolute)
         event.dataTransfer.setData("text/plain", absolute)
-        event.dataTransfer.effectAllowed = "copy"
+        // Le chemin relatif, pour l'arbre lui-même : lâchée sur un dossier, la
+        // ligne y est déplacée.
+        event.dataTransfer.setData(ZYVRO_ENTRY, entry.path)
+        event.dataTransfer.effectAllowed = "copyMove"
+        enMain = [entry.path]
+      }}
+      onDragEnd={() => {
+        enMain = []
       }}
     >
       {entry.kind === "directory" ? (
@@ -162,6 +194,12 @@ export function Explorer() {
   // de toute façon être ouvert qu'à un endroit à la fois.
   const [menu, setMenu] = useState<{ entry: DirEntry; at: { x: number; y: number } } | null>(null)
 
+  // Le dossier où irait ce qu'on survole, "" pour la racine, null hors dépôt.
+  const [cible, setCible] = useState<string | null>(null)
+  // Ce qui a mal tourné au dernier dépôt, dit sous l'en-tête plutôt qu'avalé.
+  const [erreurDepot, setErreurDepot] = useState("")
+  const survol = useRef<{ path: string; timer: ReturnType<typeof setTimeout> } | null>(null)
+
   // Ouvrir un dossier, c'est aussi demander à le surveiller ; le replier, c'est
   // cesser. La surveillance suit donc exactement ce qui est affiché, et rien de
   // plus : un `node_modules` replié ne coûte rien.
@@ -180,6 +218,17 @@ export function Explorer() {
       }),
     []
   )
+
+  // Déplier sans replier : c'est ce que veut un dépôt, qui doit montrer ce
+  // qu'il vient d'écrire, et un survol, qui ouvre le dossier qu'on vise.
+  const deplier = (path: string): void => {
+    if (path === "") return
+    setExpanded((current) => {
+      if (current.has(path)) return current
+      watchDir(path)
+      return new Set(current).add(path)
+    })
+  }
 
   // La racine est ouverte par définition. Un ref de rappel plutôt qu'un effet :
   // React 18 ignore ce que rend un ref, donc le démontage est garé dans un ref
@@ -258,6 +307,113 @@ export function Explorer() {
   const derniere = Math.min(lignes.length, Math.ceil((scrollTop + hauteur) / ROW_HEIGHT) + OVERSCAN)
   const visibles = lignes.slice(premiere, derniere)
 
+  // ---- déposer sur l'arbre ----------------------------------------------
+  //
+  // Deux sources. Une ligne de l'arbre porte ZYVRO_ENTRY : elle est déplacée,
+  // ou copiée si l'on tient Alt. Un fichier du Finder porte « Files » : il est
+  // copié dans le projet, jamais retiré du bureau. Tout le reste — du texte
+  // glissé d'une page — n'est pas pour l'arbre, et le survol n'est pas
+  // intercepté.
+
+  const viseSur = (event: React.DragEvent): { path: string; kind: "file" | "directory" } | null => {
+    const ligne = (event.target as HTMLElement).closest<HTMLElement>("[data-entry-path]")
+    if (!ligne) return null
+    const kind = ligne.dataset.entryKind === "directory" ? "directory" : "file"
+    return { path: ligne.dataset.entryPath ?? "", kind }
+  }
+
+  const sourceDe = (event: React.DragEvent): "tree" | "os" | null => {
+    const types = [...event.dataTransfer.types]
+    if (types.includes(ZYVRO_ENTRY)) return "tree"
+    if (types.includes("Files")) return "os"
+    return null
+  }
+
+  const oublierSurvol = (): void => {
+    if (survol.current) clearTimeout(survol.current.timer)
+    survol.current = null
+  }
+
+  const onDragOver = (event: React.DragEvent): void => {
+    const source = sourceDe(event)
+    if (!source) return
+    const vise = viseSur(event)
+    const dossier = dropFolder(vise)
+    const mode = event.altKey ? "copy" : "move"
+    if (source === "tree" && enMain.length > 0 && !enMain.every((from) => canMove(from, dossier, mode))) {
+      // Pas de `preventDefault` : le curseur dit « interdit », et c'est vrai.
+      setCible(null)
+      return
+    }
+    event.preventDefault()
+    event.dataTransfer.dropEffect = source === "os" || mode === "copy" ? "copy" : "move"
+    setCible(dossier)
+
+    // Un dossier replié qu'on survole s'ouvre après un instant.
+    if (vise?.kind === "directory" && !expanded.has(vise.path)) {
+      if (survol.current?.path !== vise.path) {
+        oublierSurvol()
+        const path = vise.path
+        survol.current = { path, timer: setTimeout(() => deplier(path), OPEN_ON_HOVER_MS) }
+      }
+    } else {
+      oublierSurvol()
+    }
+  }
+
+  const onDragLeave = (event: React.DragEvent): void => {
+    // Quitter une ligne pour sa voisine déclenche aussi un `dragleave` ; seul
+    // compte celui qui sort de l'arbre entier.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+    setCible(null)
+    oublierSurvol()
+  }
+
+  const relireDossier = (chemin: string): Promise<void> =>
+    client.invalidateQueries({ queryKey: dirKey(chemin || ".") })
+
+  const onDrop = async (event: React.DragEvent): Promise<void> => {
+    const source = sourceDe(event)
+    if (!source) return
+    event.preventDefault()
+    const dossier = dropFolder(viseSur(event))
+    setCible(null)
+    oublierSurvol()
+    setErreurDepot("")
+
+    try {
+      if (source === "os") {
+        const fichiers = [...event.dataTransfer.files]
+        if (fichiers.length === 0) return
+        await window.zyvro.files.importDropped(fichiers, dossier)
+        await relireDossier(dossier)
+        deplier(dossier)
+        return
+      }
+
+      const mode = event.altKey ? "copy" : "move"
+      const chemins = topmost(entriesFromText(event.dataTransfer.getData(ZYVRO_ENTRY)))
+      enMain = []
+      const touches = new Set<string>([dossier])
+      for (const from of chemins) {
+        if (!canMove(from, dossier, mode)) continue
+        const ecrit = await window.zyvro.files.paste(from, dossier, mode)
+        if (mode === "move") {
+          useWorkspace.getState().movePath(from, ecrit)
+          touches.add(parentOf(from))
+          // Ce qui était coupé et vient de partir ailleurs ne se colle plus.
+          const garde = heldItem()
+          if (garde && (garde.path === from || garde.path.startsWith(`${from}/`))) clearHeld()
+        }
+      }
+      await Promise.all([...touches].map(relireDossier))
+      deplier(dossier)
+    } catch (err) {
+      setErreurDepot((err as Error).message)
+      void client.invalidateQueries({ queryKey: ["files", "list"] })
+    }
+  }
+
   const create = async (kind: "file" | "directory") => {
     const name = await askName({
       title: kind === "file" ? "New file" : "New folder",
@@ -302,10 +458,28 @@ export function Explorer() {
       {/* Seules les lignes qu'on voit sont dessinées. Le reste est deux
           remplissages, un au-dessus et un en dessous : l'ascenseur a la bonne
           taille et la bonne position sans qu'aucune de ces lignes n'existe. */}
+      {erreurDepot && (
+        <button
+          className="mx-2 mb-1 rounded bg-destructive/15 px-2 py-1 text-left text-[12px] text-destructive"
+          title="Dismiss"
+          onClick={() => setErreurDepot("")}
+        >
+          {erreurDepot}
+        </button>
+      )}
+
       <div
         ref={mesurer}
         onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
-        className="zy-scroll min-h-0 flex-1 overflow-y-auto pb-2 pr-1"
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={(event) => void onDrop(event)}
+        className={cn(
+          "zy-scroll min-h-0 flex-1 overflow-y-auto pb-2 pr-1",
+          // La racine n'a pas de ligne à allumer : c'est l'arbre entier qui
+          // dit « ici ».
+          cible === "" && "rounded-md ring-1 ring-inset ring-sky-400/50 bg-sky-400/[0.06]"
+        )}
       >
         {racine?.isError && (
           <p className="px-3 py-2 text-[13px] text-destructive">{(racine.error as Error).message}</p>
@@ -318,6 +492,7 @@ export function Explorer() {
               depth={depth}
               isOpen={expanded.has(entry.path)}
               isActive={activeTabId === `file:${entry.path}`}
+              isDropTarget={cible !== null && cible !== "" && entry.path === cible}
               chargement={entry.kind === "directory" && enCours.has(entry.path)}
               onToggle={toggle}
               onOpen={openFile}

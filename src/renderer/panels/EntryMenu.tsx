@@ -88,7 +88,9 @@ export function EntryMenu({
     })
     const propre = nom?.trim()
     if (!propre || propre === entry.name) return
-    await window.zyvro.files.rename(entry.path, parent ? `${parent}/${propre}` : propre)
+    const vers = parent ? `${parent}/${propre}` : propre
+    await window.zyvro.files.rename(entry.path, vers)
+    useWorkspace.getState().movePath(entry.path, vers)
     relire(parent)
   }
 
@@ -134,6 +136,7 @@ export function EntryMenu({
   const coller = async () => {
     if (!retenu) return
     const ecrit = await window.zyvro.files.paste(retenu.path, dossierCible, retenu.mode)
+    if (retenu.mode === "move" && ecrit) useWorkspace.getState().movePath(retenu.path, ecrit)
     released()
     relire(dossierCible)
     // Un déplacement vide aussi le dossier d'où il vient.
