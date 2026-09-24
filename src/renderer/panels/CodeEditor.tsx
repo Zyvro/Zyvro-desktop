@@ -5,6 +5,7 @@ import { languageFor, monaco } from "~/lib/monaco"
 import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
+import { registerSaver } from "~/state/savers"
 
 // Monaco is imperative: it wants a DOM node and gives back an instance to
 // dispose. The project bans useEffect, and this is precisely the case the
@@ -32,19 +33,23 @@ export function CodeEditor({ tabId, path }: Props) {
   const loaded = file.data && "text" in file.data ? file.data.text : null
 
   // save is the one operation several things trigger: the File menu, Cmd+S
-  // inside Monaco, and closing a dirty tab. It reads the editor rather than the
-  // store so it always writes exactly what is on screen.
-  const save = useCallback(async () => {
+  // inside Monaco, Save All, and closing a dirty tab. It reads the editor rather
+  // than the store so it always writes exactly what is on screen. It says
+  // whether it worked, because closing a tab after a failed save would lose
+  // exactly what the person asked to keep.
+  const save = useCallback(async (): Promise<boolean> => {
     const editor = editorRef.current
-    if (!editor) return
+    if (!editor) return false
     const text = editor.getValue()
     try {
       await window.zyvro.files.write(path, text)
       clearDraft(tabId)
       setSaveError("")
       client.setQueryData(["files", "read", path], { path, text, truncated: false })
+      return true
     } catch (err) {
       setSaveError((err as Error).message)
+      return false
     }
   }, [client, clearDraft, path, tabId])
 
@@ -105,7 +110,10 @@ export function CodeEditor({ tabId, path }: Props) {
       goTo()
       const offReveal = subscribeReveal(goTo)
       editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void save())
-      const menuSave = onCommand("save", () => void save())
+      // Le menu Save, Save All et la fermeture d'un onglet modifié passent par
+      // le registre, qui vise un onglet. Écouter la commande ici faisait
+      // enregistrer tous les éditeurs montés à la fois — onglets cachés compris.
+      const unregister = registerSaver(tabId, save)
       // La barre de recherche de Monaco, celle que ⌘F ouvre partout ailleurs.
       // Seul l'éditeur visible répond : les autres onglets restent montés, et
       // ouvrir la recherche dans un fichier qu'on ne regarde pas ne servirait
@@ -119,7 +127,7 @@ export function CodeEditor({ tabId, path }: Props) {
       teardownRef.current = () => {
         offReveal()
         menuFind()
-        menuSave()
+        unregister()
         changed.dispose()
         editor.getModel()?.dispose()
         editor.dispose()

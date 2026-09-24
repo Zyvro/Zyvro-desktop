@@ -1,0 +1,11 @@
+# Des fins de ligne LF partout, Windows compris.
+#
+# Plusieurs vérifications lisent les sources et y cherchent des motifs écrits
+# avec `\n` — une chaîne sur deux lignes, un appel coupé après un point. Sur un
+# poste ou un runner Windows, git convertissait à l'extraction en CRLF, et ces
+# motifs cessaient de correspondre : `check-live-lists` échouait sous Windows
+# seulement, pour du code identique, et la construction du .exe avec lui.
+#
+# `text=auto` laisse git reconnaître les binaires (icônes, images) et ne
+# touche qu'au texte.
+* text=auto eol=lf

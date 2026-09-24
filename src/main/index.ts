@@ -249,13 +249,34 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+S",
           click: (_item, win) => send(win as BrowserWindow, "menu:save"),
         },
+        {
+          label: "Save All",
+          accelerator: "CmdOrCtrl+Alt+S",
+          click: (_item, win) => send(win as BrowserWindow, "menu:save-all"),
+        },
         { type: "separator" },
+        // ⌘W ferme l'onglet, comme dans tout éditeur. Il fermait la fenêtre —
+        // le rôle `close` de macOS — et avec elle le projet, les shells et
+        // l'agent en cours, pour un geste qu'on fait cent fois par jour en
+        // pensant à un fichier.
+        {
+          label: "Close Editor",
+          accelerator: "CmdOrCtrl+W",
+          click: (_item, win) => send(win as BrowserWindow, "menu:close-tab"),
+        },
+        {
+          label: "Reopen Closed Editor",
+          accelerator: "CmdOrCtrl+Shift+T",
+          click: (_item, win) => send(win as BrowserWindow, "menu:reopen-tab"),
+        },
+        // Pas de raccourci : l'accord ⌘K ⌘F de VS Code n'existe pas pour
+        // Electron, qui lisait la chaîne entière comme un seul raccourci
+        // impossible à taper.
         {
           label: "Close Folder",
-          accelerator: "CmdOrCtrl+K CmdOrCtrl+F",
           click: (_item, win) => send(win as BrowserWindow, "menu:close-project"),
         },
-        isMac ? { role: "close" } : { role: "quit" },
+        isMac ? { role: "close", accelerator: "CmdOrCtrl+Shift+W" } : { role: "quit" },
       ],
     },
     {
@@ -321,7 +342,16 @@ function buildMenu(): void {
         { role: "togglefullscreen" },
       ],
     },
-    { role: "windowMenu" },
+    // Écrit à la main plutôt que par le rôle tout fait : sous Windows et Linux
+    // le rôle de menu « fenêtre » porte « Close » sur Ctrl+W, qui est
+    // désormais « Close Editor ».
+    // Deux entrées sur le même raccourci, et c'est la fenêtre qui gagnait.
+    {
+      label: "Window",
+      submenu: isMac
+        ? [{ role: "minimize" }, { role: "zoom" }, { type: "separator" }, { role: "front" }]
+        : [{ role: "minimize" }, { role: "close", accelerator: "Ctrl+Shift+W" }],
+    },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }

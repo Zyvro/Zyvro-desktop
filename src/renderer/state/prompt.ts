@@ -14,6 +14,9 @@ export type NameRequest = {
   // n'est pas le formulaire, c'est de pouvoir demander depuis n'importe où —
   // un menu, une ligne de liste, un raccourci.
   kind: "name" | "confirm"
+  // Une troisième réponse, entre annuler et confirmer : « Don't Save » à côté
+  // de « Save ». Vide quand la question n'en a que deux.
+  alternativeLabel: string
   // Le bouton qui détruit est rouge. Une suppression qui a l'air d'une
   // création est une suppression qu'on accepte sans lire.
   danger: boolean
@@ -50,6 +53,7 @@ export function askName(request: Partial<NameRequest> & { title: string }): Prom
       confirmLabel: "Create",
       kind: "name",
       danger: false,
+      alternativeLabel: "",
       ...request,
       resolve,
     }
@@ -73,7 +77,36 @@ export function askConfirm(request: {
       confirmLabel: request.confirmLabel ?? "Delete",
       kind: "confirm",
       danger: request.danger !== false,
+      alternativeLabel: "",
       resolve: (value) => resolve(value !== null),
+    }
+    emit()
+  })
+}
+
+// askChoice : trois réponses, pour ce qui a une voie du milieu.
+//
+// « Enregistrer, ne pas enregistrer, annuler » : la question de tout éditeur
+// avant de fermer un fichier modifié. Deux boutons n'y suffisent pas — ne rien
+// perdre et ne rien écrire sont deux réponses différentes, et annuler en est
+// une troisième.
+export function askChoice(request: {
+  title: string
+  label: string
+  confirmLabel: string
+  alternativeLabel: string
+}): Promise<"confirm" | "alternative" | null> {
+  pending?.resolve(null)
+  return new Promise((resolve) => {
+    pending = {
+      title: request.title,
+      label: request.label,
+      initial: "",
+      confirmLabel: request.confirmLabel,
+      alternativeLabel: request.alternativeLabel,
+      kind: "confirm",
+      danger: false,
+      resolve: (value) => resolve(value === "yes" ? "confirm" : value === "alternative" ? "alternative" : null),
     }
     emit()
   })

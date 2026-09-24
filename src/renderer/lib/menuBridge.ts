@@ -3,6 +3,8 @@ import { closeProject, createProject, createWorkflow, forgetRecents, openProject
 import { askName } from "~/state/prompt"
 import { askSearchFocus } from "~/state/reveal"
 import { engineStopped } from "~/state/engine"
+import { saveTab } from "~/state/savers"
+import { requestCloseTab, saveAll } from "./closing"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -48,7 +50,21 @@ window.zyvro.menu.onNewWorkflow(() => {
     if (name) void createWorkflow(name)
   })
 })
-window.zyvro.menu.onSave(() => fire("save"))
+// Save vise l'onglet actif, et lui seul : chaque éditeur s'inscrit auprès du
+// registre, et c'est le registre qui choisit. Voir `state/savers`.
+window.zyvro.menu.onSave(() => {
+  void saveTab(useWorkspace.getState().activeTabId)
+})
+window.zyvro.menu.onSaveAll(() => {
+  void saveAll()
+})
+window.zyvro.menu.onCloseTab(() => {
+  const active = useWorkspace.getState().activeTabId
+  if (active) void requestCloseTab(active)
+})
+window.zyvro.menu.onReopenTab(() => {
+  useWorkspace.getState().reopenClosed()
+})
 window.zyvro.menu.onOpenPath((dir) => {
   void openProject(dir)
 })

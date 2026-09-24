@@ -71,6 +71,8 @@ async function agir(lus: { dossier: boolean; chemin: string }[]): Promise<void> 
             ? `It replaces the open project, and ${nonEnregistres} unsaved file${nonEnregistres > 1 ? "s" : ""} would be lost.`
             : "It replaces the open project in this window.",
         confirmLabel: "Open folder",
+        // Rouge seulement quand quelque chose se perd.
+        danger: nonEnregistres > 0,
       })
       if (!oui) return
     }

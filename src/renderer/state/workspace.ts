@@ -85,6 +85,8 @@ type WorkspaceState = {
   // through react-query and overlays whatever is here, so "dirty" is simply
   // "this key exists and differs from what was loaded".
   drafts: Record<string, string>
+  /** Les fichiers dont on a fermé l'onglet, le plus récent à la fin. */
+  closedFiles: string[]
 
   panels: Record<PanelKey, boolean>
   mode: Mode
@@ -103,6 +105,8 @@ type WorkspaceState = {
   openBrowser: (request?: { url?: string; reuse?: boolean }) => string
   setBrowserPage: (id: string, url: string, title: string, icon?: string) => void
   closeTab: (id: string) => void
+  /** Rouvrir le dernier fichier fermé (⌘⇧T). */
+  reopenClosed: () => void
   activateTab: (id: string) => void
   renameTab: (id: string, title: string) => void
   /** Un fichier ou un dossier a changé de chemin : ses onglets et ses
@@ -179,6 +183,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   tabs: [WELCOME],
   activeTabId: WELCOME.id,
   drafts: {},
+  closedFiles: [],
 
   panels: { explorer: true, search: false, terminal: true, agent: true, git: false },
   mode: savedMode(),
@@ -190,8 +195,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setProject: (project) =>
     set(
       project
-        ? { project, root: project.project, openError: "", opening: false, tabs: [], activeTabId: "", drafts: {} }
-        : { project: null, tabs: [WELCOME], activeTabId: WELCOME.id, drafts: {} }
+        ? { project, root: project.project, openError: "", opening: false, tabs: [], activeTabId: "", drafts: {}, closedFiles: [] }
+        : { project: null, tabs: [WELCOME], activeTabId: WELCOME.id, drafts: {}, closedFiles: [] }
     ),
   setRoot: (root) => set({ root }),
   setOpening: (opening) => set({ opening }),
@@ -308,15 +313,38 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       const tabs = s.tabs.filter((t) => t.id !== id)
       const drafts = { ...s.drafts }
       delete drafts[id]
+      // Retenu pour ⌘⇧T. Seulement les fichiers : un graphe ou une page se
+      // rouvrent d'où on les a pris, un fichier fermé par mégarde non. Vingt,
+      // parce qu'au-delà personne ne compte plus ses fermetures.
+      const fermé = s.tabs[index]
+      const closedFiles =
+        fermé.kind === "file"
+          ? [...s.closedFiles.filter((p) => p !== fermé.path), fermé.path].slice(-20)
+          : s.closedFiles
       // Closing the last tab leaves the area empty when there is a project to
       // be empty about; without one, Welcome is the only thing to show.
       if (tabs.length === 0) {
         return s.project
-          ? { tabs: [], activeTabId: "", drafts }
-          : { tabs: [WELCOME], activeTabId: WELCOME.id, drafts }
+          ? { tabs: [], activeTabId: "", drafts, closedFiles }
+          : { tabs: [WELCOME], activeTabId: WELCOME.id, drafts, closedFiles }
       }
-      return { tabs, drafts, activeTabId: s.activeTabId === id ? nextActive(tabs, index) : s.activeTabId }
+      return { tabs, drafts, closedFiles, activeTabId: s.activeTabId === id ? nextActive(tabs, index) : s.activeTabId }
     }),
+
+  reopenClosed: () => {
+    const { closedFiles, tabs } = get()
+    // Le plus récent qui n'est pas déjà rouvert.
+    const ouverts = new Set(tabs.map((t) => t.id))
+    const restants = [...closedFiles]
+    while (restants.length > 0) {
+      const path = restants.pop() as string
+      if (ouverts.has(`file:${path}`)) continue
+      set({ closedFiles: restants })
+      get().openFile(path)
+      return
+    }
+    set({ closedFiles: [] })
+  },
 
   activateTab: (activeTabId) => set({ activeTabId }),
 

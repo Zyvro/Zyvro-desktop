@@ -2,6 +2,7 @@ import { useCallback } from "react"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Tab } from "~/state/workspace"
+import { requestCloseTab } from "~/lib/closing"
 import { CodeEditor } from "./CodeEditor"
 import { GraphTab } from "./GraphTab"
 import { DiffView } from "./DiffView"
@@ -18,7 +19,6 @@ import { Favicon } from "./BrowserList"
 
 function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
   const activateTab = useWorkspace((s) => s.activateTab)
-  const closeTab = useWorkspace((s) => s.closeTab)
   const dirty = useWorkspace((s) => tab.id in s.drafts)
 
   // A callback ref rather than an effect, per DOCTRINE-SANS-USEEFFECT: the
@@ -35,6 +35,12 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
   return (
     <div
       ref={reveal}
+      // Le clic du milieu ferme, comme dans un navigateur et dans VS Code.
+      onAuxClick={(event) => {
+        if (event.button !== 1) return
+        event.preventDefault()
+        void requestCloseTab(tab.id)
+      }}
       className={cn(
         "group flex h-9 max-w-[220px] shrink-0 items-center gap-2 border-r border-white/[0.06] pl-3 pr-2 text-[13px]",
         active
@@ -53,8 +59,8 @@ function TabButton({ tab, active }: { tab: Tab; active: boolean }) {
       </button>
       <button
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-        title={dirty ? "Close without saving" : "Close"}
-        onClick={() => closeTab(tab.id)}
+        title="Close"
+        onClick={() => void requestCloseTab(tab.id)}
       >
         {dirty ? (
           <span className="h-1.5 w-1.5 rounded-full bg-primary group-hover:hidden" />

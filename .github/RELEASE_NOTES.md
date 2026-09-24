@@ -70,6 +70,30 @@ Drag and drop, the way VS Code and Cursor do it.
   lost.
 - **Drop a file from the project onto the editor to open it in a tab.**
 
+## Fixed in alpha.8
+
+Four ways to lose work without being asked.
+
+- **⌘S (Ctrl+S) saved every open file, not just the one in front of you.** Every
+  editor listened to the menu's Save, and hidden tabs stay mounted, so a file
+  opened an hour ago was written back over whatever had changed it since. Save
+  now writes the active tab only. **Save All** is its own command, ⌘⌥S
+  (Ctrl+Alt+S).
+- **Closing a modified tab threw the changes away.** It now asks: Save, Don't
+  Save, or Cancel. If saving fails (a full disk, a read-only file), the tab
+  stays open with its changes.
+- **Closing the window or quitting with unsaved files lost them.** The app now
+  asks first, with Save All, Don't Save and Cancel.
+- **⌘W closed the whole window**, with the project, its shells and the running
+  agent. ⌘W (Ctrl+W) now closes the editor tab, as in every editor. Closing the
+  window moves to ⌘⇧W (Ctrl+Shift+W).
+
+Also new: **Reopen Closed Editor** (⌘⇧T / Ctrl+Shift+T) and middle-click to
+close a tab.
+
+The Windows installer is back. alpha.7 has none: a test used a fake engine that
+Windows cannot start, and the Windows build stopped there.
+
 ## New in alpha.6
 
 **A browser, inside the IDE, that the agent drives.** A page with its own
