@@ -18,6 +18,9 @@ import { StatusBar } from "~/panels/StatusBar"
 import { Splitter } from "~/panels/Splitter"
 import { NamePrompt } from "~/panels/NamePrompt"
 import { QuickOpen } from "~/panels/QuickOpen"
+import { UpdateDialog } from "~/panels/UpdateDialog"
+// La vérification automatique des mises à jour s'installe à l'import.
+import "~/state/update"
 // Imported for its side effect: the menu listeners register once, at import
 // time, which is how this app subscribes to anything without a useEffect.
 import "~/lib/menuBridge"
@@ -226,6 +229,7 @@ export default function App() {
       <ShotOverlay />
       <NamePrompt />
       <QuickOpen />
+      <UpdateDialog />
     </div>
   )
 }

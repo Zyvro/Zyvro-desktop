@@ -6,6 +6,7 @@ import { CompletionToggle } from "~/panels/CompletionToggle"
 import { UsageToggle } from "~/panels/UsageToggle"
 import { ShotButton } from "~/panels/ShotPicker"
 import { useWorkspace } from "~/state/workspace"
+import { UpdatePill } from "~/panels/UpdateDialog"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
 import { engineDown, subscribeEngine } from "~/state/engine"
 import { gitRunning, subscribeGit, type GitRunning } from "~/state/git"
@@ -277,6 +278,7 @@ export function StatusBar() {
       )}
 
       <EditorPills />
+      <UpdatePill />
     </footer>
   )
 }

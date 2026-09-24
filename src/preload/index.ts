@@ -169,6 +169,20 @@ function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
 const api = {
   platform: process.platform,
 
+  /** Les mises à jour de l'application, publiées sur GitHub. */
+  update: {
+    check: (): Promise<{
+      current: string
+      latest: string
+      url: string
+      asset: { name: string; url: string; size: number; sha256: string | null } | null
+    } | null> => invoke("update:check"),
+    download: (): Promise<{ file: string; verified: boolean }> => invoke("update:download"),
+    install: (): Promise<"quitting" | "opened"> => invoke("update:install"),
+    onProgress: (cb: (p: { received: number; total: number }) => void): Unsubscribe => on("update:progress", cb),
+    onCheckRequested: (cb: () => void): Unsubscribe => on("menu:check-updates", cb),
+  },
+
   project: {
     choose: (): Promise<string | null> => invoke("project:choose"),
     create: (): Promise<string | null> => invoke("project:create"),

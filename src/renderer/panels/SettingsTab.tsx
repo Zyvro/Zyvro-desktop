@@ -161,6 +161,11 @@ export function SettingsTab() {
             <Nombre valeur={r.autoSaveDelay} min={200} max={60000} onChange={(autoSaveDelay) => updateSettings({ autoSaveDelay })} />
           </Ligne>
         )}
+
+        <h2 className="mt-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</h2>
+        <Ligne titre="Check for updates" aide="Ask GitHub for a newer release at startup and every few hours. Nothing is downloaded without asking.">
+          <Case valeur={r.checkForUpdates} onChange={(checkForUpdates) => updateSettings({ checkForUpdates })} />
+        </Ligne>
       </div>
     </div>
   )

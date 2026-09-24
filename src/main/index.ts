@@ -245,6 +245,10 @@ function buildMenu(): void {
           click: (_item, win) => send(win as BrowserWindow, "menu:new-workflow"),
         },
         {
+          label: "Check for Updates…",
+          click: (_item, win) => send(win as BrowserWindow, "menu:check-updates"),
+        },
+        {
           label: "Settings…",
           accelerator: "CmdOrCtrl+,",
           click: (_item, win) => send(win as BrowserWindow, "menu:open-settings"),

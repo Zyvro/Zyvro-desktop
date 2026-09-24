@@ -39,6 +39,7 @@ import * as importing from "./importing"
 import * as sharing from "./sharing"
 import * as commitMessage from "./commitmessage"
 import { findMenuItem, flattenMenu } from "./menulist"
+import * as updater from "./updater"
 
 // One Workspace per window: an open project folder, the daemon that serves it,
 // the shells running in it and the agent turns in flight. Bundling them means
@@ -574,6 +575,26 @@ export function registerIpc(onRecents?: () => void): void {
   // Le remplacement passe par le même portail que tout le reste : un chemin
   // vient du rendu, donc il est vérifié contre le dossier ouvert avant qu'on y
   // écrive — même quand il sort de notre propre recherche.
+  // Les mises à jour. Ce qui a été proposé est gardé ici : la fenêtre dit
+  // « télécharge », pas « télécharge cette adresse » — elle ne choisit ni ce
+  // qu'on télécharge ni ce qu'on exécute.
+  let proposee: updater.UpdateInfo | null = null
+  let telecharge: string | null = null
+  ipcMain.handle("update:check", async () => {
+    proposee = await updater.checkForUpdate()
+    return proposee
+  })
+  ipcMain.handle("update:download", async (event) => {
+    if (!proposee) throw new Error("There is no update to download.")
+    const r = await updater.downloadUpdate(proposee, event.sender)
+    telecharge = r.file
+    return r
+  })
+  ipcMain.handle("update:install", async () => {
+    if (!telecharge) throw new Error("Download the update first.")
+    return updater.installUpdate(telecharge)
+  })
+
   // La palette de commandes lit le menu, et passe par lui pour agir : une
   // seule liste, et chaque commande fait exactement ce que fait son entrée de
   // menu, rôles d'Electron compris (zoom, plein écran, outils).

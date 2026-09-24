@@ -49,6 +49,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.18
+
+**Zyvro Studio tells you when a newer version is out, and installs it.** A little
+after it starts, and every few hours after that, the app asks GitHub for the
+latest release. When there is a newer one, an **Update to …** badge appears at the
+right of the status bar. It opens a dialog with the version, a link to what
+changed, and a download button with a progress bar. The download is checked
+against the SHA-256 published with the release, and a file that does not match
+is deleted rather than installed. **File › Check for Updates…** asks straight
+away. Automatic checks can be turned off in Settings.
+
+Installing: on Windows the installer starts and the app closes so it can replace
+its files. On a Mac the disk image opens; drag Zyvro Studio onto the copy in
+Applications to replace it. The checksum proves the file arrived whole, not who
+made it: the installers are still unsigned, so macOS and Windows warn about them,
+as they did for the version you are running.
+
 ## New in alpha.17
 
 **Open the agent in the terminal.** A new button at the top of the agent panel
