@@ -9,10 +9,9 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-2. **Réglages de plus** : paires de crochets colorées, défilement collant
+1. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-3. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+2. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -132,3 +131,7 @@ Petits correctifs repérés en passant :
   onglet (`shared/termgroups`), par le bouton, View › Split Terminal ou ⌘\
   dans le terminal ; fermer l'un laisse les autres, chacun reste un enfant
   direct pour ne jamais être démonté par la mise en page.
+- **0.1.0-alpha.29 — rien ne part non enregistré.** Un graphe fermé ou quitté
+  attend son enregistrement automatique (le badge de l'éditeur, lu sans toucher
+  au composant partagé, `lib/graphSave`) ; Close Folder et Open Folder posent
+  la question des brouillons.

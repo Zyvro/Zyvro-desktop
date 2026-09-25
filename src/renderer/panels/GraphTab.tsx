@@ -8,7 +8,9 @@ import Builder from "@/components/Builder"
 
 export function GraphTab({ workflowId }: { workflowId: string }) {
   return (
-    <div className="h-full w-full">
+    // `data-graph` : c'est là qu'on lit son badge d'enregistrement avant de
+    // le fermer (lib/graphSave).
+    <div className="h-full w-full" data-graph={workflowId}>
       <Builder params={{ id: workflowId }} embedded />
     </div>
   )

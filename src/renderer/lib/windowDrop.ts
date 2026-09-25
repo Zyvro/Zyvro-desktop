@@ -61,18 +61,12 @@ async function agir(lus: { dossier: boolean; chemin: string; file: File | null }
     const cible = dossiers[0].chemin
     if (store.project?.project === cible) return
     if (store.project) {
-      // Remplacer le projet ouvert ferme ses onglets ; le dire avant, surtout
-      // quand il reste des modifications non enregistrées.
-      const nonEnregistres = Object.keys(store.drafts).length
+      // Remplacer le projet ouvert ferme ses onglets ; les fichiers modifiés
+      // sont demandés ensuite, un par un ou tous ensemble (openProject).
       const oui = await askConfirm({
         title: `Open ${cible.split(/[\\/]/).pop()}?`,
-        label:
-          nonEnregistres > 0
-            ? `It replaces the open project, and ${nonEnregistres} unsaved file${nonEnregistres > 1 ? "s" : ""} would be lost.`
-            : "It replaces the open project in this window.",
+        label: "It replaces the open project in this window.",
         confirmLabel: "Open folder",
-        // Rouge seulement quand quelque chose se perd.
-        danger: nonEnregistres > 0,
       })
       if (!oui) return
     }

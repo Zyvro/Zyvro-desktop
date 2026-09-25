@@ -49,6 +49,16 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## Fixed in alpha.29
+
+- **The last change to a workflow could be lost.** The graph editor saves on its
+  own about a second after you stop editing. Closing its tab or quitting the app
+  within that second cancelled the save. Closing now waits for it to finish,
+  usually about a second. If the save fails, the app asks before closing.
+- **Closing the folder, or opening another one, threw away unsaved files**
+  without asking. It now asks the same question as closing their tabs: Save,
+  Don't Save, or Cancel.
+
 ## New in alpha.28
 
 **Split the terminal**, as in VS Code: the new button next to **+**, **View › Split

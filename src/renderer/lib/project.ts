@@ -6,6 +6,16 @@ import { attachDaemon } from "./daemon"
 import { queryClient } from "./queryClient"
 import { useWorkspace } from "~/state/workspace"
 import { engineAttached, engineStarted } from "~/state/engine"
+import { requestCloseTabs } from "./closing"
+
+// Changer de projet ferme tous ses onglets : la même question qu'en les
+// fermant — Save / Don't Save / Cancel pour les fichiers modifiés, et les
+// graphes attendent leur enregistrement. Avant, un brouillon partait sans un
+// mot avec le projet.
+async function lacherLesOnglets(): Promise<boolean> {
+  const { tabs } = useWorkspace.getState()
+  return requestCloseTabs(tabs.map((t) => t.id))
+}
 
 // Opening a project is the operation that changes everything: it starts a
 // daemon, points the shared API client at it, and gives the file tree a root.
@@ -96,6 +106,7 @@ export async function openProject(dir: string | null): Promise<OpenResult | null
       store.setOpening(false)
       return null
     }
+    if (store.project && store.project.project !== target && !(await lacherLesOnglets())) return null
     store.setOpening(true)
     const result = await window.zyvro.project.open(target)
     adopt(result)
@@ -147,6 +158,7 @@ export async function forgetRecents(): Promise<void> {
 }
 
 export async function closeProject(): Promise<void> {
+  if (!(await lacherLesOnglets())) return
   const { root, daemon } = await window.zyvro.project.close()
   adopt(null)
   queryClient.setQueryData(projectKey, null)
