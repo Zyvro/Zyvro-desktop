@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.37
+
+**Timeline**, at the bottom of the Explorer next to the Outline, as in VS Code: the
+commits that touched the file you are looking at, newest first, with their age.
+Renames are followed. Click a commit to see, side by side, what it changed in
+that file. The history stays in view while you look at a diff, so you can step
+through it. Collapsed by default; click its title to open it.
+
 ## New in alpha.36
 
 **Outline**, at the bottom of the Explorer, as in VS Code: the symbols of the file

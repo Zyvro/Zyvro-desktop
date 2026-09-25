@@ -87,6 +87,7 @@ import type { Conversation, StoredMessage, StoredTool } from "../main/conversati
 import type { PlanItem, ToolShape } from "../main/tooltalk"
 import type { Importable, ImportableWorkflow } from "../main/importing"
 import type { HostedWorkflow, SharedWorkflow } from "../main/sharing"
+import type { FileCommit } from "../shared/gitlog"
 import type {
   Change,
   ChangeStatus,
@@ -579,6 +580,8 @@ const api = {
     fileAt: (path: string, revision: string): Promise<string> =>
       invoke("git:file-at", path, revision),
     log: (limit?: number): Promise<LogEntry[]> => invoke("git:log", limit),
+    /** La Timeline d'un fichier : ses commits, renommages suivis. */
+    fileLog: (path: string): Promise<FileCommit[]> => invoke("git:file-log", path),
     branches: (): Promise<string[]> => invoke("git:branches"),
     checkout: (branch: string): Promise<void> => invoke("git:checkout", branch),
     createBranch: (name: string): Promise<void> => invoke("git:create-branch", name),

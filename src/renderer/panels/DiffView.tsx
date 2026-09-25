@@ -19,15 +19,26 @@ import { gitKey } from "~/lib/git"
 // Getting that pair backwards would show a plausible diff of the wrong two
 // things, which is the kind of wrong nobody notices until they commit.
 
-type Props = { path: string; staged: boolean }
+//   commit    son parent      → ce commit      ("ce que ce commit a changé",
+//                                               depuis la Timeline)
+type Props = { path: string; staged: boolean; commit?: string }
 
-export function DiffView({ path, staged }: Props) {
+export function DiffView({ path, staged, commit }: Props) {
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const modelsRef = useRef<monaco.editor.ITextModel[]>([])
 
   const sides = useQuery({
-    queryKey: [...gitKey, "diff-sides", path, staged],
+    queryKey: [...gitKey, "diff-sides", path, staged, commit ?? ""],
     queryFn: async () => {
+      // Un premier commit n'a pas de parent : `fileAt` rend alors un côté
+      // vide, ce qui est vrai — le fichier naissait.
+      if (commit) {
+        const [left, right] = await Promise.all([
+          window.zyvro.git.fileAt(path, `${commit}^`),
+          window.zyvro.git.fileAt(path, commit),
+        ])
+        return { left, right }
+      }
       // `:path` with an empty revision is git's way of naming the index, which
       // is the one of the three states that has no file on disk to read.
       const left = await window.zyvro.git.fileAt(path, staged ? "HEAD" : "")

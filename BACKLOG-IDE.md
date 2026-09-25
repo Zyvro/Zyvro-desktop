@@ -9,10 +9,11 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Timeline** : l'historique git du fichier, et son diff à chaque commit.
-2. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
+0. **Auto-synthèse du prompt dans le chat** (demandé) : traduire en anglais,
+   améliorer, structurer ; relire ou envoyer tout seul.
+1. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
    « taper pour chercher ».
-3. **Menu contextuel des onglets de droite** (côte à côte).
+2. **Menu contextuel des onglets de droite** (côte à côte).
 
 Petits correctifs repérés en passant :
 
@@ -160,3 +161,6 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.36 — l'Outline.** En bas de l'Explorateur, repliable : l'arbre
   de navigation de TypeScript, ou les titres d'un Markdown (`shared/outline`) ;
   il suit le curseur et la frappe.
+- **0.1.0-alpha.37 — la Timeline.** Les commits du fichier (`git log
+  --follow`, `shared/gitlog`), en bas de l'Explorateur ; un clic ouvre ce que
+  le commit y a changé, côte à côte, sous le nom d'alors.

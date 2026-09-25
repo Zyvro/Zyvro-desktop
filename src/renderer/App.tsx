@@ -10,6 +10,7 @@ import { WorkflowList } from "~/panels/WorkflowList"
 import { BrowserList } from "~/panels/BrowserList"
 import { PersistentList } from "~/panels/PersistentList"
 import { OutlineList } from "~/panels/OutlineList"
+import { TimelineList } from "~/panels/TimelineList"
 import { SearchPanel } from "~/panels/SearchPanel"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
@@ -180,6 +181,7 @@ export default function App() {
                   <WorkflowList />
                   {/* Tout en bas, repliée par défaut, comme dans VS Code. */}
                   <OutlineList />
+                  <TimelineList />
                 </>
               ) : (
                 <GitPanel />

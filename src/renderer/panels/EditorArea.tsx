@@ -149,7 +149,7 @@ function TabBody({ tab, group = "main" }: { tab: Tab; group?: "main" | "split" }
     case "graph":
       return <GraphTab workflowId={tab.workflowId} />
     case "diff":
-      return <DiffView path={tab.path} staged={tab.staged} />
+      return <DiffView path={tab.path} staged={tab.staged} commit={tab.commit?.hash} />
     case "gitOutput":
       return <GitOutput />
     case "providers":

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process"
 import fs from "node:fs/promises"
 import path from "node:path"
 import { resolveInside } from "./files"
+import { FILE_LOG_FORMAT, parseFileLog, type FileCommit } from "../shared/gitlog"
 
 // Git, the way VS Code does it: by talking to the git binary.
 //
@@ -438,6 +439,20 @@ export async function log(root: string, limit = 50): Promise<LogEntry[]> {
       return { hash, short, author, date, subject: subject ?? "" }
     })
     .filter((entry) => Boolean(entry.hash))
+}
+
+// fileLog : la Timeline d'un fichier — ses commits, renommages suivis, avec le
+// chemin qu'il avait à chacun (shared/gitlog). Hors du journal Git Output,
+// comme headText : c'est une lecture que l'interface fait seule.
+export async function fileLog(root: string, relative: string, limit = 100): Promise<FileCommit[]> {
+  await resolveInside(root, relative)
+  const rel = relative.replace(/\\/g, "/")
+  const out = await run(
+    root,
+    ["log", "--follow", `--max-count=${Math.max(1, Math.min(500, limit))}`, FILE_LOG_FORMAT, "--name-only", "--", `./${rel}`],
+    { allow: [128], quiet: true }
+  )
+  return parseFileLog(out, rel)
 }
 
 export type Remote = { name: string; url: string }

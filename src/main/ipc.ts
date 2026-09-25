@@ -1153,6 +1153,11 @@ export function registerIpc(onRecents?: () => void): void {
     return git.fileAt(requireRoot(ws), String(relative), String(revision))
   })
 
+  ipcMain.handle("git:file-log", async (event, relative: string) => {
+    const { ws } = requireWorkspace(event)
+    return git.fileLog(requireRoot(ws), String(relative))
+  })
+
   ipcMain.handle("git:log", async (event, limit?: number) => {
     const { ws } = requireWorkspace(event)
     return git.log(requireRoot(ws), Number(limit) || 50)

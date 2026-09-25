@@ -27,7 +27,9 @@ export type Tab =
   | { kind: "browser"; id: string; title: string; url: string; icon?: string }
   // A diff is its own kind rather than a file tab with a flag: it has two sides,
   // it is read-only, and closing it must not look like closing the file.
-  | { kind: "diff"; id: string; path: string; staged: boolean; title: string }
+  // `commit` : ce que ce commit a changé dans le fichier (la Timeline), au
+  // lieu de l'index ou du disque.
+  | { kind: "diff"; id: string; path: string; staged: boolean; title: string; commit?: { hash: string; short: string } }
   | { kind: "gitOutput"; id: "git-output"; title: string }
 
 export type PanelKey = "explorer" | "search" | "terminal" | "agent" | "git"
@@ -116,6 +118,8 @@ type WorkspaceState = {
   openFile: (path: string) => void
   openGraph: (workflowId: string, title: string) => void
   openDiff: (path: string, staged: boolean) => void
+  /** Ce qu'un commit a changé dans un fichier (la Timeline). */
+  openCommitDiff: (path: string, hash: string, short: string) => void
   openGitOutput: () => void
   openProviders: () => void
   openSettings: () => void
@@ -303,6 +307,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       staged,
       title: `${basename(path)} (${staged ? "staged" : "working tree"})`,
     }
+    set((s) => ({
+      tabs: [...s.tabs.filter((t) => t.kind !== "welcome" && !replacedByOpening(s, t, id)), tab],
+      activeTabId: id,
+    }))
+  },
+
+  openCommitDiff: (path, hash, short) => {
+    const id = `diff:${hash}:${path}`
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "diff", id, path, staged: false, commit: { hash, short }, title: `${basename(path)} (${short})` }
     set((s) => ({
       tabs: [...s.tabs.filter((t) => t.kind !== "welcome" && !replacedByOpening(s, t, id)), tab],
       activeTabId: id,
