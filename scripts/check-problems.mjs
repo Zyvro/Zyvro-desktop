@@ -31,7 +31,7 @@ const check = (name, ok, detail = "") => {
 const monaco = lire("src/renderer/lib/monaco.ts")
 check("**chaque modèle porte l'adresse de son fichier**", /scheme: "file", path: `\/\$\{path\}`/.test(monaco))
 const editeur = lire("src/renderer/panels/CodeEditor.tsx")
-check("l'éditeur prend son modèle à cette adresse, partagé", /acquireModel\(path, draft \?\? loaded\)/.test(editeur) && /monaco\.editor\.createModel\(text, languageFor\(path\), uri\)/.test(monaco))
+check("l'éditeur prend son modèle à cette adresse, partagé", /acquireModel\(path, draft \?\? initial\)/.test(editeur) && /monaco\.editor\.createModel\(text, languageFor\(path\), uri\)/.test(monaco))
 check("et l'indentation se règle sur le modèle", /model\.detectIndentation\(/.test(editeur))
 check("**« Cannot find module » est tu, les vraies erreurs restent**", /2307, \/\/ Cannot find module/.test(monaco) && !/2304/.test(monaco))
 check("le JSX est compris dans un .tsx", /jsx: monaco\.languages\.typescript\.JsxEmit\.ReactJSX/.test(monaco))

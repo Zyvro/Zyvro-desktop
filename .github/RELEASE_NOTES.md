@@ -49,6 +49,26 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.34
+
+**Files changed on disk show up in their tabs**: by the agent, by git (a
+checkout, a pull), by another program. As in VS Code:
+
+- If you have not modified the tab, it takes the new text on its own. That is
+  a normal edit, so ⌘Z brings back what you had.
+- If you have, your text is kept, and a banner says the file changed on disk.
+  **⌘S now checks the disk before writing.** If the file changed since you
+  opened it, it asks whether to **Overwrite** it with your version or **Use
+  Disk Version** and drop your changes. Before, saving silently wrote over the
+  agent's work. Auto save never overwrites; it waits for you to decide.
+
+## Fixed in alpha.34
+
+- **The cursor jumped back to the top of the file after every save.** Saving
+  rebuilt the editor. It no longer does.
+- **Reopening a file you had closed showed its old text** if something changed
+  it in between. It is read again.
+
 ## New in alpha.33
 
 **Side-by-side editors, finished.** When the right-hand group has focus, a file

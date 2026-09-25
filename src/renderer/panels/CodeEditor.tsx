@@ -8,6 +8,9 @@ import { useWorkspace } from "~/state/workspace"
 import { registerSaver } from "~/state/savers"
 import { Breadcrumbs } from "~/panels/Breadcrumbs"
 import { isAbsolutePath } from "../../shared/external"
+import { beforeSave, onDiskChange } from "../../shared/diskSync"
+import { subscribeFiles, unwatchDir, versionOf, watchDir } from "~/state/fileWatch"
+import { askChoice } from "~/state/prompt"
 import { getSettings, subscribeSettings } from "~/state/settings"
 import { lineHeightFor, type EditorSettings } from "../../shared/settings"
 import { hunkAt, hunks, lineChanges, revertHunk, type Hunk, type LineChange } from "../../shared/linediff"
@@ -67,6 +70,16 @@ function optionsFrom(r: EditorSettings): monaco.editor.IEditorOptions {
   }
 }
 
+const bases = new Map<string, { current: string | null }>()
+function baseDe(path: string): { current: string | null } {
+  let b = bases.get(path)
+  if (!b) {
+    b = { current: null }
+    bases.set(path, b)
+  }
+  return b
+}
+
 export function CodeEditor({ tabId, path, group = "main" }: Props) {
   const setDraft = useWorkspace((s) => s.setDraft)
   const clearDraft = useWorkspace((s) => s.clearDraft)
@@ -75,15 +88,33 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
   const [saveError, setSaveError] = useState("")
 
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
+  // Le texte du disque sur lequel l'onglet s'appuie (shared/diskSync), par
+  // fichier et pas par éditeur : un fichier ouvert des deux côtés (⌘\) n'a
+  // qu'une base, sinon enregistrer d'un côté ferait croire à l'autre que le
+  // disque a bougé.
+  const baseRef = baseDe(path)
+  // Le fichier a changé sur le disque pendant qu'on le modifiait ici.
+  const [surDisque, setSurDisque] = useState(false)
   const teardownRef = useRef<(() => void) | null>(null)
 
   const file = useQuery({
     queryKey: ["files", "read", path],
     queryFn: () => window.zyvro.files.read(path),
     staleTime: Infinity,
+    // Oublié dès qu'aucun onglet ne le montre : rouvrir un fichier qu'un agent
+    // a changé entre-temps doit le relire, pas rendre le texte d'avant.
+    gcTime: 0,
   })
 
   const loaded = file.data && "text" in file.data ? file.data.text : null
+  // L'éditeur naît une fois, quand le texte est là — pas à chaque fois que le
+  // texte en cache change. Dépendre de `loaded` le recréait après chaque ⌘S
+  // (le curseur repartait en haut) et après chaque changement sur le disque
+  // (la base d'où l'on mesure un conflit y passait). Le texte en cache se lit
+  // ici, au moment de naître.
+  const loadedRef = useRef(loaded)
+  loadedRef.current = loaded
+  const pret = loaded !== null
 
   // save is the one operation several things trigger: the File menu, Cmd+S
   // inside Monaco, Save All, and closing a dirty tab. It reads the editor rather
@@ -98,8 +129,42 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
     if (!editor) return false
     if (!auto && getSettings().formatOnSave) await formatDocument(editor)
     const text = editor.getValue()
+    // Le disque a-t-il bougé depuis qu'on l'a lu ? Relu ici, pas seulement
+    // appris par la surveillance : un changement qu'on n'aurait pas vu passer
+    // ne doit pas être écrasé non plus.
+    const base = baseRef.current
+    if (base !== null) {
+      const lu = await window.zyvro.files.read(path).catch(() => null)
+      const disque = lu && "text" in lu ? lu.text : null
+      if (disque !== null && beforeSave(base, disque, text) === "ask") {
+        // La sauvegarde automatique n'écrase jamais : ⌘S demandera.
+        if (auto) return false
+        const choix = await askChoice({
+          title: `${path.slice(path.lastIndexOf("/") + 1)} changed on disk`,
+          label:
+            "It was modified outside this editor since you opened it — by an agent, git or another program. Overwrite it with your version, or take the version on disk and drop your changes?",
+          confirmLabel: "Overwrite",
+          alternativeLabel: "Use Disk Version",
+        })
+        if (choix === null) return false
+        if (choix === "alternative") {
+          baseRef.current = disque
+          client.setQueryData(["files", "read", path], { path, text: disque, truncated: false })
+          const model = editor.getModel()
+          if (model) {
+            editor.executeEdits("zyvro-disk", [{ range: model.getFullModelRange(), text: disque }])
+            editor.pushUndoStop()
+          }
+          clearDraft(tabId)
+          setSurDisque(false)
+          return true
+        }
+      }
+    }
     try {
       await window.zyvro.files.write(path, text)
+      baseRef.current = text
+      setSurDisque(false)
       clearDraft(tabId)
       setSaveError("")
       client.setQueryData(["files", "read", path], { path, text, truncated: false })
@@ -118,7 +183,8 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
         editorRef.current = null
         return
       }
-      if (loaded === null) return
+      const initial = loadedRef.current
+      if (!pret || initial === null) return
 
       const reglages = getSettings()
       // Un modèle à l'adresse du fichier (voir `modelUri`). Celui d'un onglet
@@ -127,7 +193,8 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
       //
       // Partagé quand le même fichier est ouvert des deux côtés (⌘\) : le
       // second éditeur prend le modèle du premier, texte et réglages compris.
-      const { model, fresh } = acquireModel(path, draft ?? loaded)
+      const { model, fresh } = acquireModel(path, draft ?? initial)
+      if (fresh || baseRef.current === null) baseRef.current = initial
       // L'indentation se règle sur le modèle : passée à l'éditeur, elle ne
       // valait que pour un modèle qu'il aurait créé lui-même.
       if (fresh && reglages.detectIndentation) model.detectIndentation(reglages.insertSpaces, reglages.tabSize)
@@ -222,6 +289,44 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
         }
       })
       window.addEventListener("blur", perdFocus)
+
+      // Le fichier change sur le disque — un agent, git, un autre programme.
+      // La surveillance du dossier le dit (state/fileWatch) ; on relit, et
+      // shared/diskSync décide : reprendre le nouveau texte si rien n'est
+      // modifié ici, sinon garder le nôtre et prévenir.
+      const dossier = isAbsolutePath(path) ? null : path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "."
+      if (dossier !== null) watchDir(dossier)
+      let vu = dossier !== null ? versionOf(dossier) : 0
+      const offDisque = subscribeFiles(() => {
+        if (dossier === null) return
+        const v = versionOf(dossier)
+        if (v === vu) return
+        vu = v
+        void window.zyvro.files.read(path).then(
+          (lu) => {
+            if (!("text" in lu) || editorRef.current !== editor) return
+            const disque = lu.text
+            const base = baseRef.current ?? disque
+            const decision = onDiskChange(base, disque, editor.getValue())
+            if (decision === "ignore") return
+            baseRef.current = decision === "conflict" ? base : disque
+            // Le texte « enregistré » est celui du disque : c'est à lui que
+            // l'onglet se compare pour savoir s'il est modifié.
+            client.setQueryData(["files", "read", path], { path, text: disque, truncated: false })
+            if (decision === "reload") {
+              // Une édition comme une autre : ⌘Z revient à ce qu'on avait.
+              editor.executeEdits("zyvro-disk", [{ range: model.getFullModelRange(), text: disque }])
+              editor.pushUndoStop()
+              clearDraft(tabId)
+            } else if (decision === "adopt") {
+              clearDraft(tabId)
+            } else {
+              setSurDisque(true)
+            }
+          },
+          () => undefined
+        )
+      })
 
       // Le coup d'œil de la marge, comme VS Code : un clic sur une marque de
       // git ouvre, sous le changement, ce qu'il y avait au dernier commit, avec
@@ -424,6 +529,8 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
         unregisterEditor()
         offSettings()
         offGit()
+        offDisque()
+        if (dossier !== null) unwatchDir(dossier)
         clicMarge.dispose()
         frappeFerme.dispose()
         echap.dispose()
@@ -442,7 +549,7 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
     // `draft` is deliberately absent: it is the seed value only. Including it
     // would rebuild the editor on every keystroke and throw away the cursor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [client, clearDraft, group, loaded, path, save, setDraft, tabId]
+    [client, clearDraft, group, pret, path, save, setDraft, tabId]
   )
 
   if (file.isLoading) {
@@ -523,6 +630,11 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
       {saveError && (
         <p className="border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[12px] text-destructive">
           {saveError}
+        </p>
+      )}
+      {surDisque && (
+        <p className="border-b border-amber-400/30 bg-amber-400/10 px-3 py-1.5 text-[12px] text-amber-200">
+          This file changed on disk while you were editing it. Saving will ask whether to overwrite it.
         </p>
       )}
       <Breadcrumbs path={path} />

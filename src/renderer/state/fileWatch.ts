@@ -16,6 +16,8 @@
 // contexte React dans un magasin de module — et un `useEffect`, qui n'a pas
 // cours dans ce dépôt.
 
+import { useWorkspace } from "~/state/workspace"
+
 let started = false
 const versions = new Map<string, number>()
 const listeners = new Set<() => void>()
@@ -32,8 +34,20 @@ function start(): void {
   })
 }
 
+// Compté : l'arbre et les éditeurs ouverts surveillent parfois le même dossier,
+// et replier un dossier dans l'arbre ne doit pas rendre sourd l'éditeur d'un
+// fichier qui s'y trouve.
+// Par projet : ouvrir un autre dossier remet la surveillance du principal à
+// zéro, et un compte hérité de l'ancien ferait croire le nouveau déjà surveillé.
+const tenus = new Map<string, number>()
+const cle = (dir: string) => `${useWorkspace.getState().root ?? ""}\u0000${dir}`
+
 export function watchDir(dir: string): void {
   start()
+  const k = cle(dir)
+  const n = tenus.get(k) ?? 0
+  tenus.set(k, n + 1)
+  if (n > 0) return
   // Un dossier qui disparaît entre le clic et la demande, un projet qui se
   // ferme : la surveillance est un confort, pas une opération dont l'échec
   // mérite une fenêtre.
@@ -41,6 +55,13 @@ export function watchDir(dir: string): void {
 }
 
 export function unwatchDir(dir: string): void {
+  const k = cle(dir)
+  const n = tenus.get(k) ?? 0
+  if (n > 1) {
+    tenus.set(k, n - 1)
+    return
+  }
+  tenus.delete(k)
   void window.zyvro.files.unwatch(dir).catch(() => {})
 }
 

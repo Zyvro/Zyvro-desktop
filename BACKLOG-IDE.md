@@ -9,15 +9,21 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Rien d'urgent dans la liste** : reprendre les petits correctifs
-   ci-dessous, puis relire VS Code pour la suite (rechercher/remplacer dans
-   l'arbre, extensions de langage, débogueur…).
+1. **Aller à la définition d'un fichier à l'autre** (F12, ⇧F12) : le service
+   TypeScript ne voit que le fichier ouvert ; lui donner les fichiers TS/JS du
+   projet (bornés), ce qui fait aussi taire les imports relatifs signalés à
+   tort.
+2. **Outline** dans la barre latérale : les symboles du fichier actif, qui
+   suivent le curseur.
+3. **Timeline** : l'historique git du fichier, et son diff à chaque commit.
+4. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
+   « taper pour chercher ».
+5. **Menu contextuel des onglets de droite** (côte à côte).
 
 Petits correctifs repérés en passant :
 
 - terminal scindé : les shells repris au redémarrage reviennent chacun dans
   son onglet (les groupes ne sont pas retenus) ;
-- éditeurs côte à côte : un menu contextuel sur les onglets de droite ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
 - l'aperçu Markdown garde la typographie du chat : des titres de document
   plus grands, et les images relatives du dépôt.
@@ -147,3 +153,9 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.33 — côte à côte, fini.** Un fichier ouvert quand la droite a
   la main s'ouvre à droite ; un onglet de droite lâché à gauche y revient ; la
   séparation des shells se tire (`placeIn`, `resizePair`).
+- **0.1.0-alpha.34 — un fichier changé sur le disque (agent, git) arrive dans
+  son onglet.** Rien de modifié ici : l'onglet le prend, tout seul, en
+  édition défaisable ; modifié des deux côtés : un bandeau, et ⌘S relit le
+  disque et demande (Overwrite / Use Disk Version) au lieu d'écraser
+  (`shared/diskSync`). Surveillance comptée ; l'éditeur ne renaît plus à
+  chaque ⌘S (le curseur ne repart plus en haut).
