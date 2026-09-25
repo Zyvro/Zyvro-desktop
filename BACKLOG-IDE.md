@@ -9,9 +9,7 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **L'aperçu Markdown** garde la typographie du chat : des titres de document
-   plus grands, et les images relatives du dépôt.
-2. **Comparer deux fichiers** (« Select for Compare » / « Compare with
+1. **Comparer deux fichiers** (« Select for Compare » / « Compare with
    Selected » du clic droit de l'arbre).
 
 Petits correctifs repérés en passant :
@@ -174,3 +172,8 @@ Petits correctifs repérés en passant :
   disposition de ses onglets au principal, qui écrit l'onglet de chaque shell
   et rend les shells dans cet ordre (`inLayoutOrder`, `regroup`) : côte à
   côte avant, côte à côte après un redémarrage ou un rechargement.
+- **0.1.0-alpha.42 — l'aperçu Markdown d'un document.** Son propre lecteur
+  (`shared/mdoc`, rendu par `MarkdownDoc`) : titres ancrés comme GitHub,
+  images du projet (SVG compris) et du web, liens relatifs qui ouvrent le
+  fichier ou son aperçu, listes imbriquées et cases, tableaux alignés, liens
+  par référence, `<img>` et `<br>` des README — jamais de HTML brut.

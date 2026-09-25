@@ -49,6 +49,24 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.42
+
+**The Markdown preview reads like a document.** ⇧⌘V now renders a README the
+way GitHub does:
+
+- Headings are sized as document headings, and every heading has the anchor
+  GitHub gives it, so `[see](#install)` scrolls to it.
+- Images show, whether they are project files (PNG, JPEG, GIF, WebP, SVG),
+  web images or badges, including the centered `<img>` logo many READMEs open
+  with.
+- Links to files open them: a relative link to a Markdown file opens its
+  preview, and one to any other file opens it in the editor.
+- Nested lists, task lists with their checkboxes, aligned tables, reference
+  links (`[text][ref]`), `<br>` and line breaks all display as expected.
+
+Raw HTML is still never injected into the window: the preview builds its own
+elements.
+
 ## New in alpha.41
 
 **Split terminals come back split.** Shells you had side by side in one

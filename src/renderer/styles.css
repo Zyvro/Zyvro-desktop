@@ -215,3 +215,12 @@ button,
   background: rgb(248 113 113 / 0.12);
   overflow: hidden;
 }
+
+/* L'aperçu Markdown : la typographie d'un document, pas celle du chat. */
+.zy-doc {
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+.zy-doc > :first-child {
+  margin-top: 0;
+}
