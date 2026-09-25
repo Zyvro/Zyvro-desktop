@@ -652,6 +652,7 @@ const api = {
     onOpenRecentFile: (cb: (relative: string) => void): Unsubscribe => on("menu:open-recent-file", cb),
     onProblems: (cb: () => void): Unsubscribe => on("menu:problems", cb),
     onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),
+    onWorkspaceSymbol: (cb: () => void): Unsubscribe => on("menu:workspace-symbol", cb),
     /** Le menu de l'application, à plat, pour la palette de commandes. */
     list: (): Promise<{ id: string; label: string; group: string; accelerator: string }[]> =>
       invoke("menu:list"),

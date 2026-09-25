@@ -139,6 +139,9 @@ window.zyvro.menu.onQuickOpen(() => {
 window.zyvro.menu.onCommandPalette(() => {
   openQuickOpen(">")
 })
+window.zyvro.menu.onWorkspaceSymbol(() => {
+  openQuickOpen("#")
+})
 window.zyvro.menu.onOpenPath((dir) => {
   void openProject(dir)
 })

@@ -37,7 +37,10 @@ check("**borné**", t.selectIndexable(Array.from({ length: 5000 }, (_, i) => `s/
 {
   const lire = (p) => readFileSync(path.join(ROOT, p), "utf8")
   const idx = lire("src/renderer/lib/projectIndex.ts")
-  check("données comme bibliothèques, pas comme fichiers vérifiés un à un", /typescriptDefaults\.setExtraLibs\(libs\)/.test(idx) && !/createModel/.test(idx))
+  check("données comme bibliothèques, pas comme fichiers vérifiés un à un", /typescriptDefaults\.setExtraLibs\(/.test(idx) && (idx.match(/createModel\(/g) ?? []).length === 1 && /createModel\("", langue\)/.test(idx))
+  // Le seul modèle créé ici est vide, le temps d'éveiller le service d'une
+  // langue pour ⌘T — et rendu aussitôt.
+  check("le modèle d'éveil est rendu", /finally \{\s*eveil\.dispose\(\)/.test(idx))
   check("**une définition ailleurs ouvre son onglet, à la bonne ligne (de 1 à 0)**", /registerEditorOpener/.test(idx) && /line: sel\.startLineNumber - 1/.test(idx))
   check("relu après une rafale de changements, pas à chacun", /bientot\(10_000\)/.test(idx))
   check("chargé par l'application", /import "~\/lib\/projectIndex"/.test(lire("src/renderer/App.tsx")))

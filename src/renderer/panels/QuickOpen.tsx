@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { revealAt } from "~/state/reveal"
 import { formatAccelerator, rank, splitLine } from "../../shared/fuzzy"
+import { searchSymbols } from "../../shared/workspaceSymbols"
+import { workspaceSymbols } from "~/lib/projectIndex"
 
 // Quick Open (⌘P) : taper quelques lettres d'un nom de fichier et l'ouvrir.
 //
@@ -23,6 +25,8 @@ import { formatAccelerator, rank, splitLine } from "../../shared/fuzzy"
 // Et `>` en tête, c'est la palette de commandes (⌘⇧P) : la même boîte, comme
 // dans VS Code, sur la liste du menu de l'application — lue au principal, pour
 // qu'une commande et son raccourci ne soient écrits qu'à un endroit.
+//
+// `#` en tête : les symboles de tout le projet (⌘T), comme VS Code.
 
 let ouvert = false
 let depart = ""
@@ -120,6 +124,17 @@ function QuickOpenDialog() {
   }, [tabs, closedFiles, retenus.data])
 
   const commandes = saisie.startsWith(">")
+  const enSymboles = saisie.startsWith("#")
+  const tousSymboles = useQuery({
+    queryKey: ["workspace-symbols", project?.project],
+    queryFn: () => workspaceSymbols(),
+    enabled: enSymboles && Boolean(project),
+    staleTime: 0,
+  })
+  const symboles = useMemo(
+    () => (enSymboles ? searchSymbols(tousSymboles.data ?? [], saisie.slice(1), 60) : []),
+    [enSymboles, saisie, tousSymboles.data]
+  )
   const menu = useQuery({
     queryKey: ["menu", "list"],
     queryFn: () => window.zyvro.menu.list(),
@@ -138,15 +153,15 @@ function QuickOpenDialog() {
 
   const { query, line, column } = splitLine(saisie.trim())
   const resultats = useMemo(() => {
-    if (commandes) return []
+    if (commandes || enSymboles) return []
     if (query === "") return recents.map((path) => ({ path, positions: [] as number[] }))
     // Les récents d'abord dans la liste donnée au tri : à score égal, ils
     // passent devant.
     const tous = [...recents, ...(liste.data?.files ?? []).filter((p) => !recents.includes(p))]
     return rank(query, tous, 60)
-  }, [commandes, query, recents, liste.data])
+  }, [commandes, enSymboles, query, recents, liste.data])
 
-  const total = commandes ? trouvees.length : resultats.length
+  const total = commandes ? trouvees.length : enSymboles ? symboles.length : resultats.length
   const index = Math.min(choisi, Math.max(0, total - 1))
 
   const executer = (id: string) => {
@@ -160,6 +175,13 @@ function QuickOpenDialog() {
     if (line !== null) {
       revealAt({ path, line: Math.max(0, line - 1), column: Math.max(0, (column ?? 1) - 1), length: 0 })
     }
+  }
+
+  const allerAuSymbole = (s: { path: string; line: number; column: number; name: string }) => {
+    fermer()
+    useWorkspace.getState().openFile(s.path)
+    useWorkspace.getState().pinTab(`file:${s.path}`)
+    revealAt({ path: s.path, line: s.line - 1, column: s.column - 1, length: s.name.length })
   }
 
   const focusInput = useCallback((node: HTMLInputElement | null) => {
@@ -185,7 +207,11 @@ function QuickOpenDialog() {
             ref={focusInput}
             className="h-10 w-full border-b border-white/10 bg-transparent px-3 text-sm outline-none"
             placeholder={
-              commandes ? "Type a command" : "Search files by name (append :line to go to a line, or start with > for commands)"
+              commandes
+                ? "Type a command"
+                : enSymboles
+                  ? "Search symbols in the whole project"
+                  : "Search files by name (append :line to go to a line, > for commands, # for symbols)"
             }
             value={saisie}
             onChange={(event) => {
@@ -204,6 +230,11 @@ function QuickOpenDialog() {
                 if (commandes) {
                   const commande = trouvees[index]
                   if (commande) executer(commande.id)
+                  return
+                }
+                if (enSymboles) {
+                  const s = symboles[index]
+                  if (s) allerAuSymbole(s.symbol)
                   return
                 }
                 const cible = resultats[index]
@@ -238,12 +269,48 @@ function QuickOpenDialog() {
                 )}
               </button>
             ))}
-            {!commandes && liste.isLoading && query !== "" && (
+            {enSymboles && tousSymboles.isLoading && (
+              <p className="flex items-center gap-2 px-3 py-2 text-[12px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 zy-spin" /> Reading the project's symbols…
+              </p>
+            )}
+            {enSymboles && !tousSymboles.isLoading && symboles.length === 0 && (
+              <p className="px-3 py-2 text-[12px] text-muted-foreground">
+                {saisie.slice(1).trim() === ""
+                  ? "Type the name of a function, class, type or constant."
+                  : (tousSymboles.data?.length ?? 0) === 0
+                    ? "No symbols yet: the project is still being indexed, or has no TypeScript or JavaScript."
+                    : "No matching symbols."}
+              </p>
+            )}
+            {symboles.map(({ symbol: s, positions }, i) => (
+              <button
+                key={`${s.path}:${s.line}:${s.column}:${s.name}`}
+                ref={i === index ? suivre : undefined}
+                data-symbol={s.name}
+                className={cn(
+                  "flex w-full items-center gap-2 px-3 py-1 text-left text-[13px]",
+                  i === index ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"
+                )}
+                onMouseMove={() => setChoisi(i)}
+                onClick={() => allerAuSymbole(s)}
+              >
+                <span className="w-16 shrink-0 truncate text-[11px] text-muted-foreground">{s.kind}</span>
+                <span className="shrink-0">
+                  <Surligne texte={s.name} positions={new Set(positions)} debut={0} />
+                </span>
+                {s.container && <span className="shrink-0 text-[12px] text-muted-foreground">{s.container}</span>}
+                <span className="ml-auto truncate text-[12px] text-muted-foreground">
+                  {s.path}:{s.line}
+                </span>
+              </button>
+            ))}
+            {!commandes && !enSymboles && liste.isLoading && query !== "" && (
               <p className="flex items-center gap-2 px-3 py-2 text-[12px] text-muted-foreground">
                 <Loader2 className="h-3 w-3 zy-spin" /> Listing the project…
               </p>
             )}
-            {!commandes && !liste.isLoading && resultats.length === 0 && (
+            {!commandes && !enSymboles && !liste.isLoading && resultats.length === 0 && (
               <p className="px-3 py-2 text-[12px] text-muted-foreground">
                 {query === "" ? "Type to search the project's files." : "No matching files."}
               </p>

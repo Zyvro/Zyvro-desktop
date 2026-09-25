@@ -16,13 +16,71 @@ import { useWorkspace } from "~/state/workspace"
 import { revealAt } from "~/state/reveal"
 import { subscribeFiles } from "~/state/fileWatch"
 import { INDEX_MAX_FILE_BYTES, INDEX_MAX_TOTAL_BYTES, selectIndexable } from "../../shared/projectIndex"
+import { symbolsFrom, type WsSymbol } from "../../shared/workspaceSymbols"
+import type { NavTree } from "../../shared/outline"
 
 let generation = 0
 let minuterie: ReturnType<typeof setTimeout> | null = null
 
-function poser(libs: { content: string; filePath: string }[]): void {
-  monaco.languages.typescript.typescriptDefaults.setExtraLibs(libs)
-  monaco.languages.typescript.javascriptDefaults.setExtraLibs(libs)
+// Ce qui est indexé, fichier par fichier : la matière de ⌘T.
+let indexes: { path: string; text: string }[] = []
+// Gardés pour l'index qui les a donnés : une nouvelle indexation (`poser`)
+// les oublie. Pas le compteur de `generation`, qui bouge dès qu'une
+// indexation COMMENCE — et le projet s'écrit lui-même au démarrage.
+let symboles: { de: typeof indexes; promesse: Promise<WsSymbol[]> } | null = null
+
+function poser(libs: { content: string; filePath: string; path?: string }[]): void {
+  monaco.languages.typescript.typescriptDefaults.setExtraLibs(libs.map(({ content, filePath }) => ({ content, filePath })))
+  monaco.languages.typescript.javascriptDefaults.setExtraLibs(libs.map(({ content, filePath }) => ({ content, filePath })))
+  indexes = libs.flatMap((l) => (l.path ? [{ path: l.path, text: l.content }] : []))
+  symboles = null
+}
+
+// Le service d'une langue. Monaco ne le démarre qu'à la naissance du premier
+// modèle de cette langue : sans fichier TypeScript ouvert, le demander échoue
+// (« TypeScript not registered »). Un modèle vide, le temps de l'éveiller.
+async function ouvrirService(langue: "typescript" | "javascript") {
+  const obtenir = () =>
+    langue === "typescript" ? monaco.languages.typescript.getTypeScriptWorker() : monaco.languages.typescript.getJavaScriptWorker()
+  try {
+    return await (await obtenir())()
+  } catch {
+    const eveil = monaco.editor.createModel("", langue)
+    try {
+      return await (await obtenir())()
+    } finally {
+      eveil.dispose()
+    }
+  }
+}
+
+// workspaceSymbols : les symboles de tout le projet indexé (⌘T), calculés au
+// premier appel après chaque indexation, puis gardés. L'arbre de navigation de
+// chaque fichier, par le service de sa langue.
+export function workspaceSymbols(): Promise<WsSymbol[]> {
+  if (symboles && symboles.de === indexes) return symboles.promesse
+  const fichiers = indexes
+  const promesse = (async () => {
+    const ts = await ouvrirService("typescript")
+    const js = await ouvrirService("javascript")
+    const out: WsSymbol[] = []
+    for (let i = 0; i < fichiers.length; i += 16) {
+      const paquet = fichiers.slice(i, i + 16)
+      const arbres = await Promise.all(
+        paquet.map(({ path }) => {
+          const client = /\.[cm]?jsx?$/i.test(path) ? js : ts
+          return (client.getNavigationTree(modelUri(path).toString()) as Promise<NavTree | undefined>).catch(() => undefined)
+        })
+      )
+      paquet.forEach(({ path, text }, k) => {
+        const arbre = arbres[k]
+        if (arbre) out.push(...symbolsFrom(path, arbre, text))
+      })
+    }
+    return out
+  })()
+  symboles = { de: fichiers, promesse }
+  return promesse
 }
 
 async function indexer(): Promise<void> {
@@ -35,7 +93,7 @@ async function indexer(): Promise<void> {
   const liste = await window.zyvro.files.all().catch(() => null)
   if (!liste || gen !== generation) return
   const choisis = selectIndexable(liste.files)
-  const libs: { content: string; filePath: string }[] = []
+  const libs: { content: string; filePath: string; path: string }[] = []
   let total = 0
   // Par paquets : un millier de lectures d'un coup encombrerait le canal que
   // l'arbre et l'éditeur utilisent aussi.
@@ -55,7 +113,7 @@ async function indexer(): Promise<void> {
       if (t === null || t.length > INDEX_MAX_FILE_BYTES) continue
       if (total + t.length > INDEX_MAX_TOTAL_BYTES) break
       total += t.length
-      libs.push({ content: t, filePath: modelUri(paquet[k]).toString() })
+      libs.push({ content: t, filePath: modelUri(paquet[k]).toString(), path: paquet[k] })
     }
   }
   if (gen === generation) poser(libs)

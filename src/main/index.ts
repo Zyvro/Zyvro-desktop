@@ -456,6 +456,11 @@ function buildMenu(): void {
           click: (_item, win) => send(win as BrowserWindow, "menu:go-to-symbol"),
         },
         {
+          label: "Go to Symbol in Workspace…",
+          accelerator: "CmdOrCtrl+T",
+          click: (_item, win) => send(win as BrowserWindow, "menu:workspace-symbol"),
+        },
+        {
           label: "Go to Line…",
           accelerator: "Ctrl+G",
           click: (_item, win) => send(win as BrowserWindow, "menu:go-to-line"),

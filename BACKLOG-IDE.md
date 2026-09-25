@@ -9,9 +9,7 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Go to Symbol in Workspace (⌘T)** : les symboles de tout le projet, par
-   l'index TypeScript déjà chargé pour F12.
-2. **Blame en ligne** : l'auteur et la date de la ligne du curseur, en gris au
+1. **Blame en ligne** : l'auteur et la date de la ligne du curseur, en gris au
    bout de la ligne, comme GitLens et Cursor.
 
 Petits correctifs repérés en passant :
@@ -182,3 +180,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.43 — comparer deux fichiers.** « Select for Compare » puis
   « Compare with Selected » au clic droit de l'arbre ; un onglet de diff lu
   du disque (`openCompare`), qui suit les deux fichiers renommés.
+- **(non publié) — Go to Symbol in Workspace (⌘T).** `#` dans la boîte de ⌘P :
+  les déclarations et membres de tout le projet indexé pour F12
+  (`shared/workspaceSymbols`, arbre de navigation de chaque fichier), triés
+  en flou.
