@@ -89,6 +89,14 @@ function QuickOpenDialog() {
   // Relue à chaque ouverture, mais servie tout de suite depuis le cache : la
   // liste d'il y a une minute vaut mieux qu'une boîte vide le temps du
   // parcours.
+  // Les fichiers récents retenus d'une session à l'autre (main/recents), après
+  // les onglets ouverts et fermés : ⌘P au démarrage n'est pas une liste vide.
+  const retenus = useQuery({
+    queryKey: ["recents", "files", project?.project],
+    queryFn: () => window.zyvro.project.recentFiles(),
+    enabled: Boolean(project),
+    staleTime: 0,
+  })
   const liste = useQuery({
     queryKey: ["files", "all", project?.project],
     queryFn: () => window.zyvro.files.all(),
@@ -107,8 +115,9 @@ function QuickOpenDialog() {
     }
     for (const tab of tabs) if (tab.kind === "file") ajouter(tab.path)
     for (const p of [...closedFiles].reverse()) ajouter(p)
+    for (const p of retenus.data ?? []) ajouter(p)
     return out
-  }, [tabs, closedFiles])
+  }, [tabs, closedFiles, retenus.data])
 
   const commandes = saisie.startsWith(">")
   const menu = useQuery({

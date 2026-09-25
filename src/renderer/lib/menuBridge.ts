@@ -8,6 +8,7 @@ import { requestCloseTab, saveAll } from "./closing"
 import { openQuickOpen } from "~/panels/QuickOpen"
 import { clearActiveTerminal } from "~/panels/TerminalPanel"
 import { openFiles } from "./windowDrop"
+import { isAbsolutePath } from "../../shared/external"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -92,6 +93,19 @@ window.zyvro.menu.onGoToLine(() => fire("go-to-line"))
 window.zyvro.menu.onFormatDocument(() => fire("format-document"))
 window.zyvro.menu.onOpenFileDialog(() => {
   void window.zyvro.files.chooseExternal().then(openFiles)
+})
+window.zyvro.menu.onOpenRecentFile((relative) => openFiles([relative]))
+
+// Le fichier qu'on regarde est retenu pour Open Recent et ⌘P — à chaque
+// changement d'onglet actif, pas à chaque rendu. Un fichier hors du projet
+// n'est pas le sien, et le principal l'écarte aussi.
+let dernierRetenu: string | null = null
+useWorkspace.subscribe((s) => {
+  const id = s.activeTabId
+  const rel = id.startsWith("file:") ? id.slice(5) : null
+  if (!rel || rel === dernierRetenu || isAbsolutePath(rel)) return
+  dernierRetenu = rel
+  void window.zyvro.project.fileOpened(rel).catch(() => undefined)
 })
 window.zyvro.menu.onProblems(() => {
   useWorkspace.getState().openProblems()

@@ -193,6 +193,10 @@ const api = {
     close: (): Promise<{ root: string | null; daemon: DaemonInfo | null }> => invoke("project:close"),
     recents: (): Promise<Recent[]> => invoke("project:recents"),
     forgetRecents: (): Promise<Recent[]> => invoke("project:forget-recents"),
+    /** Le fichier regardé, retenu pour Open Recent et ⌘P. */
+    fileOpened: (relative: string): Promise<boolean> => invoke("recents:file-opened", relative),
+    /** Les fichiers récents du projet ouvert, relatifs, le plus récent d'abord. */
+    recentFiles: (): Promise<string[]> => invoke("recents:files"),
   },
 
   /**
@@ -636,6 +640,7 @@ const api = {
     onGoToLine: (cb: () => void): Unsubscribe => on("menu:go-to-line", cb),
     onFormatDocument: (cb: () => void): Unsubscribe => on("menu:format-document", cb),
     onOpenFileDialog: (cb: () => void): Unsubscribe => on("menu:open-file", cb),
+    onOpenRecentFile: (cb: (relative: string) => void): Unsubscribe => on("menu:open-recent-file", cb),
     onProblems: (cb: () => void): Unsubscribe => on("menu:problems", cb),
     onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),
     /** Le menu de l'application, à plat, pour la palette de commandes. */

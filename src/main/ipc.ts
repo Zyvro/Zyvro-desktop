@@ -5,6 +5,7 @@ import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
 import { harness, interactiveCommand, isAgentKind } from "../shared/harness"
+import { isAbsolutePath } from "../shared/external"
 import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
@@ -15,7 +16,7 @@ import * as files from "./files"
 import * as textSearch from "./search"
 import * as persistent from "./persistent"
 import { createWatcher, type Watcher } from "./watch"
-import { forgetRecents, loadRecents, rememberRecent } from "./recents"
+import { forgetRecents, loadRecents, recentFiles, rememberFile, rememberRecent } from "./recents"
 import { choose as chooseShell, shells as machineShells } from "./shell"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
@@ -371,6 +372,19 @@ export function registerIpc(onRecents?: () => void): void {
   })
 
   ipcMain.handle("project:recents", async () => loadRecents())
+
+  // Le fichier qu'on regarde, retenu pour Open Recent et ⌘P. Seulement ceux du
+  // projet : un fichier lâché d'ailleurs n'a pas de place dans sa liste.
+  ipcMain.handle("recents:file-opened", async (event, rel: string) => {
+    const { ws } = requireWorkspace(event)
+    if (!ws.project || typeof rel !== "string" || !rel || isAbsolutePath(rel) || rel.split("/").includes("..")) return false
+    if (rememberFile(ws.project, rel)) onRecentsChanged?.()
+    return true
+  })
+  ipcMain.handle("recents:files", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return ws.project ? recentFiles(ws.project) : []
+  })
 
   // Le shell du panneau. Une préférence de machine, comme la liste des projets
   // récents : elle ne dépend d'aucun projet ouvert, donc elle n'en réclame pas.

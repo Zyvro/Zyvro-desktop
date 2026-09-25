@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.26
+
+**Recent files.** File › Open Recent now lists the files you had open in this
+project above the recent projects, as in VS Code, and Go to File (⌘P) offers them
+as soon as it opens, even after a restart. Each project keeps its own list. A
+deleted file drops off the list, and Clear Recently Opened empties both lists.
+
 ## New in alpha.25
 
 **Drop any file from your desktop onto the window to open it**, as in Cursor and

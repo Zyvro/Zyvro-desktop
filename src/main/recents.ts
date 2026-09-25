@@ -50,6 +50,71 @@ export function rememberRecent(dir: string): Recent[] {
 
 export function forgetRecents(): Recent[] {
   save([])
+  // « Clear Recently Opened » vide tout, fichiers compris, comme VS Code.
+  forgetRecentFiles()
   app.clearRecentDocuments()
   return []
+}
+
+// ---- les fichiers récents -------------------------------------------------------
+//
+// Par projet, comme File › Open Recent de VS Code qui met les fichiers du
+// dossier ouvert sous les dossiers : on ne veut pas les fichiers d'un autre
+// projet dans celui-ci. Chemins relatifs au projet, le plus récent d'abord.
+
+const MAX_FILES = 20
+const MAX_PROJECTS = 30
+
+function filesStore(): string {
+  return path.join(app.getPath("userData"), "recent-files.json")
+}
+
+type FilesByProject = Record<string, string[]>
+
+function loadAll(): FilesByProject {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filesStore(), "utf8")) as FilesByProject
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveAll(all: FilesByProject): void {
+  try {
+    fs.mkdirSync(path.dirname(filesStore()), { recursive: true })
+    fs.writeFileSync(filesStore(), JSON.stringify(all, null, 2), "utf8")
+  } catch {
+    // Comme pour les projets : perdre la liste ne doit rien empêcher.
+  }
+}
+
+// pushRecent : la liste avec `item` en tête, sans doublon, bornée. Pure.
+export function pushRecent(list: string[], item: string, max: number): string[] {
+  return [item, ...list.filter((x) => x !== item)].slice(0, max)
+}
+
+/** Les fichiers récents d'un projet, ceux qui existent encore. */
+export function recentFiles(project: string): string[] {
+  const list = loadAll()[project]
+  if (!Array.isArray(list)) return []
+  return list.filter((rel) => typeof rel === "string" && fs.existsSync(path.join(project, rel)))
+}
+
+/** Rend vrai quand la liste a changé — le menu est alors à refaire. */
+export function rememberFile(project: string, rel: string): boolean {
+  const all = loadAll()
+  const avant = all[project] ?? []
+  if (avant[0] === rel) return false
+  // Le projet remonte en tête de l'objet : ce sont les plus anciens qu'on
+  // oublie quand il y en a trop.
+  const { [project]: _ancien, ...autres } = all
+  const next: FilesByProject = { [project]: pushRecent(avant, rel, MAX_FILES), ...autres }
+  for (const k of Object.keys(next).slice(MAX_PROJECTS)) delete next[k]
+  saveAll(next)
+  return true
+}
+
+export function forgetRecentFiles(): void {
+  saveAll({})
 }

@@ -3,7 +3,7 @@ import path from "node:path"
 import { askHost, browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { startShotsServer } from "./shots"
 import { BROWSER_PARTITION, noteRequest } from "./browser"
-import { loadRecents } from "./recents"
+import { loadRecents, recentFiles } from "./recents"
 import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath } from "./cli"
 import { appContextTemplate } from "./contextmenu"
@@ -190,12 +190,29 @@ function send(win: Electron.BrowserWindow | undefined, channel: string, payload?
 // recentSubmenu is rebuilt from disk every time the menu is constructed. An
 // Electron menu is a static structure, so "keeping it up to date" really means
 // replacing the whole menu whenever the recent list changes.
+//
+// Les fichiers récents du projet de la fenêtre au premier plan d'abord, comme
+// VS Code : le menu est refait quand une fenêtre prend le focus.
 function recentSubmenu(): Electron.MenuItemConstructorOptions[] {
   const recents = loadRecents()
-  if (recents.length === 0) {
+  const devant = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const projet = devant ? workspaceFor(devant).project : null
+  const fichiers: Electron.MenuItemConstructorOptions[] = (projet ? recentFiles(projet) : []).slice(0, 10).map((rel) => {
+    const i = rel.lastIndexOf("/")
+    return {
+      label: rel.slice(i + 1),
+      sublabel: i > 0 ? rel.slice(0, i) : undefined,
+      toolTip: rel,
+      click: (_item: Electron.MenuItem, win?: Electron.BaseWindow) =>
+        send(win as Electron.BrowserWindow, "menu:open-recent-file", rel),
+    }
+  })
+  if (recents.length === 0 && fichiers.length === 0) {
     return [{ label: "No recent projects", enabled: false }]
   }
   return [
+    ...fichiers,
+    ...(fichiers.length > 0 && recents.length > 0 ? [{ type: "separator" as const }] : []),
     ...recents.map((recent) => ({
       label: recent.name,
       // The full path is the useful part when two folders share a name, and a
@@ -498,6 +515,8 @@ if (!app.requestSingleInstanceLock()) {
 
     registerIpc(buildMenu)
     buildMenu()
+    // Open Recent montre les fichiers du projet de la fenêtre au premier plan.
+    app.on("browser-window-focus", () => buildMenu())
     createWindow()
 
     app.on("open-file", (event, filePath) => {
