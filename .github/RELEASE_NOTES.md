@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.40
+
+**Right-click the tabs of the right-hand editor group.** Close, Close Others,
+Close to the Right, Close All, Copy Path, Copy Relative Path and Reveal now work
+there too. Closing on the right only closes that view: the file stays open on
+the left, so nothing asks you to save. On the left, **Split Right** shows a file
+or a preview beside the editor without dragging it.
+
 ## New in alpha.39
 
 **Filter the file tree.** Press ⌥⌘F (Ctrl+Alt+F on Windows) in the Explorer, or

@@ -9,15 +9,16 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Menu contextuel des onglets de droite** (côte à côte).
+1. **Terminal scindé retenu** : les shells repris au redémarrage reviennent
+   chacun dans son onglet (les groupes ne sont pas retenus).
+2. **L'aperçu Markdown** garde la typographie du chat : des titres de document
+   plus grands, et les images relatives du dépôt.
+3. **Comparer deux fichiers** (« Select for Compare » / « Compare with
+   Selected » du clic droit de l'arbre).
 
 Petits correctifs repérés en passant :
 
-- terminal scindé : les shells repris au redémarrage reviennent chacun dans
-  son onglet (les groupes ne sont pas retenus) ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
-- l'aperçu Markdown garde la typographie du chat : des titres de document
-  plus grands, et les images relatives du dépôt.
 
 ## Livré
 
@@ -168,3 +169,6 @@ Petits correctifs repérés en passant :
   dont le nom contient ce qu'on tape, avec les dossiers qui y mènent
   (`shared/treefilter`, la liste de ⌘P) ; avec un `/`, le chemin. ↓, Entrée,
   Échap ; aussi dans la palette.
+- **0.1.0-alpha.40 — le clic droit des onglets de droite.** Les mêmes gestes
+  que à gauche, sur les vues du groupe de droite (fermer une vue ne ferme pas
+  l'onglet, donc aucune question) ; « Split Right » à gauche.

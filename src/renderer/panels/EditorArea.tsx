@@ -174,24 +174,38 @@ const itemMenu =
 
 // Le clic droit sur un onglet : ce que VS Code y propose et que cette
 // application sait faire. Un seul menu pour toute la barre, ancré au curseur.
+//
+// À droite (`group: "split"`), les mêmes gestes, sur les vues du groupe de
+// droite : fermer une vue ne ferme pas l'onglet, il reste à gauche — rien à
+// enregistrer, donc aucune question. À gauche, « Split Right » l'y montre.
 function TabMenu({
   tabId,
   at,
+  group = "main",
   onClose,
 }: {
   tabId: string
   at: { x: number; y: number }
+  group?: "main" | "split"
   onClose: () => void
 }) {
   const tabs = useWorkspace((s) => s.tabs)
+  const split = useWorkspace((s) => s.split)
   const root = useWorkspace((s) => s.project?.project ?? null)
   const tab = tabs.find((t) => t.id === tabId)
   if (!tab) return null
-  const ids = tabs.map((t) => t.id)
+  const aDroite = group === "split"
+  const ids = aDroite ? (split?.ids ?? []) : tabs.map((t) => t.id)
   const puis = (action: () => void | Promise<unknown>) => () => {
     onClose()
     void action()
   }
+  const fermer = (cibles: string[]): void | Promise<unknown> => {
+    if (!aDroite) return requestCloseTabs(cibles)
+    const store = useWorkspace.getState()
+    for (const id of cibles) store.closeInSplit(id)
+  }
+  const partageable = !aDroite && (tab.kind === "file" || tab.kind === "preview")
   const chemin = tab.kind === "file" || tab.kind === "diff" || tab.kind === "preview" ? tab.path : null
   // Le chemin absolu s'écrit avec les séparateurs du système : c'est ce qu'on
   // colle ensuite dans un shell ou dans l'Explorateur Windows.
@@ -208,26 +222,37 @@ function TabMenu({
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Content className="panel z-50 min-w-[200px] p-1" align="start" sideOffset={0}>
-          <Menu.Item className={itemMenu} onSelect={puis(() => requestCloseTab(tabId))}>
+          <Menu.Item
+            className={itemMenu}
+            onSelect={puis(() => (aDroite ? fermer([tabId]) : requestCloseTab(tabId)))}
+          >
             Close
           </Menu.Item>
           <Menu.Item
             className={itemMenu}
             disabled={ids.length < 2}
-            onSelect={puis(() => requestCloseTabs(tabsToClose(ids, tabId, "others")))}
+            onSelect={puis(() => fermer(tabsToClose(ids, tabId, "others")))}
           >
             Close Others
           </Menu.Item>
           <Menu.Item
             className={itemMenu}
             disabled={ids.indexOf(tabId) === ids.length - 1}
-            onSelect={puis(() => requestCloseTabs(tabsToClose(ids, tabId, "right")))}
+            onSelect={puis(() => fermer(tabsToClose(ids, tabId, "right")))}
           >
             Close to the Right
           </Menu.Item>
-          <Menu.Item className={itemMenu} onSelect={puis(() => requestCloseTabs(tabsToClose(ids, tabId, "all")))}>
+          <Menu.Item className={itemMenu} onSelect={puis(() => fermer(tabsToClose(ids, tabId, "all")))}>
             Close All
           </Menu.Item>
+          {partageable && (
+            <>
+              <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+              <Menu.Item className={itemMenu} onSelect={puis(() => useWorkspace.getState().splitEditor(tabId))}>
+                Split Right
+              </Menu.Item>
+            </>
+          )}
           {chemin && (
             <>
               <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
@@ -257,7 +282,7 @@ export function EditorArea() {
   const activeTabId = useWorkspace((s) => s.activeTabId)
   const split = useWorkspace((s) => s.split)
   const focusedGroup = useWorkspace((s) => s.focusedGroup)
-  const [menu, setMenu] = useState<{ tabId: string; at: { x: number; y: number } } | null>(null)
+  const [menu, setMenu] = useState<{ tabId: string; at: { x: number; y: number }; group?: "main" | "split" } | null>(null)
   // Pendant qu'on déplace un onglet : avant qui il se posera (null : à la
   // fin), ou undefined quand rien ne glisse.
   const [poseAvant, setPoseAvant] = useState<string | null | undefined>(undefined)
@@ -368,7 +393,12 @@ export function EditorArea() {
             }}
             onDoubleClick={() => setPart(0.5)}
           />
-          <SplitGroup split={split} focused={focusedGroup === "split"} tabs={tabs} />
+          <SplitGroup
+            split={split}
+            focused={focusedGroup === "split"}
+            tabs={tabs}
+            onMenu={(tabId, at) => setMenu({ tabId, at, group: "split" })}
+          />
         </>
       )}
       {menu && <TabMenu key={`${menu.tabId}:${menu.at.x}:${menu.at.y}`} {...menu} onClose={() => setMenu(null)} />}
@@ -378,7 +408,17 @@ export function EditorArea() {
 
 // Le groupe de droite : ses onglets, pris dans la liste, et leur contenu —
 // monté comme à gauche, un éditeur de plus sur le même document.
-function SplitGroup({ split, focused, tabs }: { split: { ids: string[]; active: string }; focused: boolean; tabs: Tab[] }) {
+function SplitGroup({
+  split,
+  focused,
+  tabs,
+  onMenu,
+}: {
+  split: { ids: string[]; active: string }
+  focused: boolean
+  tabs: Tab[]
+  onMenu: (tabId: string, at: { x: number; y: number }) => void
+}) {
   const parId = new Map(tabs.map((t) => [t.id, t]))
   const montres = split.ids.map((id) => parId.get(id)).filter((t): t is Tab => Boolean(t))
   const store = useWorkspace.getState
@@ -404,7 +444,7 @@ function SplitGroup({ split, focused, tabs }: { split: { ids: string[]; active: 
             key={tab.id}
             tab={tab}
             active={tab.id === split.active}
-            onMenu={() => undefined}
+            onMenu={onMenu}
             dropBefore={false}
             onDropHover={() => undefined}
             onDropDone={() => undefined}

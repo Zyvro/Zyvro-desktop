@@ -185,7 +185,7 @@ function etat(tabs, drafts = {}) {
     "une frappe puis son effacement laissaient le point, et une question à la fermeture"
   )
   check("la croix d'un onglet demande", /requestCloseTab\(tab\.id\)/.test(zone))
-  check("et le clic droit offre de fermer les autres", /requestCloseTabs\(tabsToClose\(ids, tabId, "others"\)\)/.test(zone))
+  check("et le clic droit offre de fermer les autres", /fermer\(tabsToClose\(ids, tabId, "others"\)\)/.test(zone) && /if \(!aDroite\) return requestCloseTabs\(cibles\)/.test(zone))
   const menu = lire("src/main/index.ts")
   check("**⌘W est Close Editor**", /label: "Close Editor",\s*accelerator: "CmdOrCtrl\+W"/.test(menu))
   check("et le rôle `windowMenu`, qui le reprenait sous Windows, n'est plus là", !/role: "windowMenu"/.test(menu))

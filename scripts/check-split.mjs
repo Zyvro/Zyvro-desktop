@@ -129,6 +129,15 @@ check("sans fermer l'onglet de gauche", st().tabs.some((x) => x.id === "file:lib
   check("un onglet de droite lâché à gauche y revient", /store\.closeInSplit\(id\)\s*\n\s*store\.activateTab\(id\)/.test(zone))
   check("⌘W à droite ne ferme que la vue", /s\.closeInSplit\(s\.split\.active\)/.test(pont))
   const menu = lire("src/main/index.ts")
+  check(
+    "le clic droit d'un onglet de droite ouvre son menu, sur les vues de droite",
+    /onMenu=\{\(tabId, at\) => setMenu\(\{ tabId, at, group: "split" \}\)\}/.test(zone) && !/onMenu=\{\(\) => undefined\}/.test(zone)
+  )
+  check(
+    "à droite, fermer ferme la vue, pas l'onglet (aucune question)",
+    /if \(!aDroite\) return requestCloseTabs\(cibles\)[\s\S]*?store\.closeInSplit\(id\)/.test(zone)
+  )
+  check("à gauche, « Split Right »", /splitEditor\(tabId\)\)\}>\s*Split Right/.test(zone))
   check("View › Split Editor, ⌘\\", /label: "Split Editor",\s*accelerator: "CmdOrCtrl\+\\\\"/.test(menu))
 }
 
