@@ -9,11 +9,9 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Terminal scindé retenu** : les shells repris au redémarrage reviennent
-   chacun dans son onglet (les groupes ne sont pas retenus).
-2. **L'aperçu Markdown** garde la typographie du chat : des titres de document
+1. **L'aperçu Markdown** garde la typographie du chat : des titres de document
    plus grands, et les images relatives du dépôt.
-3. **Comparer deux fichiers** (« Select for Compare » / « Compare with
+2. **Comparer deux fichiers** (« Select for Compare » / « Compare with
    Selected » du clic droit de l'arbre).
 
 Petits correctifs repérés en passant :
@@ -172,3 +170,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.40 — le clic droit des onglets de droite.** Les mêmes gestes
   que à gauche, sur les vues du groupe de droite (fermer une vue ne ferme pas
   l'onglet, donc aucune question) ; « Split Right » à gauche.
+- **0.1.0-alpha.41 — le terminal scindé retenu.** Le rendu envoie la
+  disposition de ses onglets au principal, qui écrit l'onglet de chaque shell
+  et rend les shells dans cet ordre (`inLayoutOrder`, `regroup`) : côte à
+  côte avant, côte à côte après un redémarrage ou un rechargement.

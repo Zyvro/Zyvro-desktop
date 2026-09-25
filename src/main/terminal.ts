@@ -8,6 +8,7 @@ import { app } from "electron"
 import { randomUUID } from "node:crypto"
 import type { WebContents } from "electron"
 import { shellMcp, type McpTarget } from "./mcp"
+import { inLayoutOrder } from "../shared/termgroups"
 import { command as shellCommand } from "./shell"
 
 // The integrated shell is not a convenience feature. `claude` and `codex` both
@@ -168,6 +169,14 @@ const SHELL_MAX_BYTES = 512 * 1024
 // orphaned login shell per closed window would pile up invisibly.
 export class Terminals {
   private sessions = new Map<string, Session>()
+  // Les onglets du terminal, tels que le rendu les compose : les identifiants
+  // de shell, onglet par onglet. Pour les rendre groupés comme on les avait
+  // laissés (shared/termgroups, `inLayoutOrder`).
+  private layout: string[][] = []
+
+  setLayout(layout: string[][]): void {
+    this.layout = layout
+  }
 
   // mcp est le contexte du démon de ce projet, quand il y en a un. Chaque shell
   // ouvert par l'application porte de quoi joindre ses serveurs MCP : ce qu'on
@@ -250,16 +259,19 @@ export class Terminals {
    * dans un projet le shell d'un autre donnerait une invite qui ment sur l'endroit
    * où l'on se trouve.
    */
-  running(cwd: string): { id: string; pty: boolean; label?: string }[] {
+  running(cwd: string): { id: string; pty: boolean; label?: string; tab: number }[] {
     const lieu = cwd || os.homedir()
     // Les sessions persistantes y sont aussi : après un rechargement du rendu,
     // leur client d'attachement est bien vivant — il faut le reprendre, sinon
     // il fuit exactement comme un shell ordinaire. Ce qui les distingue est
     // qu'on ne garde PAS leur défilement à la fermeture, pas qu'on les oublie
     // en chemin.
-    return [...this.sessions.values()]
-      .filter((session) => session.cwd === lieu)
-      .map((session) => ({ id: session.id, pty: ptyAvailable(), label: session.label }))
+    const ici = [...this.sessions.values()].filter((session) => session.cwd === lieu)
+    const parId = new Map(ici.map((session) => [session.id, session]))
+    return inLayoutOrder(
+      ici.map((session) => session.id),
+      this.layout
+    ).map(({ id, tab }) => ({ id, pty: ptyAvailable(), label: parId.get(id)?.label, tab }))
   }
 
   /**
@@ -399,7 +411,7 @@ export class Terminals {
 
   private keepHistory(projectDir: string, sessions: Session[]): void {
     const racine = path.resolve(projectDir)
-    const shells = sessions.filter(
+    const retenus = sessions.filter(
       (session) =>
         // Pas les sessions persistantes : leur défilement est chez `screen` ou
         // `tmux`, et le garder ici en ferait un second, plus vieux, affiché
@@ -411,6 +423,13 @@ export class Terminals {
         !session.attached &&
         (session.cwd === racine || session.cwd === projectDir || session.cwd.startsWith(racine + path.sep))
     )
+    // Dans l'ordre des onglets, chacun avec le sien : ceux qu'on avait côte à
+    // côte le redeviennent.
+    const parId = new Map(retenus.map((session) => [session.id, session]))
+    const shells = inLayoutOrder(
+      retenus.map((session) => session.id),
+      this.layout
+    ).map(({ id, tab }) => ({ session: parId.get(id) as Session, tab }))
     try {
       const file = this.historyFile(projectDir)
       mkdirSync(path.dirname(file), { recursive: true })
@@ -421,7 +440,11 @@ export class Terminals {
       writeFileSync(
         temp,
         JSON.stringify({
-          shells: shells.map((session) => ({ seen: session.seen, cwd: this.cwdOf(session.pty.pid) ?? session.cwd })),
+          shells: shells.map(({ session, tab }) => ({
+            seen: session.seen,
+            cwd: this.cwdOf(session.pty.pid) ?? session.cwd,
+            tab,
+          })),
         }),
         "utf8"
       )
@@ -440,12 +463,12 @@ export class Terminals {
    * programmes, eux, sont morts avec la fenêtre — on ne fait pas semblant du
    * contraire.
    */
-  async saved(projectDir: string): Promise<{ seen: string; cwd: string }[]> {
+  async saved(projectDir: string): Promise<{ seen: string; cwd: string; tab?: number }[]> {
     try {
       const raw = await fs.readFile(this.historyFile(projectDir), "utf8")
       const parsed = JSON.parse(raw) as { shells?: unknown }
       if (!Array.isArray(parsed.shells)) return []
-      const out: { seen: string; cwd: string }[] = []
+      const out: { seen: string; cwd: string; tab?: number }[] = []
       for (const brut of parsed.shells) {
         // La première version n'écrivait que le texte. Un fichier de ce
         // matin-là ne doit pas faire perdre son historique à quelqu'un.
@@ -455,7 +478,11 @@ export class Terminals {
         }
         const forme = (brut && typeof brut === "object" ? brut : {}) as Record<string, unknown>
         if (typeof forme.seen !== "string") continue
-        out.push({ seen: forme.seen, cwd: typeof forme.cwd === "string" ? forme.cwd : projectDir })
+        out.push({
+          seen: forme.seen,
+          cwd: typeof forme.cwd === "string" ? forme.cwd : projectDir,
+          tab: typeof forme.tab === "number" ? forme.tab : undefined,
+        })
       }
       return out
     } catch {

@@ -233,7 +233,7 @@ const AUTRE = "/tmp/zyvro-autre-projet"
     !/session\.cwd === lieu && !session\.attached/.test(liste.slice(0, 600)),
     "le client d'attachement fuirait, invisible, jusqu'à la fermeture"
   )
-  check("et l'onglet repris garde son nom", term.includes("label: session.label"))
+  check("et l'onglet repris garde son nom", term.includes("label: parId.get(id)?.label"))
 
   // La course : la reprise demande au principal, ce qui prend un aller-retour,
   // et un `setSessions` sec effacerait l'onglet ouvert entre-temps par un clic
@@ -243,7 +243,7 @@ const AUTRE = "/tmp/zyvro-autre-projet"
     "**et la reprise n'écrase pas un onglet ouvert entre-temps**",
     // Les onglets sont des groupes de shells ; la fusion est `withRestored`
     // (shared/termgroups, vérifiée par check-termgroups).
-    panel.includes("setGroups((actuels) => withRestored(actuels, keys))"),
+    panel.includes("setGroups((actuels) => withRestored(actuels, keys, tabs))"),
     "cliquer une session pendant la reprise ne fait rien du tout"
   )
 }

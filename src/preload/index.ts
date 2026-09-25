@@ -356,7 +356,7 @@ const api = {
      * Demandé au démarrage : un rechargement du rendu ne tue pas les ptys, il
      * les oublie — ce sont des enfants du processus principal.
      */
-    running: (): Promise<{ id: string; pty: boolean; label?: string }[]> => invoke("terminal:running"),
+    running: (): Promise<{ id: string; pty: boolean; label?: string; tab: number }[]> => invoke("terminal:running"),
     /** Ce qu'un shell a déjà écrit. À demander une fois l'identifiant adopté. */
     replay: (id: string): Promise<boolean> => invoke("terminal:replay", id),
     /**
@@ -365,7 +365,8 @@ const api = {
      * Les programmes, eux, sont morts avec la fenêtre — mesuré. On ne rend que
      * ce qu'ils ont dit, au-dessus d'une invite neuve.
      */
-    saved: (): Promise<{ seen: string; cwd: string }[]> => invoke("terminal:saved"),
+    saved: (): Promise<{ seen: string; cwd: string; tab?: number }[]> => invoke("terminal:saved"),
+    layout: (groups: string[][]): Promise<boolean> => invoke("terminal:layout", groups),
     write: (id: string, data: string): Promise<boolean> => invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number): Promise<boolean> =>
       invoke("terminal:resize", id, cols, rows),

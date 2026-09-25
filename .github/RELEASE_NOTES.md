@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.41
+
+**Split terminals come back split.** Shells you had side by side in one
+terminal tab now reopen side by side, in the same tab order, when you reopen
+the project or restart the app. Before, each restored shell came back in a tab
+of its own.
+
 ## New in alpha.40
 
 **Right-click the tabs of the right-hand editor group.** Close, Close Others,

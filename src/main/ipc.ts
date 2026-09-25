@@ -833,6 +833,19 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  // Les onglets du terminal, composés par le rendu : des identifiants de shell,
+  // onglet par onglet. Vérifiés comme tout ce qui vient de la page.
+  ipcMain.handle("terminal:layout", async (event, layout: unknown) => {
+    const { ws } = requireWorkspace(event)
+    if (!Array.isArray(layout) || layout.length > 200) return false
+    const propre = layout
+      .filter((g): g is unknown[] => Array.isArray(g))
+      .map((g) => g.filter((id): id is string => typeof id === "string" && id.length < 200))
+      .filter((g) => g.length > 0)
+    ws.terminals.setLayout(propre)
+    return true
+  })
+
   // La croix d'un onglet de shell : le fermer, et ne plus le rouvrir.
   ipcMain.handle("terminal:close", async (event, id: string) => {
     const { ws } = requireWorkspace(event)

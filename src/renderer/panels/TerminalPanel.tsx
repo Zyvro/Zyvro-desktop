@@ -81,8 +81,29 @@ function subscribeStatus(key: string, listener: () => void): () => void {
   }
 }
 
+// Les onglets tels qu'on les voit, et ce qu'on en a dit au processus principal.
+// Il garde les shells, pas les onglets : sans cette disposition, les shells
+// repris au redémarrage revenaient chacun dans son onglet, même ceux qu'on
+// avait côte à côte. Envoyée quand elle change — un onglet, un split, ou un
+// shell qui reçoit son identifiant.
+let groupesVus: Groups = []
+let dispositionEnvoyee = ""
+function envoyerDisposition(): void {
+  const layout = groupesVus
+    .map((g) => g.map((k) => readStatus(k).ptyId).filter((id): id is string => Boolean(id)))
+    .filter((g) => g.length > 0)
+  // Rien à ordonner : pendant un changement de projet, la liste est vide un
+  // instant, et l'envoyer effacerait la disposition qu'on s'apprête à relire.
+  if (layout.length === 0) return
+  const texte = JSON.stringify(layout)
+  if (texte === dispositionEnvoyee) return
+  dispositionEnvoyee = texte
+  void window.zyvro.terminal.layout(layout).catch(() => undefined)
+}
+
 function patchStatus(key: string, patch: Partial<SessionStatus>): void {
   statuses.set(key, { ...readStatus(key), ...patch })
+  if ("ptyId" in patch) window.queueMicrotask(envoyerDisposition)
   const set = listeners.get(key)
   if (!set) return
   for (const listener of [...set]) listener()
@@ -460,6 +481,10 @@ export function TerminalPanel(): JSX.Element {
   // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
   const [groups, setGroups] = useState<Groups>([])
   const sessions = groups.flat()
+  if (groups !== groupesVus) {
+    groupesVus = groups
+    window.queueMicrotask(envoyerDisposition)
+  }
   // La part de largeur de chaque shell dans son onglet (1 par défaut) : la
   // séparation se tire, comme dans VS Code.
   const [poids, setPoids] = useState<Record<string, number>>({})
@@ -558,8 +583,8 @@ export function TerminalPanel(): JSX.Element {
   //
   // Une fusion plutôt qu'un remplacement : ce qui a été repris d'abord, ce qui
   // est arrivé pendant l'attente ensuite.
-  const poser = (keys: string[]): void => {
-    setGroups((actuels) => withRestored(actuels, keys))
+  const poser = (keys: string[], tabs: (number | undefined)[]): void => {
+    setGroups((actuels) => withRestored(actuels, keys, tabs))
     setActiveKey((actuelle) => (actuelle === "" ? (keys[0] ?? "") : actuelle))
   }
 
@@ -595,7 +620,10 @@ export function TerminalPanel(): JSX.Element {
         if (shell.seen || shell.cwd) patchStatus(key, { history: shell.seen, cwd: shell.cwd })
         return key
       })
-      poser(keys)
+      poser(
+        keys,
+        passe.map((shell) => shell.tab)
+      )
       return
     }
     const keys = vivants.map((vivant) => {
@@ -605,7 +633,10 @@ export function TerminalPanel(): JSX.Element {
       patchStatus(key, { ptyId: vivant.id, pty: vivant.pty, persistent: vivant.label })
       return key
     })
-    poser(keys)
+    poser(
+      keys,
+      vivants.map((vivant) => vivant.tab)
+    )
   }
 
   // Ce que la barre latérale demande d'ouvrir.

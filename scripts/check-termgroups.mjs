@@ -60,6 +60,32 @@ check(
 )
 check("un repris déjà là n'est pas en double", j(t.withRestored([["r1", "m"]], ["r1"])) === j([["r1"], ["m"]]))
 
+// ---- les onglets retrouvés au redémarrage -------------------------------------------
+check(
+  "les shells repris retrouvent leurs onglets : côte à côte, ils le redeviennent",
+  j(t.withRestored([], ["a", "b", "c"], [0, 0, 1])) === j([["a", "b"], ["c"]])
+)
+check("sans numéro (un fichier d'avant), chacun son onglet", j(t.regroup(["a", "b"], [undefined, undefined])) === j([["a"], ["b"]]))
+check("un même numéro qui ne se suit pas ne fusionne pas", j(t.regroup(["a", "b", "c"], [0, 1, 0])) === j([["a"], ["b"], ["c"]]))
+check(
+  "dans l'ordre des onglets, pas dans celui de la création",
+  j(t.inLayoutOrder(["s1", "s2", "s3"], [["s1", "s3"], ["s2"]])) === j([{ id: "s1", tab: 0 }, { id: "s3", tab: 0 }, { id: "s2", tab: 1 }])
+)
+check(
+  "un shell que la disposition ne connaît pas a son onglet, après",
+  j(t.inLayoutOrder(["x", "s1"], [["s1"]])) === j([{ id: "s1", tab: 0 }, { id: "x", tab: 1 }])
+)
+check("un shell fermé depuis ne laisse pas de trou qui gêne", j(t.regroup(["s1", "s3"], [0, 2])) === j([["s1"], ["s3"]]))
+{
+  const lire = (p) => readFileSync(path.join(ROOT, p), "utf8")
+  const term = lire("src/main/terminal.ts")
+  check("le principal écrit l'onglet de chaque shell, dans l'ordre des onglets", /inLayoutOrder\(\s*retenus\.map/.test(term) && /\s+tab,\s*\}\)\)/.test(term))
+  check("et rend les vivants dans cet ordre", /running\(cwd: string\)[\s\S]*?inLayoutOrder\(/.test(term))
+  const panel = lire("src/renderer/panels/TerminalPanel.tsx")
+  check("le rendu envoie la disposition quand les onglets ou les identifiants changent", /window\.zyvro\.terminal\.layout\(layout\)/.test(panel) && /if \("ptyId" in patch\) window\.queueMicrotask\(envoyerDisposition\)/.test(panel))
+  check("et regroupe ce qu'il reprend", /passe\.map\(\(shell\) => shell\.tab\)/.test(panel) && /vivants\.map\(\(vivant\) => vivant\.tab\)/.test(panel))
+}
+
 // ---- la séparation qui se tire -----------------------------------------------------
 {
   const p = t.placeIn([1, 1, 2], 2)
