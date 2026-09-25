@@ -9,6 +9,9 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
+0. **Déposer n'importe quel fichier du bureau sur l'éditeur** (demandé) : il
+   s'ouvre même hors du projet, modifiable ; un binaire affiche « Open
+   Anyway » comme Cursor.
 1. **Terminal : scinder.**
 2. **Éditeurs côte à côte** (⌘\).
 3. **Fichiers récents** dans File › Open Recent, à côté des projets.
@@ -20,9 +23,6 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 Petits correctifs repérés en passant :
 
-- mise à jour sur Mac : remplacer l'application toute seule (monter l'image,
-  copier, relancer) une fois les installeurs signés — non signé, ça ne se
-  vérifie pas ici ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
 - l'aperçu Markdown garde la typographie du chat : des titres de document
   plus grands, et les images relatives du dépôt.
@@ -110,3 +110,9 @@ Petits correctifs repérés en passant :
   (`typeAhead`).
 - **0.1.0-alpha.23 — formater le document.** ⇧⌥F avec les formateurs de
   Monaco ; « Format on save » au choix, jamais à la sauvegarde automatique.
+- **0.1.0-alpha.24 — la mise à jour se pose toute seule (demandé).** Un
+  correctif par machine publié avec chaque release (`scripts/make-patch.mjs` :
+  Resources et Info.plist, sans Electron), posé par un script une fois
+  l'application fermée, avec retour à l'ancienne si la copie échoue, et
+  relance ; le paquet complet quand Electron change ; l'image disque seulement
+  si l'application ne peut pas s'écrire.

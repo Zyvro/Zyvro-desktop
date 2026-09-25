@@ -175,6 +175,8 @@ const api = {
       current: string
       latest: string
       url: string
+      /** `patch` et `full` s'installent seuls ; `manual` ouvre l'image disque. */
+      kind: "patch" | "full" | "manual"
       asset: { name: string; url: string; size: number; sha256: string | null } | null
     } | null> => invoke("update:check"),
     download: (): Promise<{ file: string; verified: boolean }> => invoke("update:download"),

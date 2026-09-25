@@ -49,6 +49,25 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.24
+
+**Updates install themselves.** When a new version is out, click **Update** and
+then **Restart to update**. Zyvro Studio closes, installs the new version in place
+and opens again. There is no disk image to open and nothing to drag. Only the
+part that changed is downloaded: the app's own code and engine, a fraction of the
+full package, never Electron again unless Electron itself changed. Skipping
+several versions still takes one download. If you cancel the quit because of
+unsaved files, nothing is installed, and the update waits for the next time you
+quit.
+
+On a Mac this needs the app to be in a folder you can write to, such as
+Applications. An app opened straight from Downloads runs from a read-only copy,
+and there the disk image still opens as before. On Windows, when Electron changes,
+the full installer runs silently in the background.
+
+This version still installs the old way, one last time. From this version on,
+updates apply themselves.
+
 ## New in alpha.23
 
 **Format Document (⇧⌥F / Shift+Alt+F)** uses the editor's built-in formatters:

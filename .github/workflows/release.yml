@@ -60,16 +60,19 @@ jobs:
             # liste séparée par des espaces, l'action d'upload veut un glob par
             # ligne. Les confondre donnait un chemin d'upload où le deuxième
             # motif avait perdu son préfixe et ne correspondait à rien.
-            artifacts: "dist/*.dmg dist/*.zip"
+            artifacts: "dist/*.dmg dist/*.zip dist/*.tar.gz"
             upload: |
               Zyvro-desktop/dist/*.dmg
               Zyvro-desktop/dist/*.zip
+              Zyvro-desktop/dist/*.tar.gz
           - os: windows-2022
             platform: win
             target: nsis
             arches: "--x64"
-            artifacts: "dist/*.exe"
-            upload: Zyvro-desktop/dist/*.exe
+            artifacts: "dist/*.exe dist/*.tar.gz"
+            upload: |
+              Zyvro-desktop/dist/*.exe
+              Zyvro-desktop/dist/*.tar.gz
 
     runs-on: ${{ matrix.os }}
 
@@ -175,6 +178,12 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} ${{ matrix.arches }} --publish never
+
+      # Le correctif que l'application installée télécharge et pose sur
+      # elle-même : notre code sans Electron (scripts/make-patch.mjs).
+      - name: Make the in-place update patches
+        working-directory: Zyvro-desktop
+        run: node scripts/make-patch.mjs
 
       - name: Hash the artifacts
         working-directory: Zyvro-desktop

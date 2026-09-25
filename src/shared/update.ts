@@ -93,3 +93,66 @@ export function checksumFrom(body: string | null | undefined, assetName: string)
   }
   return null
 }
+
+// ---- la mise à jour en place ---------------------------------------------------
+//
+// Une application Electron, c'est deux choses : Electron lui-même (le moteur
+// Chromium, ~120 Mo, qui ne change qu'avec lui) et notre code — `app.asar`, le
+// moteur Zyvro, quelques icônes — qui change à chaque version. Chaque release
+// publie donc aussi un **correctif** par machine : le dossier `Resources` seul,
+// et l'`Info.plist` sur Mac. L'application le télécharge, l'applique sur
+// elle-même une fois fermée, et se relance. Pas d'image à ouvrir, rien à
+// glisser.
+//
+// Un correctif n'est valable que pour la même version d'Electron : les modules
+// natifs (node-pty) sont compilés pour elle. Son nom la porte (`-e33.2.1`), et
+// quand elle change on prend le paquet complet — le `.zip` sur Mac, remplacé
+// en entier de la même façon ; l'installeur, sans questions, sous Windows.
+//
+// Et puisqu'un correctif contient tout notre code, pas une différence avec la
+// version précédente, sauter trois versions ne coûte qu'un téléchargement.
+
+export type PackageKind = "patch" | "full" | "manual"
+
+const plateformeNom = (platform: string): string | null =>
+  platform === "darwin" ? "mac" : platform === "win32" ? "win" : null
+
+/** Le nom du correctif, tel qu'écrit par `scripts/make-patch.mjs` et publié. */
+export function patchName(version: string, platform: string, arch: string, electron: string): string | null {
+  const p = plateformeNom(platform)
+  if (!p) return null
+  return `Zyvro.Studio-${version.replace(/^v/, "")}-${p}-${arch}-patch-e${electron}.tar.gz`
+}
+
+// pickUpdate : le paquet à télécharger, du plus léger au plus lourd.
+//
+// `inPlace` dit si l'application peut se réécrire là où elle est (un dossier
+// où l'on peut écrire, pas une copie « translocalisée » par macOS). Sans ça,
+// sur Mac, on retombe sur l'image disque à ouvrir soi-même.
+export function pickUpdate(
+  release: Release,
+  platform: string,
+  arch: string,
+  electron: string,
+  inPlace: boolean
+): { kind: PackageKind; asset: ReleaseAsset } | null {
+  const assets = release.assets
+  if (inPlace) {
+    const nom = patchName(release.tag_name, platform, arch, electron)
+    const patch = nom ? assets.find((a) => a.name === nom) : undefined
+    if (patch) return { kind: "patch", asset: patch }
+    if (platform === "darwin") {
+      const zips = assets.filter((a) => /-mac\.zip$/i.test(a.name))
+      const zip = arch === "arm64" ? zips.find((a) => /-arm64-mac\.zip$/i.test(a.name)) : zips.find((a) => !/-arm64-mac\.zip$/i.test(a.name))
+      if (zip) return { kind: "full", asset: zip }
+    }
+  }
+  // L'installeur Windows se passe de questions (`/S`) et sait où il a été
+  // installé : c'est un remplacement complet, pas un geste à faire.
+  if (platform === "win32") {
+    const exe = pickAsset(assets, platform, arch)
+    return exe ? { kind: "full", asset: exe } : null
+  }
+  const dmg = pickAsset(assets, platform, arch)
+  return dmg ? { kind: "manual", asset: dmg } : null
+}

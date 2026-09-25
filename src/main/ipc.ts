@@ -592,7 +592,8 @@ export function registerIpc(onRecents?: () => void): void {
   })
   ipcMain.handle("update:install", async () => {
     if (!telecharge) throw new Error("Download the update first.")
-    return updater.installUpdate(telecharge)
+    if (!proposee) throw new Error("There is no update to install.")
+    return updater.installUpdate(telecharge, proposee)
   })
 
   // La palette de commandes lit le menu, et passe par lui pour agir : une

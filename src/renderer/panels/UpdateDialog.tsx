@@ -28,6 +28,9 @@ export function UpdateDialog() {
   if (!open) return null
   const mac = window.zyvro.platform === "darwin"
   const info = "info" in etat ? etat.info : undefined
+  // `manual` : l'application ne peut pas s'écrire là où elle est (voir
+  // main/updater.ts), l'image disque s'ouvre. Sinon elle se met à jour seule.
+  const seule = info?.kind !== "manual"
 
   return (
     <Dialog.Root open onOpenChange={(o) => !o && setUpdateDialog(false)}>
@@ -75,17 +78,17 @@ export function UpdateDialog() {
                 <p>
                   Downloaded
                   {etat.verified ? ", and its SHA-256 matches the one published with the release" : ""}.{" "}
-                  {mac
-                    ? "The disk image opens next: drag Zyvro Studio onto the one in Applications to replace it, then reopen it."
-                    : "The installer starts next, and Zyvro Studio closes so it can replace its files."}
+                  {seule
+                    ? `Zyvro Studio closes, installs ${info?.latest ?? "the update"} in place, and opens again. Unsaved files are asked about first.`
+                    : "Zyvro Studio cannot replace itself where it is (a read-only folder, or it was opened straight from Downloads). The disk image opens next: drag Zyvro Studio onto the one in Applications, then reopen it."}
                 </p>
               )}
               {etat.phase === "error" && <p className="text-destructive">{etat.message}</p>}
-              {info?.asset && (etat.phase === "available" || etat.phase === "ready") && (
+              {info?.asset && !seule && (etat.phase === "available" || etat.phase === "ready") && (
                 // Dit franchement : l'empreinte prouve que le fichier est arrivé
                 // entier, pas qu'il vient de nous.
                 <p className="text-[11px] text-muted-foreground/80">
-                  The installer is not signed yet, so {mac ? "macOS" : "Windows"} will warn about it the first
+                  The disk image is not signed yet, so {mac ? "macOS" : "Windows"} will warn about it the first
                   time, as it did for this version.
                 </p>
               )}
@@ -98,7 +101,7 @@ export function UpdateDialog() {
             </button>
             {etat.phase === "available" && info?.asset && (
               <button className={principal} onClick={() => void downloadUpdate()}>
-                Download {mo(info.asset.size)}
+                {info.kind === "patch" ? "Update" : "Download"} ({mo(info.asset.size)})
               </button>
             )}
             {etat.phase === "error" && info?.asset && (
@@ -115,7 +118,7 @@ export function UpdateDialog() {
                   })
                 }
               >
-                {mac ? "Open the disk image" : "Install and restart"}
+                {seule ? "Restart to update" : "Open the disk image"}
               </button>
             )}
           </div>
