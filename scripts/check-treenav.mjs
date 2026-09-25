@@ -100,10 +100,23 @@ check("en dessous : juste assez pour la voir en bas", t.scrollToShow(20, 26, 0, 
   check("attraper une ligne hors de la sélection n'emporte qu'elle", JSON.stringify(t.dragged(deux.paths, "docs")) === '["docs"]')
 }
 
+// ---- taper pour chercher ------------------------------------------------
+{
+  const rows = ["README.md", "scripts", "src", "src/a.ts", "src/Store.ts", "styles.css"].map((p) => ({ path: p }))
+  check("une lettre va à la première ligne qui commence par elle", t.typeAhead(rows, null, "s") === "scripts")
+  check("sans distinguer la casse", t.typeAhead(rows, null, "r") === "README.md")
+  check("**la même lettre répétée passe à la suivante**", t.typeAhead(rows, "scripts", "ss") === "src")
+  check("un nom, pas le chemin : `st` trouve `src/Store.ts`", t.typeAhead(rows, "src", "st") === "src/Store.ts")
+  check("un mot qui s'allonge reste sur la ligne tenue", t.typeAhead(rows, "src", "sr") === "src")
+  check("le tour reprend en haut", t.typeAhead(rows, "styles.css", "ss") === "scripts")
+  check("rien ne commence ainsi : on ne bouge pas", t.typeAhead(rows, "src", "zz") === null && t.typeAhead(rows, "src", "xq") === null)
+}
+
 const explorer = readFileSync(path.join(ROOT, "src/renderer/panels/Explorer.tsx"), "utf8")
 check("**F2 et Suppr passent par les fonctions du clic droit**", /renameEntry\(entree, client\)/.test(explorer) && /trashEntries\(entrees, client\)/.test(explorer))
 check("la sélection voyage quand on la glisse", /enMain = dragPaths/.test(explorer) && /setData\(ZYVRO_ENTRY, dragPaths\.join/.test(explorer))
 check("le fichier actif est révélé", /ancestorsOf\(actif\)/.test(explorer))
+check("l'arbre cherche au fil des lettres, sans voler les raccourcis", /typeAhead\(rows, focus, tape\)/.test(explorer) && /!event\.metaKey && !event\.ctrlKey && !event\.altKey/.test(explorer))
 check("et tout se replie d'un bouton", /title="Collapse Folders"/.test(explorer))
 const actions = readFileSync(path.join(ROOT, "src/renderer/lib/entryActions.ts"), "utf8")
 check(

@@ -115,3 +115,32 @@ export function clickSelect(
 export function dragged(selection: Set<string>, path: string): string[] {
   return selection.has(path) && selection.size > 1 ? [...selection] : [path]
 }
+
+// ---- taper pour chercher ----------------------------------------------------
+//
+// Comme dans le Finder et l'arbre de VS Code : les lettres tapées à la suite
+// (moins de `TYPE_AHEAD_MS` entre deux) sautent à la ligne dont le nom commence
+// ainsi, sans distinguer la casse. Une même lettre répétée passe d'une ligne à
+// la suivante qui commence par elle — `s`, `s`, `s` parcourt `src`, `scripts`,
+// `styles.css`. On part de la ligne tenue : un mot qu'on continue de taper peut
+// rester sur elle, une nouvelle recherche commence après elle, et le tour
+// reprend en haut.
+
+export const TYPE_AHEAD_MS = 800
+
+export function typeAhead(rows: { path: string }[], focused: string | null, typed: string): string | null {
+  if (rows.length === 0 || typed === "") return null
+  const q = typed.toLowerCase()
+  const repete = [...q].every((c) => c === q[0])
+  const cherche = repete ? q[0] : q
+  const i = focused === null ? -1 : rows.findIndex((r) => r.path === focused)
+  // Un mot qui s'allonge peut rester sur la ligne tenue ; une lettre (ou la
+  // même, répétée) passe à la suivante.
+  const depart = repete ? i + 1 : Math.max(i, 0)
+  for (let k = 0; k < rows.length; k++) {
+    const row = rows[(depart + k) % rows.length]
+    const nom = row.path.slice(row.path.lastIndexOf("/") + 1).toLowerCase()
+    if (nom.startsWith(cherche)) return row.path
+  }
+  return null
+}

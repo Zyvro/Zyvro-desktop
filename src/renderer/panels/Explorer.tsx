@@ -18,7 +18,7 @@ import { ZYVRO_PATH } from "../../shared/dropped"
 import { ZYVRO_ENTRY, canMove, dropFolder, entriesFromText, parentOf, topmost } from "../../shared/treedrop"
 import { clearHeld, heldItem } from "~/state/clipboard"
 import { EntryMenu } from "~/panels/EntryMenu"
-import { ancestorsOf, clickSelect, dragged, navigate, scrollToShow, type Selection } from "../../shared/treenav"
+import { ancestorsOf, clickSelect, dragged, navigate, scrollToShow, typeAhead, TYPE_AHEAD_MS, type Selection } from "../../shared/treenav"
 import { renameEntry, trashEntries } from "~/lib/entryActions"
 import { useGitStatus } from "~/lib/git"
 import { FileTypeIcon } from "~/lib/fileIcons"
@@ -421,6 +421,9 @@ export function Explorer() {
     return r.act
   }
 
+  // Ce qu'on a tapé à la suite, pour taper-pour-chercher.
+  const frappe = useRef({ typed: "", at: 0 })
+
   const toutReplier = (): void => {
     setExpanded((current) => {
       for (const d of current) unwatchDir(d)
@@ -453,6 +456,21 @@ export function Explorer() {
       return
     }
     const rows = lignes.map((l) => ({ path: l.entry.path, kind: l.entry.kind, depth: l.depth }))
+    // Taper pour chercher : un caractère imprimable, sans modificateur, saute à
+    // la ligne dont le nom commence par ce qu'on tape (`typeAhead`).
+    if (event.key.length === 1 && event.key !== " " && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      const maintenant = Date.now()
+      const tape = maintenant - frappe.current.at < TYPE_AHEAD_MS ? frappe.current.typed + event.key : event.key
+      frappe.current = { typed: tape, at: maintenant }
+      const vers = typeAhead(rows, focus, tape)
+      event.preventDefault()
+      if (vers) {
+        setFocus(vers)
+        setSelection({ paths: new Set([vers]), anchor: vers })
+        montrer(vers)
+      }
+      return
+    }
     const r = navigate(rows, focus, event.key, expanded)
     if (Object.keys(r).length === 0) return
     event.preventDefault()

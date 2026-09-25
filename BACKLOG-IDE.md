@@ -11,15 +11,13 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 1. **Terminal : scinder.**
 2. **Éditeurs côte à côte** (⌘\).
-3. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
-   sautent à la ligne qui commence ainsi.
-4. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+3. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
     choix à l'enregistrement.
-5. **Fichiers récents** dans File › Open Recent, à côté des projets.
-6. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-7. **Réglages de plus** : paires de crochets colorées, défilement collant
+4. **Fichiers récents** dans File › Open Recent, à côté des projets.
+5. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+6. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-8. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+7. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -109,3 +107,6 @@ Petits correctifs repérés en passant :
   `node_modules` visible.
 - **0.1.0-alpha.21 — le fil d'Ariane.** Le chemin du fichier au-dessus de
   l'éditeur ; un dossier ouvre ⌘P filtré sur lui.
+- **0.1.0-alpha.22 — taper pour chercher dans l'arbre.** Les lettres tapées
+  sautent au nom qui commence ainsi ; la même lettre répétée passe au suivant
+  (`typeAhead`).

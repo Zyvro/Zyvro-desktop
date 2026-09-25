@@ -49,6 +49,12 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.22
+
+**Type to search in the file tree.** With the tree focused, type the start of a
+name to jump to it, as in Finder and VS Code. Press the same letter again to move
+to the next name that starts with it.
+
 ## New in alpha.21
 
 **Breadcrumbs above the editor.** The open file's path, one segment per folder,
