@@ -9,6 +9,7 @@ import { openQuickOpen } from "~/panels/QuickOpen"
 import { clearActiveTerminal } from "~/panels/TerminalPanel"
 import { openFiles } from "./windowDrop"
 import { isAbsolutePath } from "../../shared/external"
+import { requestTerminalSplit } from "~/state/terminalSplit"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -80,7 +81,16 @@ window.zyvro.menu.onCloseTab(() => {
   }
   if (s.activeTabId) void requestCloseTab(s.activeTabId)
 })
-window.zyvro.menu.onSplitEditor(() => useWorkspace.getState().splitEditor())
+// ⌘\ partage ce qui a le focus, comme VS Code : le terminal quand on y tape,
+// l'éditeur sinon.
+window.zyvro.menu.onSplitEditor(() => {
+  if (document.activeElement?.closest("[data-terminal-panel]")) requestTerminalSplit()
+  else useWorkspace.getState().splitEditor()
+})
+window.zyvro.menu.onSplitTerminal(() => {
+  useWorkspace.getState().setPanel("terminal", true)
+  requestTerminalSplit()
+})
 window.zyvro.menu.onReopenTab(() => {
   useWorkspace.getState().reopenClosed()
 })

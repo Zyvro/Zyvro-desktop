@@ -9,15 +9,17 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Terminal : scinder.**
-2. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-3. **Réglages de plus** : paires de crochets colorées, défilement collant
+1. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+2. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-4. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+3. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
 
+- terminal scindé : les shells repris au redémarrage reviennent chacun dans
+  son onglet (les groupes ne sont pas retenus), et la séparation ne se tire
+  pas encore ;
 - éditeurs côte à côte : ouvrir depuis l'arbre dans le groupe qui a la main
   (aujourd'hui toujours à gauche), glisser un onglet de droite à gauche, un
   menu contextuel sur les onglets de droite ;
@@ -126,3 +128,7 @@ Petits correctifs repérés en passant :
   moitié droite ; le même document des deux côtés (modèle partagé et compté,
   enregistreurs en pile) ; la vue de droite se ferme seule ; séparation
   réglable ; ⌘S, ⌘W, ⌘F et la barre d'état suivent le côté qui a la main.
+- **0.1.0-alpha.28 — le terminal scindé.** Des shells côte à côte dans un
+  onglet (`shared/termgroups`), par le bouton, View › Split Terminal ou ⌘\
+  dans le terminal ; fermer l'un laisse les autres, chacun reste un enfant
+  direct pour ne jamais être démonté par la mise en page.

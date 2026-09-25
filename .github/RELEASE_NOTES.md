@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.28
+
+**Split the terminal**, as in VS Code: the new button next to **+**, **View › Split
+Terminal** (⌃⇧5 / Ctrl+Shift+5), or ⌘\ (Ctrl+\) while you are typing in the
+terminal. It opens another shell beside the one you are looking at, in the same
+tab, and the tab is named after each of its shells. Click a shell to type in it.
+Closing one leaves the others running, with their history.
+
 ## New in alpha.27
 
 **Side-by-side editors (⌘\ / Ctrl+\).** View › Split Editor opens the current file in

@@ -2,7 +2,9 @@ import { useCallback, useRef, useState, useSyncExternalStore } from "react"
 import { Terminal, type ITheme } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
-import { Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
+import { Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
+import { addGroup, groupOf, removeKey, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
+import { splitToken, subscribeSplit } from "~/state/terminalSplit"
 import { cn } from "@/lib/utils"
 import { droppedText } from "../../shared/dropped"
 import { estEffacement, findPathLinks, toProjectPath, type PathLink } from "../../shared/termlinks"
@@ -455,7 +457,9 @@ export function TerminalPanel(): JSX.Element {
   // donc les shells de la maison se retrouvent comme ceux d'un projet.
   const projectDir = useWorkspace((state) => state.root)
 
-  const [sessions, setSessions] = useState<string[]>([])
+  // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
+  const [groups, setGroups] = useState<Groups>([])
+  const sessions = groups.flat()
   const [activeKey, setActiveKey] = useState("")
   const [boundProject, setBoundProject] = useState<string | null>(null)
 
@@ -533,7 +537,7 @@ export function TerminalPanel(): JSX.Element {
     // reste des shells de ce projet : en ouvrir un tout de suite en ferait un
     // de trop à côté de ceux qu'on s'apprête à reprendre. C'est un aller-retour
     // sur la boucle locale, pas une attente.
-    setSessions([])
+    setGroups([])
     setActiveKey("")
     // Hors du rendu : appeler quelque chose d'asynchrone pendant qu'on dessine
     // est la porte d'entrée des rendus en boucle.
@@ -551,7 +555,7 @@ export function TerminalPanel(): JSX.Element {
   // Une fusion plutôt qu'un remplacement : ce qui a été repris d'abord, ce qui
   // est arrivé pendant l'attente ensuite.
   const poser = (keys: string[]): void => {
-    setSessions((actuelles) => [...keys, ...actuelles.filter((key) => !keys.includes(key))])
+    setGroups((actuels) => withRestored(actuels, keys))
     setActiveKey((actuelle) => (actuelle === "" ? (keys[0] ?? "") : actuelle))
   }
 
@@ -630,8 +634,17 @@ export function TerminalPanel(): JSX.Element {
       if (label === null) return
       const key = nextSessionKey()
       patchStatus(key, { persistent: label })
-      setSessions((actuelles) => [...actuelles, key])
+      setGroups((actuels) => addGroup(actuels, key))
       setActiveKey(key)
+    })
+  }
+
+  // Un onglet montre tout son groupe : chaque shell se réajuste quand il
+  // redevient visible.
+  const ajuster = (keys: string[], focus: string): void => {
+    requestAnimationFrame(() => {
+      for (const k of keys) handles.get(k)?.fit()
+      handles.get(focus)?.focus()
     })
   }
 
@@ -639,17 +652,32 @@ export function TerminalPanel(): JSX.Element {
     setActiveKey(key)
     // The wrapper is unhidden in this commit, so the fit has to wait for the
     // browser to give the node a size again.
-    requestAnimationFrame(() => {
-      const handle = handles.get(key)
-      handle?.fit()
-      handle?.focus()
-    })
+    ajuster(groupOf(groups, key) ?? [key], key)
   }
 
   const addSession = (): void => {
     const key = nextSessionKey()
-    setSessions((current) => [...current, key])
+    setGroups((current) => addGroup(current, key))
     setActiveKey(key)
+  }
+
+  // Split Terminal : un shell de plus à droite de celui qu'on regarde, dans le
+  // même onglet, comme VS Code. Les voisins se réajustent à leur nouvelle
+  // largeur d'eux-mêmes (ResizeObserver).
+  const splitSession = (): void => {
+    const key = nextSessionKey()
+    const actif = actifRef.current
+    setGroups((current) => (actif ? splitBeside(current, actif, key) : addGroup(current, key)))
+    setActiveKey(key)
+    requestAnimationFrame(() => handles.get(key)?.focus())
+  }
+  const demandeSplit = useSyncExternalStore(subscribeSplit, splitToken, () => 0)
+  const vueSplit = useRef(demandeSplit)
+  if (demandeSplit !== vueSplit.current) {
+    vueSplit.current = demandeSplit
+    // Après le rendu, comme les autres demandes ; le repère est déjà posé, un
+    // second passage de rendu n'en remet pas une en file.
+    window.queueMicrotask(splitSession)
   }
 
   const closeSession = (key: string): void => {
@@ -658,14 +686,12 @@ export function TerminalPanel(): JSX.Element {
     // parti — et c'est `dispose` seul qui sert quand on change de projet.
     const ptyId = readStatus(key).ptyId
     if (ptyId) void window.zyvro.terminal.close(ptyId)
-    setSessions((current) => {
-      const index = current.indexOf(key)
-      if (index < 0) return current
-      const next = current.filter((item) => item !== key)
+    setGroups((current) => {
+      if (!groupOf(current, key)) return current
+      const { groups: next, fallback } = removeKey(current, key)
       if (key === activeKey) {
-        const fallback = next[Math.min(index, next.length - 1)] ?? ""
         setActiveKey(fallback)
-        if (fallback) requestAnimationFrame(() => handles.get(fallback)?.fit())
+        if (fallback) ajuster(groupOf(next, fallback) ?? [fallback], fallback)
       }
       return next
     })
@@ -686,13 +712,18 @@ export function TerminalPanel(): JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-col bg-background">
+    <div className="flex h-full flex-col bg-background" data-terminal-panel>
       <div className="flex h-8 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/[0.06] px-1.5">
-        {sessions.map((key, index) => {
-          const isActive = key === activeKey
+        {groups.map((group, index) => {
+          const isActive = group.includes(activeKey)
+          // Un onglet partagé porte le nom de chacun de ses shells, comme VS
+          // Code : « Shell 1, Shell 3 ».
+          const noms = group.map((key) => readStatus(key).persistent ?? `Shell ${sessions.indexOf(key) + 1}`)
+          const nom = noms.join(", ")
+          const principal = group.includes(activeKey) ? activeKey : group[0]
           return (
             <div
-              key={key}
+              key={group[0]}
               className={cn(
                 "group flex shrink-0 items-center gap-1.5 rounded px-2 py-0.5 text-[11px] transition-colors",
                 isActive
@@ -702,16 +733,19 @@ export function TerminalPanel(): JSX.Element {
             >
               <button
                 type="button"
-                onClick={() => activate(key)}
+                onClick={() => activate(principal)}
                 className="inline-flex items-center gap-1.5"
-                title={readStatus(key).persistent ?? `Shell ${index + 1}`}
+                title={nom}
+                data-terminal-tab={index}
               >
-                <TerminalSquare className="h-3 w-3" />
-                {readStatus(key).persistent ?? `Shell ${index + 1}`}
+                {group.length > 1 ? <Columns2 className="h-3 w-3" /> : <TerminalSquare className="h-3 w-3" />}
+                {nom}
               </button>
+              {/* Fermer l'onglet ferme le shell qu'on y regarde ; les autres
+                  restent, comme la poubelle d'un panneau partagé de VS Code. */}
               <button
                 type="button"
-                onClick={() => closeSession(key)}
+                onClick={() => closeSession(principal)}
                 title="Close shell"
                 className={cn(
                   "rounded p-0.5 text-muted-foreground transition-opacity hover:bg-white/[0.08] hover:text-foreground",
@@ -732,6 +766,15 @@ export function TerminalPanel(): JSX.Element {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
+        <button
+          type="button"
+          onClick={splitSession}
+          title="Split Terminal"
+          disabled={sessions.length === 0}
+          className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
+        >
+          <Columns2 className="h-3.5 w-3.5" />
+        </button>
 
         {/* Poussé à droite par son propre `ml-auto` : les onglets défilent, et
             un séparateur élastique entre eux et lui se ferait écraser. */}
@@ -741,9 +784,35 @@ export function TerminalPanel(): JSX.Element {
       {/* Every session stays mounted. Hiding the wrapper (never the xterm host
           itself) keeps the instance, its pty and its scrollback alive. */}
       <div className="relative min-h-0 flex-1">
-        {sessions.map((key) => (
-          <TerminalSession key={key} sessionKey={key} active={key === activeKey} />
-        ))}
+        {/* Un onglet, ses shells côte à côte. Chaque shell reste un enfant
+            direct, sous sa propre clé, et se place par sa part de largeur :
+            l'emboîter dans un conteneur de groupe le démonterait — son pty
+            avec — dès que ce groupe change de forme (son premier shell fermé,
+            un voisin ajouté). */}
+        {sessions.map((key) => {
+          const group = groupOf(groups, key) ?? [key]
+          const i = group.indexOf(key)
+          const n = group.length
+          const visible = group.includes(activeKey)
+          return (
+            <div
+              key={key}
+              className={cn(
+                "absolute inset-y-0",
+                !visible && "hidden",
+                i > 0 && "border-l border-white/[0.08]",
+                // Le shell qui a la main, quand il y en a plusieurs.
+                n > 1 && key === activeKey && "shadow-[inset_0_1px_0_0_rgb(56_189_248/0.6)]"
+              )}
+              style={{ left: `${(i / n) * 100}%`, width: `${100 / n}%` }}
+              onMouseDownCapture={() => {
+                if (key !== activeKey) setActiveKey(key)
+              }}
+            >
+              <TerminalSession sessionKey={key} active={visible} />
+            </div>
+          )
+        })}
         {sessions.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             No shell open.

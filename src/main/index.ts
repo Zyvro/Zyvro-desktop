@@ -383,6 +383,13 @@ function buildMenu(): void {
           label: "Clear Terminal",
           click: (_item, win) => send(win as BrowserWindow, "menu:clear-terminal"),
         },
+        // Un shell de plus à côté, dans le même onglet. ⌃⇧5 comme VS Code sous
+        // Windows ; et ⌘\ quand le terminal a le focus (menuBridge).
+        {
+          label: "Split Terminal",
+          accelerator: "CmdOrCtrl+Shift+5",
+          click: (_item, win) => send(win as BrowserWindow, "menu:split-terminal"),
+        },
         {
           label: "Toggle Agent",
           accelerator: "CmdOrCtrl+Shift+A",
