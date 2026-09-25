@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.32
+
+**Click a git mark in the editor's margin to see what was there before**, as in
+VS Code. A panel opens under the change with the text from the last commit,
+and **Revert** puts it back. Revert is a normal edit: ⌘Z undoes it, and nothing
+is saved until you save. Click the mark again, press Escape or start typing to
+close the panel.
+
 ## New in alpha.31
 
 **Colored bracket pairs and sticky scroll**, on by default as in VS Code. Matching

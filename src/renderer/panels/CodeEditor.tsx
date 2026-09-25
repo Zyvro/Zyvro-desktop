@@ -10,7 +10,7 @@ import { Breadcrumbs } from "~/panels/Breadcrumbs"
 import { isAbsolutePath } from "../../shared/external"
 import { getSettings, subscribeSettings } from "~/state/settings"
 import { lineHeightFor, type EditorSettings } from "../../shared/settings"
-import { lineChanges, type LineChange } from "../../shared/linediff"
+import { hunkAt, hunks, lineChanges, revertHunk, type Hunk, type LineChange } from "../../shared/linediff"
 import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 
 // Monaco is imperative: it wants a DOM node and gives back an instance to
@@ -223,6 +223,86 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
       })
       window.addEventListener("blur", perdFocus)
 
+      // Le coup d'œil de la marge, comme VS Code : un clic sur une marque de
+      // git ouvre, sous le changement, ce qu'il y avait au dernier commit, avec
+      // « Revert » pour le remettre. Une zone de l'éditeur, pas une fenêtre :
+      // elle défile avec le texte. Un second clic, Échap ou une frappe la
+      // referment.
+      let coupDoeil: string | null = null
+      const fermerCoupDoeil = () => {
+        if (coupDoeil === null) return
+        const id = coupDoeil
+        coupDoeil = null
+        editor.changeViewZones((zones) => zones.removeZone(id))
+      }
+      const ouvrirCoupDoeil = (h: Hunk) => {
+        fermerCoupDoeil()
+        const cadre = document.createElement("div")
+        cadre.className = "zy-peek"
+        const tete = document.createElement("div")
+        tete.className = "zy-peek-head"
+        const titre = document.createElement("span")
+        titre.textContent =
+          h.kind === "added" ? "Added since the last commit" : h.kind === "deleted" ? "Deleted since the last commit" : "Changed since the last commit"
+        const defaire = document.createElement("button")
+        defaire.textContent = "Revert"
+        defaire.title = "Put back what the last commit has here"
+        const fermer = document.createElement("button")
+        fermer.textContent = "Close"
+        tete.append(titre, defaire, fermer)
+        cadre.append(tete)
+        if (h.old.length > 0) {
+          const avant = document.createElement("pre")
+          avant.className = "zy-peek-old"
+          avant.textContent = h.old.join("\n")
+          cadre.append(avant)
+        }
+        // Monaco garde la souris pour lui dans ses zones : on prend le clic
+        // avant lui.
+        defaire.addEventListener("mousedown", (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          const model = editor.getModel()
+          if (!model) return
+          fermerCoupDoeil()
+          // Une seule opération, défaisable par ⌘Z comme une frappe.
+          editor.executeEdits("zyvro-revert", [{ range: model.getFullModelRange(), text: revertHunk(model.getValue(), h) }])
+          editor.pushUndoStop()
+        })
+        fermer.addEventListener("mousedown", (e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          fermerCoupDoeil()
+        })
+        const lignes = 1 + Math.min(h.old.length, 12) + (h.old.length > 0 ? 0.6 : 0)
+        editor.changeViewZones((zones) => {
+          coupDoeil = zones.addZone({
+            afterLineNumber: h.kind === "deleted" ? h.start : h.end,
+            heightInLines: lignes,
+            domNode: cadre,
+          })
+        })
+      }
+      const clicMarge = editor.onMouseDown((e) => {
+        if (e.target.type !== monaco.editor.MouseTargetType.GUTTER_LINE_DECORATIONS || head === null) return
+        const ligne = e.target.position?.lineNumber
+        if (!ligne) return
+        const h = hunkAt(hunks(head, editor.getValue()), ligne)
+        if (!h) return
+        if (coupDoeil !== null) {
+          fermerCoupDoeil()
+          return
+        }
+        ouvrirCoupDoeil(h)
+      })
+      const frappeFerme = editor.onDidChangeModelContent(() => fermerCoupDoeil())
+      const echap = editor.onKeyDown((e) => {
+        if (e.keyCode === monaco.KeyCode.Escape && coupDoeil !== null) {
+          e.preventDefault()
+          fermerCoupDoeil()
+        }
+      })
+
       // Ce que la barre d'état affiche de cet éditeur. Publié à chaque
       // mouvement du curseur et à chaque changement d'options du modèle ; le
       // magasin ignore ce qui n'a pas bougé.
@@ -344,6 +424,9 @@ export function CodeEditor({ tabId, path, group = "main" }: Props) {
         unregisterEditor()
         offSettings()
         offGit()
+        clicMarge.dispose()
+        frappeFerme.dispose()
+        echap.dispose()
         if (calcul) clearTimeout(calcul)
         marques.clear()
         blurred.dispose()

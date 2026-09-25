@@ -173,3 +173,45 @@ button,
 .zy-group-focused > .zy-tabs {
   box-shadow: inset 0 1px 0 0 rgb(56 189 248 / 0.6);
 }
+
+/* Le coup d'œil de la marge de git : ce qu'il y avait au dernier commit, sous
+   le changement, et « Revert ». */
+.zy-peek {
+  box-sizing: border-box;
+  border-top: 1px solid rgb(56 189 248 / 0.5);
+  border-bottom: 1px solid rgb(56 189 248 / 0.5);
+  background: rgb(15 23 42 / 0.92);
+  font-size: 12px;
+  overflow: hidden;
+  z-index: 5;
+}
+.zy-peek-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 10px;
+  color: rgb(148 163 184);
+}
+.zy-peek-head span {
+  flex: 1;
+}
+.zy-peek-head button {
+  border-radius: 4px;
+  padding: 0 8px;
+  color: rgb(226 232 240);
+  background: rgb(255 255 255 / 0.06);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.zy-peek-head button:hover {
+  background: rgb(255 255 255 / 0.14);
+}
+.zy-peek-old {
+  margin: 0;
+  padding: 0 10px 4px 10px;
+  font-family: Menlo, Monaco, "Courier New", monospace;
+  white-space: pre;
+  color: rgb(254 202 202);
+  background: rgb(248 113 113 / 0.12);
+  overflow: hidden;
+}

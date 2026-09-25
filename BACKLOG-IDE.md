@@ -9,8 +9,9 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
-    le coup d'œil de VS Code.
+1. **Rien d'urgent dans la liste** : reprendre les petits correctifs
+   ci-dessous, puis relire VS Code pour la suite (rechercher/remplacer dans
+   l'arbre, extensions de langage, débogueur…).
 
 Petits correctifs repérés en passant :
 
@@ -142,3 +143,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.31 — crochets colorés, sticky scroll, zoom retenu.** Deux
   réglages de l'éditeur (actifs par défaut, comme VS Code) ; le zoom passe par
   `main/zoom`, retenu et borné, ⌘-molette comprise.
+- **0.1.0-alpha.32 — le coup d'œil de la marge de git.** Un clic sur une
+  marque montre, sous le changement, le texte du dernier commit, et « Revert »
+  le remet par une édition défaisable (`hunks`, `revertHunk`, vérifiés sur 300
+  cas au hasard).

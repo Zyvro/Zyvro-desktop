@@ -107,7 +107,12 @@ function lignes(text: string): string[] {
   return l
 }
 
-export function lineChanges(before: string, after: string): LineChange[] {
+// Un changement, avec ce qu'il y avait avant : les lignes du dernier commit
+// qu'il remplace (aucune pour un ajout). C'est ce que montre le coup d'œil de
+// la marge, et ce que « Revert » remet.
+export type Hunk = LineChange & { old: string[] }
+
+export function hunks(before: string, after: string): Hunk[] {
   const a = lignes(before)
   const b = lignes(after)
 
@@ -121,15 +126,18 @@ export function lineChanges(before: string, after: string): LineChange[] {
     // Trop différent pour valoir un diff : tout ce qui reste est « modifié ».
     const s = debut + 1
     const e = b.length - fin
-    return e >= s ? [{ kind: "modified", start: s, end: e }] : [{ kind: "deleted", start: debut, end: debut }]
+    const old = a.slice(debut, a.length - fin)
+    return e >= s ? [{ kind: "modified", start: s, end: e, old }] : [{ kind: "deleted", start: debut, end: debut, old }]
   }
 
-  const out: LineChange[] = []
+  const out: Hunk[] = []
   let ligne = debut // lignes du texte actuel déjà parcourues
+  let ancien = debut // et de l'ancien
   for (let i = 0; i < ops.length; i++) {
     const op = ops[i]
     if (op.kind === "equal") {
       ligne += op.count
+      ancien += op.count
       continue
     }
     // Une suppression suivie d'un ajout (ou l'inverse) est une modification.
@@ -138,14 +146,47 @@ export function lineChanges(before: string, after: string): LineChange[] {
     const ajoutes = (op.kind === "insert" ? op.count : 0) + (paire && suivant.kind === "insert" ? suivant.count : 0)
     const supprimes = (op.kind === "delete" ? op.count : 0) + (paire && suivant.kind === "delete" ? suivant.count : 0)
     if (paire) i++
+    const old = a.slice(ancien, ancien + supprimes)
     if (ajoutes > 0 && supprimes > 0) {
-      out.push({ kind: "modified", start: ligne + 1, end: ligne + ajoutes })
+      out.push({ kind: "modified", start: ligne + 1, end: ligne + ajoutes, old })
     } else if (ajoutes > 0) {
-      out.push({ kind: "added", start: ligne + 1, end: ligne + ajoutes })
+      out.push({ kind: "added", start: ligne + 1, end: ligne + ajoutes, old })
     } else {
-      out.push({ kind: "deleted", start: ligne, end: ligne })
+      out.push({ kind: "deleted", start: ligne, end: ligne, old })
     }
     ligne += ajoutes
+    ancien += supprimes
   }
   return out
+}
+
+export function lineChanges(before: string, after: string): LineChange[] {
+  return hunks(before, after).map(({ kind, start, end }) => ({ kind, start, end }))
+}
+
+// hunkAt : le changement que désigne un clic sur la ligne `line` de la marge.
+// Une suppression se marque sur la ligne après laquelle elle a eu lieu (sur la
+// première quand c'était tout en haut).
+export function hunkAt(list: Hunk[], line: number): Hunk | null {
+  for (const h of list) {
+    if (h.kind === "deleted") {
+      if (Math.max(1, h.start) === line) return h
+    } else if (line >= h.start && line <= h.end) return h
+  }
+  return null
+}
+
+// revertHunk : le texte actuel avec ce changement défait — ses lignes
+// remplacées par celles d'avant. Les fins de ligne du fichier et sa dernière
+// ligne vide sont gardées.
+export function revertHunk(after: string, h: Hunk): string {
+  const eol = after.includes("\r\n") ? "\r\n" : "\n"
+  const finale = after.endsWith("\n")
+  const b = lignes(after)
+  const suite =
+    h.kind === "deleted"
+      ? [...b.slice(0, h.start), ...h.old, ...b.slice(h.start)]
+      : [...b.slice(0, h.start - 1), ...h.old, ...b.slice(h.end)]
+  const texte = suite.join(eol)
+  return finale || (after === "" && suite.length > 0) ? texte + eol : texte
 }

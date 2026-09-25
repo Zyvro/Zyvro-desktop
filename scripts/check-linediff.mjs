@@ -100,8 +100,55 @@ check("les fins de ligne CRLF ne font pas tout changer", eq("a\r\nb\r\n", "a\nb\
 }
 
 const editeur = readFileSync(path.join(ROOT, "src/renderer/panels/CodeEditor.tsx"), "utf8")
+check(
+  "**un clic sur une marque ouvre le coup d'œil, Revert passe par une édition défaisable**",
+  /MouseTargetType\.GUTTER_LINE_DECORATIONS/.test(editeur) && /executeEdits\("zyvro-revert"/.test(editeur) && /revertHunk\(model\.getValue\(\), h\)/.test(editeur)
+)
 check("l'éditeur marque sa marge", /marques\.set\(/.test(editeur) && /lineChanges\(head, editor\.getValue\(\)\)/.test(editeur))
 check("et relit HEAD quand il bouge", /sha !== headDe/.test(editeur))
+
+// ---- le coup d'œil et « Revert » ------------------------------------------------
+{
+  const avant = "a\nb\nc\nd\ne\n"
+  const apres = "a\nB\nc\nnouveau\nd\n"
+  const h = t.hunks(avant, apres)
+  check("chaque changement porte ce qu'il y avait avant", JSON.stringify(h.map((x) => [x.kind, x.old])) === JSON.stringify([["modified", ["b"]], ["added", []], ["deleted", ["e"]]]), JSON.stringify(h))
+  check("lineChanges n'a pas changé de forme", JSON.stringify(t.lineChanges(avant, apres)) === JSON.stringify(h.map(({ kind, start, end }) => ({ kind, start, end }))))
+  check("un clic sur la ligne 2 désigne la modification", t.hunkAt(h, 2)?.kind === "modified")
+  check("un clic sur la ligne après une suppression la désigne", t.hunkAt(h, 5)?.kind === "deleted")
+  check("un clic ailleurs, rien", t.hunkAt(h, 3) === null)
+  check("**défaire une modification remet l'ancienne ligne**", t.revertHunk(apres, h[0]) === "a\nb\nc\nnouveau\nd\n")
+  check("défaire un ajout l'enlève", t.revertHunk(apres, h[1]) === "a\nB\nc\nd\n")
+  check("défaire une suppression la remet", t.revertHunk(apres, h[2]) === "a\nB\nc\nnouveau\nd\ne\n")
+  // Tous défaits, du dernier au premier (les numéros des premiers ne bougent
+  // pas) : on retrouve le commit, octet pour octet — sur des cas au hasard.
+  let ok = true
+  let exemple = ""
+  let graine = 7
+  const hasard = (n) => ((graine = (graine * 1103515245 + 12345) % 2147483648), graine % n)
+  for (let essai = 0; essai < 300 && ok; essai++) {
+    const base = Array.from({ length: 1 + hasard(12) }, (_, i) => `l${i}`)
+    const neuf = []
+    for (const l of base) {
+      const r = hasard(5)
+      if (r === 0) continue
+      if (r === 1) neuf.push(l + "*")
+      else if (r === 2) neuf.push(l, `+${hasard(99)}`)
+      else neuf.push(l)
+    }
+    if (hasard(3) === 0) neuf.unshift("tête")
+    const eol = hasard(2) ? "\r\n" : "\n"
+    const A = base.join(eol) + eol
+    const B = neuf.join(eol) + (neuf.length ? eol : "")
+    let texte = B
+    for (const x of [...t.hunks(A, B)].reverse()) texte = t.revertHunk(texte, x)
+    if (texte !== A) {
+      ok = false
+      exemple = JSON.stringify({ A, B, texte })
+    }
+  }
+  check("**défaire tous les changements rend le commit, sur 300 cas au hasard**", ok, exemple)
+}
 
 if (failures) {
   console.log(`\n${failures} échec(s)`)
