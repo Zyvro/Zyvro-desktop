@@ -167,3 +167,9 @@ button,
 .monaco-editor .zy-git-deleted-top::after {
   top: -4px;
 }
+
+/* Le groupe d'éditeurs qui a la main, quand l'éditeur est partagé (⌘\) : un
+   filet bleu au-dessus de ses onglets, comme la bordure active de VS Code. */
+.zy-group-focused > .zy-tabs {
+  box-shadow: inset 0 1px 0 0 rgb(56 189 248 / 0.6);
+}

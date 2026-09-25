@@ -640,6 +640,7 @@ const api = {
     onGoToLine: (cb: () => void): Unsubscribe => on("menu:go-to-line", cb),
     onFormatDocument: (cb: () => void): Unsubscribe => on("menu:format-document", cb),
     onOpenFileDialog: (cb: () => void): Unsubscribe => on("menu:open-file", cb),
+    onSplitEditor: (cb: () => void): Unsubscribe => on("menu:split-editor", cb),
     onOpenRecentFile: (cb: (relative: string) => void): Unsubscribe => on("menu:open-recent-file", cb),
     onProblems: (cb: () => void): Unsubscribe => on("menu:problems", cb),
     onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),

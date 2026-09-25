@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils"
 import { CompletionToggle } from "~/panels/CompletionToggle"
 import { UsageToggle } from "~/panels/UsageToggle"
 import { ShotButton } from "~/panels/ShotPicker"
-import { useWorkspace } from "~/state/workspace"
+import { focusedTabId, useWorkspace } from "~/state/workspace"
 import { UpdatePill } from "~/panels/UpdateDialog"
 import { ProblemsPill } from "~/panels/ProblemsTab"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
@@ -34,7 +34,7 @@ const itemMenu =
   "flex cursor-default select-none items-center gap-2 rounded px-2 py-1 text-[12px] outline-none data-[highlighted]:bg-white/[0.09]"
 
 function EditorPills() {
-  const tabId = useWorkspace((s) => s.activeTabId)
+  const tabId = useWorkspace((s) => focusedTabId(s))
   const status = useSyncExternalStore(
     subscribeEditorStatus,
     () => editorStatusOf(tabId),

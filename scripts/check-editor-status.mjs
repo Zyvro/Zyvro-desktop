@@ -65,7 +65,7 @@ off()
 check("**un onglet fermé n'y laisse rien**", t.editorStatusOf("file:a.ts") === null && t.editorActionsOf("file:a.ts") === null)
 
 const bar = readFileSync(path.join(ROOT, "src/renderer/panels/StatusBar.tsx"), "utf8")
-check("la barre lit l'onglet actif", /editorStatusOf\(tabId\)/.test(bar) && /s\.activeTabId/.test(bar))
+check("la barre lit l'onglet actif du groupe qui a la main", /editorStatusOf\(tabId\)/.test(bar) && /useWorkspace\(\(s\) => focusedTabId\(s\)\)/.test(bar))
 const editeur = readFileSync(path.join(ROOT, "src/renderer/panels/CodeEditor.tsx"), "utf8")
 check("l'éditeur publie au mouvement du curseur", /onDidChangeCursorSelection\(publier\)/.test(editeur))
 check("et se désinscrit en partant", /unregisterEditor\(\)/.test(editeur))

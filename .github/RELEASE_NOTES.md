@@ -49,6 +49,17 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.27
+
+**Side-by-side editors (⌘\ / Ctrl+\).** View › Split Editor opens the current file in
+a second group on the right. It is the same document on both sides, as in VS
+Code: what you type on one side appears on the other, and there is a single set
+of unsaved changes. Or drag a tab onto the right half of the editor. The right
+group has its own tabs. Closing one there (its × or ⌘W) only closes that view;
+the file stays open on the left. Drag the divider to resize (double-click resets
+it). ⌘S, ⌘W, ⌘F, Go to Line and the status bar act on the side you last clicked,
+which is marked by a blue line above its tabs.
+
 ## New in alpha.26
 
 **Recent files.** File › Open Recent now lists the files you had open in this

@@ -111,6 +111,38 @@ export function pathOfUri(uri: monaco.Uri): string | null {
   return uri.path.replace(/^\//, "")
 }
 
+// acquireModel / releaseModel : le modèle d'un fichier, partagé. Un fichier
+// ouvert des deux côtés (⌘\) a deux éditeurs sur un seul modèle, comme VS
+// Code : ce qu'on tape à gauche paraît à droite, et un seul brouillon. Compté :
+// le dernier éditeur qui le lâche le détruit. Un modèle que personne ne tient
+// (un reste) est remplacé par le texte donné.
+const tenus = new Map<string, number>()
+
+export function acquireModel(path: string, text: string): { model: monaco.editor.ITextModel; fresh: boolean } {
+  const uri = modelUri(path)
+  const cle = uri.toString()
+  const existant = monaco.editor.getModel(uri)
+  const n = tenus.get(cle) ?? 0
+  if (existant && n > 0) {
+    tenus.set(cle, n + 1)
+    return { model: existant, fresh: false }
+  }
+  existant?.dispose()
+  tenus.set(cle, 1)
+  return { model: monaco.editor.createModel(text, languageFor(path), uri), fresh: true }
+}
+
+export function releaseModel(model: monaco.editor.ITextModel): void {
+  const cle = model.uri.toString()
+  const n = (tenus.get(cle) ?? 1) - 1
+  if (n > 0) {
+    tenus.set(cle, n)
+    return
+  }
+  tenus.delete(cle)
+  model.dispose()
+}
+
 // formatDocument : le formateur de Monaco pour le langage du fichier — ceux
 // qu'il embarque : TypeScript et JavaScript, JSON, CSS, SCSS, Less, HTML. Pour
 // un autre langage, rien ne change : pas d'erreur, le texte reste tel quel.

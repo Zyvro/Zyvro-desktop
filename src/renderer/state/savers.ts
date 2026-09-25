@@ -12,13 +12,19 @@
 
 type Saver = () => Promise<boolean>
 
-const savers = new Map<string, Saver>()
+// Une pile par onglet : un fichier ouvert des deux côtés (⌘\) a deux
+// éditeurs, sur le même texte. Le dernier inscrit enregistre ; fermer la vue
+// de droite rend la main à celle de gauche au lieu de laisser l'onglet sans
+// personne — ⌘S dirait alors « rien à faire » et n'écrirait rien.
+const savers = new Map<string, Saver[]>()
 
 /** L'éditeur d'un onglet s'inscrit ; la fonction rendue le désinscrit. */
 export function registerSaver(tabId: string, save: Saver): () => void {
-  savers.set(tabId, save)
+  savers.set(tabId, [...(savers.get(tabId) ?? []), save])
   return () => {
-    if (savers.get(tabId) === save) savers.delete(tabId)
+    const reste = (savers.get(tabId) ?? []).filter((s) => s !== save)
+    if (reste.length > 0) savers.set(tabId, reste)
+    else savers.delete(tabId)
   }
 }
 
@@ -27,7 +33,8 @@ export function registerSaver(tabId: string, save: Saver): () => void {
  * faire : un onglet sans éditeur inscrit n'est pas un fichier.
  */
 export async function saveTab(tabId: string): Promise<boolean> {
-  const save = savers.get(tabId)
+  const pile = savers.get(tabId)
+  const save = pile?.[pile.length - 1]
   return save ? save() : true
 }
 

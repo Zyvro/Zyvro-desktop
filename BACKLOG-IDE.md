@@ -10,15 +10,17 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 ## À faire
 
 1. **Terminal : scinder.**
-2. **Éditeurs côte à côte** (⌘\).
-3. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-4. **Réglages de plus** : paires de crochets colorées, défilement collant
+2. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+3. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-5. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+4. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
 
+- éditeurs côte à côte : ouvrir depuis l'arbre dans le groupe qui a la main
+  (aujourd'hui toujours à gauche), glisser un onglet de droite à gauche, un
+  menu contextuel sur les onglets de droite ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
 - l'aperçu Markdown garde la typographie du chat : des titres de document
   plus grands, et les images relatives du dépôt.
@@ -120,3 +122,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.26 — les fichiers récents.** Par projet, dans File › Open
   Recent au-dessus des projets et dans ⌘P dès l'ouverture, d'une session à
   l'autre (`main/recents`).
+- **0.1.0-alpha.27 — les éditeurs côte à côte.** ⌘\ ou un onglet lâché sur la
+  moitié droite ; le même document des deux côtés (modèle partagé et compté,
+  enregistreurs en pile) ; la vue de droite se ferme seule ; séparation
+  réglable ; ⌘S, ⌘W, ⌘F et la barre d'état suivent le côté qui a la main.

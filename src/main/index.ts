@@ -354,6 +354,13 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+Shift+M",
           click: (_item, win) => send(win as BrowserWindow, "menu:problems"),
         },
+        // Le fichier aussi à droite, comme VS Code : le même document des deux
+        // côtés.
+        {
+          label: "Split Editor",
+          accelerator: "CmdOrCtrl+\\",
+          click: (_item, win) => send(win as BrowserWindow, "menu:split-editor"),
+        },
         {
           label: "Open Markdown Preview",
           accelerator: "CmdOrCtrl+Shift+V",

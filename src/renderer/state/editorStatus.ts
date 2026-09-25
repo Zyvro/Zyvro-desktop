@@ -30,7 +30,9 @@ export type EditorActions = {
 }
 
 const statuses = new Map<string, EditorStatus>()
-const actions = new Map<string, EditorActions>()
+// Une pile par onglet, comme les enregistreurs (state/savers) : un fichier
+// ouvert des deux côtés a deux éditeurs.
+const actions = new Map<string, EditorActions[]>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -48,7 +50,8 @@ export function editorStatusOf(tabId: string): EditorStatus | null {
 }
 
 export function editorActionsOf(tabId: string): EditorActions | null {
-  return actions.get(tabId) ?? null
+  const pile = actions.get(tabId)
+  return pile?.[pile.length - 1] ?? null
 }
 
 export function publishEditorStatus(tabId: string, status: EditorStatus): void {
@@ -71,9 +74,14 @@ export function publishEditorStatus(tabId: string, status: EditorStatus): void {
 
 /** L'éditeur d'un onglet s'inscrit ; la fonction rendue efface tout ce qu'il a déposé. */
 export function registerEditor(tabId: string, given: EditorActions): () => void {
-  actions.set(tabId, given)
+  actions.set(tabId, [...(actions.get(tabId) ?? []), given])
   return () => {
-    if (actions.get(tabId) === given) actions.delete(tabId)
+    const reste = (actions.get(tabId) ?? []).filter((a) => a !== given)
+    if (reste.length > 0) {
+      actions.set(tabId, reste)
+      return
+    }
+    actions.delete(tabId)
     statuses.delete(tabId)
     emit()
   }

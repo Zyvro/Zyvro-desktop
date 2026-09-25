@@ -1,4 +1,4 @@
-import { useWorkspace } from "~/state/workspace"
+import { focusedTabId, useWorkspace } from "~/state/workspace"
 import { closeProject, createProject, createWorkflow, forgetRecents, openProject } from "./project"
 import { askName } from "~/state/prompt"
 import { askSearchFocus } from "~/state/reveal"
@@ -66,15 +66,21 @@ window.zyvro.menu.onNewWorkflow(() => {
 // Save vise l'onglet actif, et lui seul : chaque éditeur s'inscrit auprès du
 // registre, et c'est le registre qui choisit. Voir `state/savers`.
 window.zyvro.menu.onSave(() => {
-  void saveTab(useWorkspace.getState().activeTabId)
+  void saveTab(focusedTabId())
 })
 window.zyvro.menu.onSaveAll(() => {
   void saveAll()
 })
+// ⌘W à droite ne ferme que la vue : l'onglet reste à gauche, rien à demander.
 window.zyvro.menu.onCloseTab(() => {
-  const active = useWorkspace.getState().activeTabId
-  if (active) void requestCloseTab(active)
+  const s = useWorkspace.getState()
+  if (s.focusedGroup === "split" && s.split) {
+    s.closeInSplit(s.split.active)
+    return
+  }
+  if (s.activeTabId) void requestCloseTab(s.activeTabId)
 })
+window.zyvro.menu.onSplitEditor(() => useWorkspace.getState().splitEditor())
 window.zyvro.menu.onReopenTab(() => {
   useWorkspace.getState().reopenClosed()
 })
@@ -82,7 +88,7 @@ window.zyvro.menu.onReopenTab(() => {
 // revient au texte : le même raccourci fait l'aller et le retour.
 window.zyvro.menu.onMarkdownPreview(() => {
   const store = useWorkspace.getState()
-  const tab = store.tabs.find((t) => t.id === store.activeTabId)
+  const tab = store.tabs.find((t) => t.id === focusedTabId(store))
   if (tab?.kind === "file" && /\.(md|markdown|mdx)$/i.test(tab.path)) store.openPreview(tab.path)
   else if (tab?.kind === "preview") store.openFile(tab.path)
 })

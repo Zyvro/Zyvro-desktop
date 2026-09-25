@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, FileWarning, Loader2 } from "lucide-react"
-import { formatDocument, languageFor, modelUri, monaco } from "~/lib/monaco"
+import { acquireModel, formatDocument, languageFor, monaco, releaseModel } from "~/lib/monaco"
 import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
@@ -18,7 +18,10 @@ import { publishEditorStatus, registerEditor } from "~/state/editorStatus"
 // doctrine points at a callback ref for — the ref fires with the node on mount
 // and with null on unmount, which is the whole lifecycle we need.
 
-type Props = { tabId: string; path: string }
+// `group` : le côté où cet éditeur est montré. Le même fichier ouvert des deux
+// côtés (⌘\) a deux éditeurs ; les commandes du menu visent celui du groupe
+// qui a la main.
+type Props = { tabId: string; path: string; group?: "main" | "split" }
 
 // Les marques de git dans la marge, comme VS Code : une barre verte pour ce
 // qui est ajouté, bleue pour ce qui est modifié, un triangle rouge là où des
@@ -59,7 +62,7 @@ function optionsFrom(r: EditorSettings): monaco.editor.IEditorOptions {
   }
 }
 
-export function CodeEditor({ tabId, path }: Props) {
+export function CodeEditor({ tabId, path, group = "main" }: Props) {
   const setDraft = useWorkspace((s) => s.setDraft)
   const clearDraft = useWorkspace((s) => s.clearDraft)
   const draft = useWorkspace((s) => s.drafts[tabId])
@@ -116,13 +119,14 @@ export function CodeEditor({ tabId, path }: Props) {
       // Un modèle à l'adresse du fichier (voir `modelUri`). Celui d'un onglet
       // précédent du même fichier est remplacé : deux modèles ne peuvent pas
       // porter la même adresse.
-      const uri = modelUri(path)
-      monaco.editor.getModel(uri)?.dispose()
-      const model = monaco.editor.createModel(draft ?? loaded, languageFor(path), uri)
+      //
+      // Partagé quand le même fichier est ouvert des deux côtés (⌘\) : le
+      // second éditeur prend le modèle du premier, texte et réglages compris.
+      const { model, fresh } = acquireModel(path, draft ?? loaded)
       // L'indentation se règle sur le modèle : passée à l'éditeur, elle ne
       // valait que pour un modèle qu'il aurait créé lui-même.
-      if (reglages.detectIndentation) model.detectIndentation(reglages.insertSpaces, reglages.tabSize)
-      else model.updateOptions({ tabSize: reglages.tabSize, insertSpaces: reglages.insertSpaces })
+      if (fresh && reglages.detectIndentation) model.detectIndentation(reglages.insertSpaces, reglages.tabSize)
+      else if (fresh) model.updateOptions({ tabSize: reglages.tabSize, insertSpaces: reglages.insertSpaces })
       const editor = monaco.editor.create(node, {
         model,
         theme: "zyvro-dark",
@@ -299,14 +303,16 @@ export function CodeEditor({ tabId, path }: Props) {
       // Seul l'éditeur visible répond : les autres onglets restent montés, et
       // ouvrir la recherche dans un fichier qu'on ne regarde pas ne servirait
       // personne.
+      // Visible, et du côté qui a la main quand l'éditeur est partagé en deux.
+      const visible = () =>
+        node.isConnected && node.offsetParent !== null && useWorkspace.getState().focusedGroup === group
       const menuFind = onCommand("find", () => {
-        if (!node.isConnected || node.offsetParent === null) return
+        if (!visible()) return
         editor.focus()
         void editor.getAction("actions.find")?.run()
       })
       // Le plan du fichier (⇧⌘O) et Go to Line (⌃G) : les actions de Monaco,
       // pour l'éditeur visible seulement, comme ⌘F.
-      const visible = () => node.isConnected && node.offsetParent !== null
       const menuSymbol = onCommand("go-to-symbol", () => {
         if (!visible()) return
         editor.focus()
@@ -341,14 +347,14 @@ export function CodeEditor({ tabId, path }: Props) {
         cursorMoved.dispose()
         optionsChanged?.dispose()
         changed.dispose()
-        editor.getModel()?.dispose()
         editor.dispose()
+        releaseModel(model)
       }
     },
     // `draft` is deliberately absent: it is the seed value only. Including it
     // would rebuild the editor on every keystroke and throw away the cursor.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [client, clearDraft, loaded, path, save, setDraft, tabId]
+    [client, clearDraft, group, loaded, path, save, setDraft, tabId]
   )
 
   if (file.isLoading) {

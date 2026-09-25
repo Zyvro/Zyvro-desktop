@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useCallback, useRef, useState } from "react"
 import * as Menu from "@radix-ui/react-dropdown-menu"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -34,10 +34,15 @@ function TabButton({
   dropBefore,
   onDropHover,
   onDropDone,
+  onActivate,
+  onCloseTab,
 }: {
   tab: Tab
   active: boolean
   onMenu: (tabId: string, at: { x: number; y: number }) => void
+  /** Le groupe de droite active et ferme sa vue, pas l'onglet (voir `split`). */
+  onActivate?: (tabId: string) => void
+  onCloseTab?: (tabId: string) => void
   /** Un onglet va se poser juste avant celui-ci. */
   dropBefore: boolean
   onDropHover: (beforeId: string | null | undefined) => void
@@ -97,7 +102,8 @@ function TabButton({
       onAuxClick={(event) => {
         if (event.button !== 1) return
         event.preventDefault()
-        void requestCloseTab(tab.id)
+        if (onCloseTab) onCloseTab(tab.id)
+        else void requestCloseTab(tab.id)
       }}
       className={cn(
         "group flex h-9 max-w-[220px] shrink-0 items-center gap-2 border-r border-white/[0.06] pl-3 pr-2 text-[13px]",
@@ -112,7 +118,7 @@ function TabButton({
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
         // Un fichier hors du projet dit d'où il vient.
         title={tab.kind === "file" && isAbsolutePath(tab.path) ? nativePath(tab.path, window.zyvro.platform) : undefined}
-        onClick={() => activateTab(tab.id)}
+        onClick={() => (onActivate ?? activateTab)(tab.id)}
       >
         {/* Une page porte son favicon, un fichier l'icône de son type — la même
             que dans l'arbre, pour qu'on reconnaisse l'un dans l'autre. */}
@@ -125,7 +131,7 @@ function TabButton({
       <button
         className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
         title="Close"
-        onClick={() => void requestCloseTab(tab.id)}
+        onClick={() => (onCloseTab ? onCloseTab(tab.id) : void requestCloseTab(tab.id))}
       >
         {dirty ? (
           <span className="h-1.5 w-1.5 rounded-full bg-primary group-hover:hidden" />
@@ -136,10 +142,10 @@ function TabButton({
   )
 }
 
-function TabBody({ tab }: { tab: Tab }) {
+function TabBody({ tab, group = "main" }: { tab: Tab; group?: "main" | "split" }) {
   switch (tab.kind) {
     case "file":
-      return <CodeEditor tabId={tab.id} path={tab.path} />
+      return <CodeEditor tabId={tab.id} path={tab.path} group={group} />
     case "graph":
       return <GraphTab workflowId={tab.workflowId} />
     case "diff":
@@ -249,13 +255,31 @@ function TabMenu({
 export function EditorArea() {
   const tabs = useWorkspace((s) => s.tabs)
   const activeTabId = useWorkspace((s) => s.activeTabId)
+  const split = useWorkspace((s) => s.split)
+  const focusedGroup = useWorkspace((s) => s.focusedGroup)
   const [menu, setMenu] = useState<{ tabId: string; at: { x: number; y: number } } | null>(null)
   // Pendant qu'on déplace un onglet : avant qui il se posera (null : à la
   // fin), ou undefined quand rien ne glisse.
   const [poseAvant, setPoseAvant] = useState<string | null | undefined>(undefined)
+  // Un onglet tenu au-dessus de la moitié droite : il s'y ouvrira, comme dans
+  // VS Code.
+  const [versDroite, setVersDroite] = useState(false)
+  // La part de la largeur laissée à gauche quand l'éditeur est partagé.
+  const [part, setPart] = useState(0.5)
+  const cadre = useRef<HTMLElement | null>(null)
 
-  return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col">
+  const tientUnOnglet = (event: React.DragEvent) => [...event.dataTransfer.types].includes(ZYVRO_TAB)
+  const aDroite = (event: React.DragEvent) => {
+    const r = event.currentTarget.getBoundingClientRect()
+    return event.clientX > r.left + r.width / 2
+  }
+
+  const principal = (
+    <div
+      className={cn("flex min-h-0 min-w-0 flex-col", split && focusedGroup === "main" && "zy-group-focused")}
+      style={split ? { flexBasis: `${part * 100}%`, flexGrow: 0, flexShrink: 0 } : { flex: 1 }}
+      onMouseDownCapture={() => useWorkspace.getState().focusGroup("main")}
+    >
       {/* overflow-y is pinned hidden on purpose. Setting overflow-x alone makes
           the browser compute overflow-y as auto, and then the horizontal
           scrollbar eats a few pixels inside a fixed height — so the row of tabs
@@ -283,15 +307,108 @@ export function EditorArea() {
         ))}
       </div>
 
-      {menu && <TabMenu key={`${menu.tabId}:${menu.at.x}:${menu.at.y}`} {...menu} onClose={() => setMenu(null)} />}
-
-      <div className="relative min-h-0 flex-1">
+      <div
+        className="relative min-h-0 flex-1"
+        // Sans groupe de droite, lâcher un onglet sur la moitié droite l'y
+        // ouvre.
+        onDragOver={(event) => {
+          if (split || !tientUnOnglet(event)) return
+          event.preventDefault()
+          setVersDroite(aDroite(event))
+        }}
+        onDragLeave={() => setVersDroite(false)}
+        onDrop={(event) => {
+          if (split || !tientUnOnglet(event)) return
+          event.preventDefault()
+          setVersDroite(false)
+          if (aDroite(event)) useWorkspace.getState().splitEditor(event.dataTransfer.getData(ZYVRO_TAB))
+        }}
+      >
         {tabs.map((tab) => (
           <div key={tab.id} className="absolute inset-0" hidden={tab.id !== activeTabId}>
             <TabBody tab={tab} />
           </div>
         ))}
+        {versDroite && <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-sky-400/10 ring-1 ring-inset ring-sky-400/40" />}
       </div>
+    </div>
+  )
+
+  return (
+    <section ref={cadre} className="flex min-h-0 min-w-0 flex-1 flex-row">
+      {principal}
+      {split && (
+        <>
+          {/* La séparation se tire, comme dans VS Code ; entre 20 % et 80 %. */}
+          <div
+            className="w-1 shrink-0 cursor-col-resize bg-white/[0.06] hover:bg-sky-400/40"
+            onPointerDown={(event) => {
+              const el = cadre.current
+              if (!el) return
+              event.currentTarget.setPointerCapture(event.pointerId)
+              const r = el.getBoundingClientRect()
+              const bouger = (e: PointerEvent) => setPart(Math.min(0.8, Math.max(0.2, (e.clientX - r.left) / r.width)))
+              const lacher = () => {
+                window.removeEventListener("pointermove", bouger)
+                window.removeEventListener("pointerup", lacher)
+              }
+              window.addEventListener("pointermove", bouger)
+              window.addEventListener("pointerup", lacher)
+            }}
+            onDoubleClick={() => setPart(0.5)}
+          />
+          <SplitGroup split={split} focused={focusedGroup === "split"} tabs={tabs} />
+        </>
+      )}
+      {menu && <TabMenu key={`${menu.tabId}:${menu.at.x}:${menu.at.y}`} {...menu} onClose={() => setMenu(null)} />}
     </section>
+  )
+}
+
+// Le groupe de droite : ses onglets, pris dans la liste, et leur contenu —
+// monté comme à gauche, un éditeur de plus sur le même document.
+function SplitGroup({ split, focused, tabs }: { split: { ids: string[]; active: string }; focused: boolean; tabs: Tab[] }) {
+  const parId = new Map(tabs.map((t) => [t.id, t]))
+  const montres = split.ids.map((id) => parId.get(id)).filter((t): t is Tab => Boolean(t))
+  const store = useWorkspace.getState
+  return (
+    <div
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col", focused && "zy-group-focused")}
+      onMouseDownCapture={() => store().focusGroup("split")}
+      // Un onglet de gauche lâché ici s'y montre aussi.
+      onDragOver={(event) => {
+        if (![...event.dataTransfer.types].includes(ZYVRO_TAB)) return
+        event.preventDefault()
+      }}
+      onDrop={(event) => {
+        const id = event.dataTransfer.getData(ZYVRO_TAB)
+        if (!id) return
+        event.preventDefault()
+        store().splitEditor(id)
+      }}
+    >
+      <div className="zy-tabs flex h-9 shrink-0 items-stretch overflow-x-auto overflow-y-hidden border-b border-white/[0.06] bg-white/[0.015]">
+        {montres.map((tab) => (
+          <TabButton
+            key={tab.id}
+            tab={tab}
+            active={tab.id === split.active}
+            onMenu={() => undefined}
+            dropBefore={false}
+            onDropHover={() => undefined}
+            onDropDone={() => undefined}
+            onActivate={(id) => store().activateInSplit(id)}
+            onCloseTab={(id) => store().closeInSplit(id)}
+          />
+        ))}
+      </div>
+      <div className="relative min-h-0 flex-1">
+        {montres.map((tab) => (
+          <div key={tab.id} className="absolute inset-0" hidden={tab.id !== split.active}>
+            <TabBody tab={tab} group="split" />
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }

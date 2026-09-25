@@ -95,6 +95,15 @@ type WorkspaceState = {
   drafts: Record<string, string>
   /** Les fichiers dont on a fermé l'onglet, le plus récent à la fin. */
   closedFiles: string[]
+  /**
+   * Le groupe de droite, ouvert par ⌘\ (Split Editor) : des onglets de la
+   * liste montrés à côté, le même document des deux côtés. La gauche garde
+   * tous ses onglets ; fermer un onglet à droite ne ferme que la vue. Null :
+   * un seul groupe.
+   */
+  split: { ids: string[]; active: string } | null
+  /** Le groupe qui a la main : ⌘S, ⌘W et ⌘F visent son onglet actif. */
+  focusedGroup: "main" | "split"
 
   panels: Record<PanelKey, boolean>
   mode: Mode
@@ -127,6 +136,13 @@ type WorkspaceState = {
   /** Un fichier ou un dossier a changé de chemin : ses onglets et ses
    *  brouillons le suivent. */
   movePath: (from: string, to: string) => void
+
+  /** ⌘\ : l'onglet actif (un fichier ou un aperçu) aussi à droite. */
+  splitEditor: (id?: string) => void
+  activateInSplit: (id: string) => void
+  /** Fermer la vue de droite d'un onglet ; le groupe se referme vide. */
+  closeInSplit: (id: string) => void
+  focusGroup: (group: "main" | "split") => void
 
   setDraft: (id: string, text: string) => void
   clearDraft: (id: string) => void
@@ -215,6 +231,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   activeTabId: WELCOME.id,
   drafts: {},
   closedFiles: [],
+  split: null,
+  focusedGroup: "main",
 
   panels: { explorer: true, search: false, terminal: true, agent: true, git: false },
   mode: savedMode(),
@@ -443,8 +461,35 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       if (renamed.size === 0) return s
       const drafts: Record<string, string> = {}
       for (const [id, text] of Object.entries(s.drafts)) drafts[renamed.get(id) ?? id] = text
-      return { tabs, drafts, activeTabId: renamed.get(s.activeTabId) ?? s.activeTabId }
+      const split = s.split
+        ? { ids: s.split.ids.map((id) => renamed.get(id) ?? id), active: renamed.get(s.split.active) ?? s.split.active }
+        : null
+      return { tabs, drafts, split, activeTabId: renamed.get(s.activeTabId) ?? s.activeTabId }
     }),
+
+  splitEditor: (id) =>
+    set((s) => {
+      const tab = s.tabs.find((t) => t.id === (id ?? s.activeTabId))
+      if (!tab || (tab.kind !== "file" && tab.kind !== "preview")) return s
+      // Épinglé : un aperçu montré à droite ne doit pas être remplacé à gauche
+      // par le prochain fichier ouvert, et disparaître des deux côtés.
+      const tabs = tab.kind === "file" && !tab.pinned ? s.tabs.map((t) => (t.id === tab.id ? { ...t, pinned: true } : t)) : s.tabs
+      const ids = s.split ? (s.split.ids.includes(tab.id) ? s.split.ids : [...s.split.ids, tab.id]) : [tab.id]
+      return { tabs, split: { ids, active: tab.id }, focusedGroup: "split" }
+    }),
+  activateInSplit: (id) =>
+    set((s) => (s.split && s.split.ids.includes(id) ? { split: { ...s.split, active: id }, focusedGroup: "split" } : s)),
+  closeInSplit: (id) =>
+    set((s) => {
+      if (!s.split) return s
+      const i = s.split.ids.indexOf(id)
+      if (i < 0) return s
+      const ids = s.split.ids.filter((x) => x !== id)
+      if (ids.length === 0) return { split: null, focusedGroup: "main" }
+      const active = s.split.active === id ? ids[Math.min(i, ids.length - 1)] : s.split.active
+      return { split: { ids, active } }
+    }),
+  focusGroup: (group) => set((s) => (s.focusedGroup === group || (group === "split" && !s.split) ? s : { focusedGroup: group })),
 
   // Modifier un fichier le garde : une fois enregistré, il redevient propre,
   // et sans ça le prochain fichier ouvert le remplacerait — on perdrait
@@ -480,6 +525,34 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     set({ mode })
   },
 }))
+
+// focusedTabId : l'onglet actif du groupe qui a la main — celui que ⌘S, ⌘W et
+// la barre d'état visent.
+export function focusedTabId(s: Pick<WorkspaceState, "split" | "focusedGroup" | "activeTabId"> = useWorkspace.getState()): string {
+  return s.focusedGroup === "split" && s.split ? s.split.active : s.activeTabId
+}
+
+// Un onglet qui devient actif à gauche — ouvert depuis l'arbre, ⌘P, un clic
+// sur sa barre — y ramène la main : c'est là qu'on regarde, et la barre d'état
+// comme ⌘S doivent parler de lui.
+useWorkspace.subscribe((s, avant) => {
+  if (s.activeTabId !== avant.activeTabId && s.focusedGroup === "split") useWorkspace.setState({ focusedGroup: "main" })
+})
+
+// Le groupe de droite ne montre que des onglets qui existent. Un onglet peut
+// quitter la liste par bien des chemins — fermé, aperçu remplacé, projet
+// changé — et plutôt que de les suivre un à un, on élague ici, après coup.
+useWorkspace.subscribe((s) => {
+  if (!s.split) return
+  const existants = new Set(s.tabs.map((t) => t.id))
+  const ids = s.split.ids.filter((id) => existants.has(id))
+  if (ids.length === s.split.ids.length) return
+  if (ids.length === 0) {
+    useWorkspace.setState({ split: null, focusedGroup: "main" })
+    return
+  }
+  useWorkspace.setState({ split: { ids, active: ids.includes(s.split.active) ? s.split.active : ids[ids.length - 1] } })
+})
 
 // openRoute is the landing point for the Next.js router shim. The shared
 // components only ever push a handful of paths, and outside the builder route
