@@ -22,6 +22,10 @@ export type EditorSettings = {
   minimap: boolean
   lineNumbers: "on" | "off" | "relative"
   renderWhitespace: "none" | "selection" | "boundary" | "all"
+  /** Les paires de crochets colorées par profondeur, comme VS Code par défaut. */
+  bracketPairColorization: boolean
+  /** Sticky scroll : les en-têtes des blocs qu'on traverse restent en haut. */
+  stickyScroll: boolean
   autoSave: AutoSave
   /** Millisecondes, pour `afterDelay`. */
   autoSaveDelay: number
@@ -40,6 +44,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   minimap: false,
   lineNumbers: "on",
   renderWhitespace: "selection",
+  bracketPairColorization: true,
+  stickyScroll: true,
   // Éteinte, comme dans VS Code : écrire sur le disque sans qu'on le demande
   // est une chose qu'on choisit, pas qu'on découvre.
   autoSave: "off",
@@ -74,6 +80,8 @@ export function sanitizeSettings(raw: unknown): EditorSettings {
     minimap: booleen(r.minimap, d.minimap),
     lineNumbers: parmi(r.lineNumbers, ["on", "off", "relative"] as const, d.lineNumbers),
     renderWhitespace: parmi(r.renderWhitespace, ["none", "selection", "boundary", "all"] as const, d.renderWhitespace),
+    bracketPairColorization: booleen(r.bracketPairColorization, d.bracketPairColorization),
+    stickyScroll: booleen(r.stickyScroll, d.stickyScroll),
     autoSave: parmi(r.autoSave, ["off", "afterDelay", "onFocusChange"] as const, d.autoSave),
     autoSaveDelay: entre(r.autoSaveDelay, 200, 60_000, d.autoSaveDelay),
     formatOnSave: booleen(r.formatOnSave, d.formatOnSave),

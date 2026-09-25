@@ -49,6 +49,17 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.31
+
+**Colored bracket pairs and sticky scroll**, on by default as in VS Code. Matching
+brackets share a color, one per nesting level, and a guide line in that color
+shows the pair you are in. With sticky scroll, the lines that open the functions
+and blocks you are scrolling through stay at the top of the editor. Both can be
+turned off in Settings.
+
+**The window zoom is remembered.** View › Zoom In / Zoom Out / Actual Size
+(⌘= ⌘- ⌘0), and ⌘-scroll: the app reopens at the size you left it at.
+
 ## Fixed in alpha.30
 
 **Updating from alpha.24 to alpha.29 failed** with "The update package is not

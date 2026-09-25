@@ -120,6 +120,15 @@ export function SettingsTab() {
         <Ligne titre="Minimap" aide="A thumbnail of the whole file at the right of the editor.">
           <Case valeur={r.minimap} onChange={(minimap) => updateSettings({ minimap })} />
         </Ligne>
+        <Ligne titre="Bracket pair colorization" aide="Matching brackets share a color, one per nesting level.">
+          <Case
+            valeur={r.bracketPairColorization}
+            onChange={(bracketPairColorization) => updateSettings({ bracketPairColorization })}
+          />
+        </Ligne>
+        <Ligne titre="Sticky scroll" aide="The lines that open the blocks you are scrolling through stay at the top.">
+          <Case valeur={r.stickyScroll} onChange={(stickyScroll) => updateSettings({ stickyScroll })} />
+        </Ligne>
         <Ligne titre="Line numbers" aide="Relative numbers count from the cursor's line.">
           <Choix
             valeur={r.lineNumbers}

@@ -24,8 +24,9 @@ mkdirSync(dir, { recursive: true })
 const rel = (p) => path.join(ROOT, p).replace(/\\/g, "/")
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export * from "${rel("src/shared/settings")}"\nexport * from "${rel("src/renderer/state/settings")}"\n`
+  `export * from "${rel("src/shared/settings")}"\nexport * from "${rel("src/renderer/state/settings")}"\nexport { nextZoom, sanitizeZoom, ZOOM_MIN, ZOOM_MAX } from "${rel("src/main/zoom")}"\n`
 )
+writeFileSync(path.join(dir, "electron.js"), "module.exports = { app: {} }\n")
 // Un stockage de fenêtre, avec une valeur abîmée déjà dedans.
 const stockage = new Map([["zyvro.editorSettings", JSON.stringify({ fontSize: 0, tabSize: 400, wordWrap: "maybe", minimap: true })]])
 globalThis.localStorage = {
@@ -38,6 +39,7 @@ await build({
   bundle: true,
   format: "cjs",
   platform: "node",
+  alias: { electron: path.join(dir, "electron.js") },
   absWorkingDir: ROOT,
   logLevel: "silent",
 })
@@ -81,6 +83,25 @@ const check = (name, ok, detail = "") => {
   check("seulement ce qui a un brouillon", /if \(modifie\(\)\) void save\(true\)/.test(editeur))
   const menu = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
   check("⌘, ouvre les réglages", /label: "Settings…",\s*accelerator: "CmdOrCtrl\+,"/.test(menu))
+}
+
+// ---- crochets, sticky scroll, zoom ------------------------------------------------
+{
+  const d = t.sanitizeSettings({})
+  check("crochets colorés et sticky scroll par défaut, comme VS Code", d.bracketPairColorization === true && d.stickyScroll === true)
+  const off = t.sanitizeSettings({ bracketPairColorization: false, stickyScroll: false })
+  check("et se coupent", off.bracketPairColorization === false && off.stickyScroll === false)
+  const editeur = readFileSync(path.join(ROOT, "src/renderer/panels/CodeEditor.tsx"), "utf8")
+  check(
+    "l'éditeur les applique",
+    /bracketPairColorization: \{ enabled: r\.bracketPairColorization \}/.test(editeur) && /stickyScroll: \{ enabled: r\.stickyScroll \}/.test(editeur)
+  )
+  check("zoomer avance d'un pas", t.nextZoom(0, 1) === 0.5 && t.nextZoom(0.5, -1) === 0)
+  check("**le zoom a des bornes**", t.nextZoom(t.ZOOM_MAX, 1) === t.ZOOM_MAX && t.nextZoom(t.ZOOM_MIN, -1) === t.ZOOM_MIN)
+  check("Actual Size revient à 0", t.nextZoom(2.5, 0) === 0)
+  check("un niveau abîmé sur le disque vaut 0", t.sanitizeZoom("x") === 0 && t.sanitizeZoom(NaN) === 0 && t.sanitizeZoom(99) === t.ZOOM_MAX)
+  const menu = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
+  check("**le menu retient le zoom, plus les rôles d'Electron**", !/role: "zoomIn"/.test(menu) && /zoomBy\(win, 1\)/.test(menu) && /trackZoom\(win\)/.test(menu))
 }
 
 if (failures) {

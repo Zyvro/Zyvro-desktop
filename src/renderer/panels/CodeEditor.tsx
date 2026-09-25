@@ -59,6 +59,11 @@ function optionsFrom(r: EditorSettings): monaco.editor.IEditorOptions {
     wordWrap: r.wordWrap,
     lineNumbers: r.lineNumbers,
     renderWhitespace: r.renderWhitespace,
+    bracketPairColorization: { enabled: r.bracketPairColorization },
+    // Les guides suivent les couleurs : une ligne verticale de la couleur de
+    // la paire qu'on est en train de lire.
+    guides: { bracketPairs: r.bracketPairColorization ? "active" : false },
+    stickyScroll: { enabled: r.stickyScroll },
   }
 }
 

@@ -9,9 +9,7 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Réglages de plus** : paires de crochets colorées, défilement collant
-    (sticky scroll), zoom de la fenêtre retenu.
-2. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+1. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -141,3 +139,6 @@ Petits correctifs repérés en passant :
   `check-update-electron` la fait tourner dans le vrai Electron ; correctifs
   renommés (`-app-e…`) pour que les versions 24 à 29 prennent le paquet
   complet, qu'elles savent poser.
+- **0.1.0-alpha.31 — crochets colorés, sticky scroll, zoom retenu.** Deux
+  réglages de l'éditeur (actifs par défaut, comme VS Code) ; le zoom passe par
+  `main/zoom`, retenu et borné, ⌘-molette comprise.

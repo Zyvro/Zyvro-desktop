@@ -8,6 +8,7 @@ import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath } from "./cli"
 import { appContextTemplate } from "./contextmenu"
 import fs from "node:fs"
+import { trackZoom, zoomBy } from "./zoom"
 
 const isDev = !app.isPackaged
 
@@ -84,6 +85,8 @@ function createWindow(): BrowserWindow {
       spellcheck: false,
     },
   })
+
+  trackZoom(win)
 
   // Ce qu'une <webview> a le droit d'être, décidé ici et pas dans le HTML qui
   // la demande : les préférences arrivent du rendu, et un rendu compromis
@@ -407,9 +410,29 @@ function buildMenu(): void {
         { role: "reload" },
         { role: "toggleDevTools" },
         { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
+        // Pas les rôles d'Electron : ils zooment sans rien retenir (main/zoom).
+        {
+          label: "Actual Size",
+          accelerator: "CmdOrCtrl+0",
+          click: (_item, win) => win instanceof BrowserWindow && zoomBy(win, 0),
+        },
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+=",
+          click: (_item, win) => win instanceof BrowserWindow && zoomBy(win, 1),
+        },
+        // ⌘+ aussi, sans entrée de plus : le clavier américain tape ⇧= pour +.
+        {
+          label: "Zoom In",
+          accelerator: "CmdOrCtrl+Plus",
+          visible: false,
+          click: (_item, win) => win instanceof BrowserWindow && zoomBy(win, 1),
+        },
+        {
+          label: "Zoom Out",
+          accelerator: "CmdOrCtrl+-",
+          click: (_item, win) => win instanceof BrowserWindow && zoomBy(win, -1),
+        },
         { role: "togglefullscreen" },
       ],
     },
