@@ -9,12 +9,10 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Outline** dans la barre latérale : les symboles du fichier actif, qui
-   suivent le curseur.
-2. **Timeline** : l'historique git du fichier, et son diff à chaque commit.
-3. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
+1. **Timeline** : l'historique git du fichier, et son diff à chaque commit.
+2. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
    « taper pour chercher ».
-4. **Menu contextuel des onglets de droite** (côte à côte).
+3. **Menu contextuel des onglets de droite** (côte à côte).
 
 Petits correctifs repérés en passant :
 
@@ -159,3 +157,6 @@ Petits correctifs repérés en passant :
   (bornées, sans node_modules ni builds) données à TypeScript comme
   bibliothèques ; une définition ailleurs ouvre son onglet à la bonne ligne
   (`registerEditorOpener`).
+- **0.1.0-alpha.36 — l'Outline.** En bas de l'Explorateur, repliable : l'arbre
+  de navigation de TypeScript, ou les titres d'un Markdown (`shared/outline`) ;
+  il suit le curseur et la frappe.

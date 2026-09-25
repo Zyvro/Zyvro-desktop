@@ -49,6 +49,15 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.36
+
+**Outline**, at the bottom of the Explorer, as in VS Code: the symbols of the file
+you are looking at (classes with their methods and properties, functions,
+interfaces, types), or the headings of a Markdown file. Click one to go to it. The
+symbol under your cursor is highlighted, and the list keeps up as you type. It is
+collapsed by default, since it takes room from the file tree; click its title to
+open it, and it stays open.
+
 ## New in alpha.35
 
 **Go to Definition across files.** F12, or ⌘-click (Ctrl-click) on a name
