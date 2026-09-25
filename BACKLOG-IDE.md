@@ -11,11 +11,10 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 1. **Terminal : scinder.**
 2. **Éditeurs côte à côte** (⌘\).
-3. **Fichiers récents** dans File › Open Recent, à côté des projets.
-4. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-5. **Réglages de plus** : paires de crochets colorées, défilement collant
+3. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+4. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-6. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+5. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -118,3 +117,6 @@ Petits correctifs repérés en passant :
   (chemin absolu dans l'onglet, `shared/external`) ; accordés par fenêtre, tout
   autre chemin refusé ; un binaire s'annonce avec « Open Anyway », comme
   Cursor.
+- **0.1.0-alpha.26 — les fichiers récents.** Par projet, dans File › Open
+  Recent au-dessus des projets et dans ⌘P dès l'ouverture, d'une session à
+  l'autre (`main/recents`).
