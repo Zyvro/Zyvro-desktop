@@ -232,6 +232,12 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+N",
           click: (_item, win) => send(win as BrowserWindow, "menu:new-project"),
         },
+        // Un fichier d'où qu'il soit, sans ouvrir son dossier, comme File › Open
+        // File… de VS Code. Sans raccourci : ⌘O ouvre déjà un dossier ici.
+        {
+          label: "Open File…",
+          click: (_item, win) => send(win as BrowserWindow, "menu:open-file"),
+        },
         {
           label: "Open Folder…",
           accelerator: "CmdOrCtrl+O",

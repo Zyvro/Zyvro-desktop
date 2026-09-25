@@ -7,6 +7,7 @@ import { saveTab } from "~/state/savers"
 import { requestCloseTab, saveAll } from "./closing"
 import { openQuickOpen } from "~/panels/QuickOpen"
 import { clearActiveTerminal } from "~/panels/TerminalPanel"
+import { openFiles } from "./windowDrop"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -89,6 +90,9 @@ window.zyvro.menu.onMarkdownPreview(() => {
 window.zyvro.menu.onGoToSymbol(() => fire("go-to-symbol"))
 window.zyvro.menu.onGoToLine(() => fire("go-to-line"))
 window.zyvro.menu.onFormatDocument(() => fire("format-document"))
+window.zyvro.menu.onOpenFileDialog(() => {
+  void window.zyvro.files.chooseExternal().then(openFiles)
+})
 window.zyvro.menu.onProblems(() => {
   useWorkspace.getState().openProblems()
 })

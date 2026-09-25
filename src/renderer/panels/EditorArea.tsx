@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { useWorkspace, type Tab } from "~/state/workspace"
 import { requestCloseTab, requestCloseTabs, tabsToClose } from "~/lib/closing"
 import { FileTypeIcon } from "~/lib/fileIcons"
+import { isAbsolutePath, nativePath } from "../../shared/external"
 import { CodeEditor } from "./CodeEditor"
 import { GraphTab } from "./GraphTab"
 import { DiffView } from "./DiffView"
@@ -109,6 +110,8 @@ function TabButton({
     >
       <button
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left"
+        // Un fichier hors du projet dit d'où il vient.
+        title={tab.kind === "file" && isAbsolutePath(tab.path) ? nativePath(tab.path, window.zyvro.platform) : undefined}
         onClick={() => activateTab(tab.id)}
       >
         {/* Une page porte son favicon, un fichier l'icône de son type — la même
@@ -187,8 +190,10 @@ function TabMenu({
   // Le chemin absolu s'écrit avec les séparateurs du système : c'est ce qu'on
   // colle ensuite dans un shell ou dans l'Explorateur Windows.
   const sep = window.zyvro.platform === "win32" ? "\\" : "/"
-  const absolu =
-    chemin && root ? `${root.replace(/[\\/]$/, "")}${sep}${chemin.split("/").join(sep)}` : null
+  const dehors = chemin !== null && isAbsolutePath(chemin)
+  const absolu = dehors
+    ? nativePath(chemin, window.zyvro.platform)
+    : chemin && root ? `${root.replace(/[\\/]$/, "")}${sep}${chemin.split("/").join(sep)}` : null
   const revelerDans = window.zyvro.platform === "darwin" ? "Reveal in Finder" : "Reveal in File Explorer"
   return (
     <Menu.Root open onOpenChange={(open) => !open && onClose()}>
@@ -225,9 +230,11 @@ function TabMenu({
                   Copy Path
                 </Menu.Item>
               )}
-              <Menu.Item className={itemMenu} onSelect={puis(() => navigator.clipboard.writeText(chemin))}>
-                Copy Relative Path
-              </Menu.Item>
+              {!dehors && (
+                <Menu.Item className={itemMenu} onSelect={puis(() => navigator.clipboard.writeText(chemin))}>
+                  Copy Relative Path
+                </Menu.Item>
+              )}
               <Menu.Item className={itemMenu} onSelect={puis(() => window.zyvro.files.reveal(chemin))}>
                 {revelerDans}
               </Menu.Item>

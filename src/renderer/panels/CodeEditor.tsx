@@ -7,6 +7,7 @@ import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
 import { registerSaver } from "~/state/savers"
 import { Breadcrumbs } from "~/panels/Breadcrumbs"
+import { isAbsolutePath } from "../../shared/external"
 import { getSettings, subscribeSettings } from "~/state/settings"
 import { lineHeightFor, type EditorSettings } from "../../shared/settings"
 import { lineChanges, type LineChange } from "../../shared/linediff"
@@ -190,6 +191,8 @@ export function CodeEditor({ tabId, path }: Props) {
         }, 250)
       }
       const relireHead = () => {
+        // Un fichier hors du projet n'est pas dans son dépôt.
+        if (isAbsolutePath(path)) return
         void window.zyvro.git.headText(path).then(
           (texte) => {
             head = texte
@@ -384,17 +387,39 @@ export function CodeEditor({ tabId, path }: Props) {
     )
   }
 
+  // Ce que Cursor et VS Code montrent : le fichier n'est pas ouvert d'office —
+  // un exécutable décodé en texte est illisible, et l'enregistrer le détruit —
+  // mais « Open Anyway » l'ouvre quand même, pour le journal au NUL égaré ou le
+  // texte d'un encodage exotique. Le texte forcé remplace la lecture en cache :
+  // l'onglet devient un éditeur ordinaire.
   if (file.data && "binary" in file.data) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <FileWarning className="h-6 w-6" />
-        <p>This file is binary or too large to edit here.</p>
-        <button
-          className="rounded-md border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[13px] text-foreground hover:bg-white/[0.08]"
-          onClick={() => void window.zyvro.files.reveal(path)}
-        >
-          Reveal in file manager
-        </button>
+      <div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center text-[14px] text-foreground/90">
+        <FileWarning className="h-12 w-12 text-amber-300" strokeWidth={1.5} />
+        <p className="max-w-md">
+          The file is not displayed in the text editor because it is either binary, too large, or uses an
+          unsupported text encoding.
+        </p>
+        <div className="flex gap-2">
+          <button
+            className="rounded-md bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90"
+            onClick={() =>
+              void window.zyvro.files.read(path, true).then(
+                (forced) => client.setQueryData(["files", "read", path], forced),
+                (err: Error) => setSaveError(err.message)
+              )
+            }
+          >
+            Open Anyway
+          </button>
+          <button
+            className="rounded-md border border-white/[0.1] bg-white/[0.04] px-3 py-1.5 text-[13px] hover:bg-white/[0.08]"
+            onClick={() => void window.zyvro.files.reveal(path)}
+          >
+            {window.zyvro.platform === "darwin" ? "Reveal in Finder" : "Reveal in File Explorer"}
+          </button>
+        </div>
+        {saveError && <p className="text-[12px] text-destructive">{saveError}</p>}
       </div>
     )
   }

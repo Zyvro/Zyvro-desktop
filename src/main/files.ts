@@ -2,6 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { shell } from "electron"
 import { MAX_INLINE_BYTES, dataUri, kindOf } from "../shared/image"
+import { FORCE_MAX_BYTES, isAbsolutePath, tabPathOf } from "../shared/external"
 
 // Everything the renderer can touch on disk goes through this module. The
 // renderer runs untrusted-ish content (a workflow can render model output), so
@@ -111,9 +112,16 @@ export type FileRead =
   | { path: string; image: { mime: string; uri: string } }
   | { path: string; binary: true }
 
-export async function readFile(root: string, relative: string): Promise<FileRead> {
-  const file = await resolveInside(root, relative)
+export async function readFile(root: string, relative: string, force = false): Promise<FileRead> {
+  return readAt(await resolveInside(root, relative), relative, force)
+}
+
+// readAt : lire un fichier dont le chemin est déjà vérifié — dans le projet, ou
+// accordé (un fichier lâché ou choisi hors du projet). `force` : « Open
+// Anyway », le texte même d'un fichier qui a l'air binaire.
+export async function readAt(file: string, label: string, force = false): Promise<FileRead> {
   const stat = await fs.stat(file)
+  if (stat.isDirectory()) throw new Error(`${label} is a folder.`)
 
   // L'image d'abord, et par ses octets plutôt que par son nom : une capture
   // sans extension est une image, `notes.png` qui contient du texte n'en est
@@ -122,7 +130,7 @@ export async function readFile(root: string, relative: string): Promise<FileRead
   // Sa borne est la sienne : un PNG de trois mégaoctets ne s'édite pas mais se
   // regarde très bien, là où trois mégaoctets de texte dans un éditeur sont une
   // fenêtre qui rame.
-  if (stat.size <= MAX_INLINE_BYTES) {
+  if (!force && stat.size <= MAX_INLINE_BYTES) {
     const head = Buffer.alloc(Math.min(32, stat.size))
     const handle = await fs.open(file, "r")
     try {
@@ -133,26 +141,36 @@ export async function readFile(root: string, relative: string): Promise<FileRead
     const kind = kindOf(head)
     if (kind) {
       const bytes = await fs.readFile(file)
-      return { path: relative, image: { mime: kind.mime, uri: dataUri(kind.mime, bytes) } }
+      return { path: label, image: { mime: kind.mime, uri: dataUri(kind.mime, bytes) } }
     }
   }
 
-  if (stat.size > MAX_TEXT_BYTES) return { path: relative, binary: true }
+  if (stat.size > (force ? FORCE_MAX_BYTES : MAX_TEXT_BYTES)) return { path: label, binary: true }
   const buffer = await fs.readFile(file)
   // A NUL byte in the first few KB is the pragmatic binary test every editor
   // uses; decoding an image as UTF-8 would fill the editor with replacement
   // characters and, if saved, destroy the file.
-  if (buffer.subarray(0, 8000).includes(0)) return { path: relative, binary: true }
-  return { path: relative, text: buffer.toString("utf8"), truncated: false }
+  if (!force && buffer.subarray(0, 8000).includes(0)) return { path: label, binary: true }
+  return { path: label, text: buffer.toString("utf8"), truncated: false }
 }
 
 export async function writeFile(root: string, relative: string, text: string): Promise<void> {
-  const file = await resolveInside(root, relative)
+  await writeAt(await resolveInside(root, relative), text)
+}
+
+export async function writeAt(file: string, text: string): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true })
   // Write beside the target and rename: a crash mid-write would otherwise
   // leave the user with a truncated source file.
   const temp = `${file}.zyvro-tmp`
-  await fs.writeFile(temp, text, "utf8")
+  // Le fichier remplacé garde ses droits : un script exécutable qu'on corrige
+  // doit le rester.
+  const mode = await fs.stat(file).then(
+    (st) => st.mode & 0o7777,
+    () => undefined
+  )
+  await fs.writeFile(temp, text, { encoding: "utf8", mode })
+  if (mode !== undefined) await fs.chmod(temp, mode)
   await fs.rename(temp, file)
 }
 
@@ -347,4 +365,46 @@ export async function existingFiles(root: string, relatives: string[]): Promise<
       }
     })
   )
+}
+
+// ---- les fichiers hors du projet ---------------------------------------------
+//
+// Une fenêtre ne lit et n'écrit hors de son projet que les fichiers qu'on lui a
+// donnés : lâchés dessus, ou choisis par File › Open File…. `grants` est leur
+// liste, par fenêtre (Workspace.grants).
+
+// grantedPath : le chemin résolu d'un fichier accordé, null pour un chemin
+// relatif (celui-là passe par `resolveInside`), et un refus pour un chemin
+// absolu qu'on n'a pas donné.
+export function grantedPath(grants: Set<string>, p: string): string | null {
+  if (typeof p !== "string" || !isAbsolutePath(p)) return null
+  const resolu = path.resolve(p)
+  if (!grants.has(resolu)) {
+    throw new Error("Zyvro Studio only opens files outside the project that you drop on it or choose with File › Open File….")
+  }
+  return resolu
+}
+
+// openOutside : accorder des fichiers et rendre le chemin d'onglet de chacun —
+// relatif s'il est dans le projet (c'est alors l'onglet de l'arbre), absolu et
+// accordé sinon. Un dossier, un chemin relatif ou un fichier disparu sont
+// écartés.
+export async function openOutside(grants: Set<string>, project: string | null, paths: string[]): Promise<string[]> {
+  const out: string[] = []
+  for (const p of paths) {
+    if (typeof p !== "string" || !path.isAbsolute(p)) continue
+    const resolu = path.resolve(p)
+    const st = await fs.stat(resolu).catch(() => null)
+    if (!st?.isFile()) continue
+    if (project) {
+      const rel = path.relative(project, resolu)
+      if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) {
+        out.push(rel.split(path.sep).join("/"))
+        continue
+      }
+    }
+    grants.add(resolu)
+    out.push(tabPathOf(resolu))
+  }
+  return out
 }

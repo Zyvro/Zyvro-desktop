@@ -212,7 +212,8 @@ const api = {
 
   files: {
     list: (relative: string): Promise<DirEntry[]> => invoke("files:list", relative),
-    read: (relative: string): Promise<FileRead> => invoke("files:read", relative),
+    /** `force` : « Open Anyway », le texte même d'un fichier qui a l'air binaire. */
+    read: (relative: string, force = false): Promise<FileRead> => invoke("files:read", relative, force),
     write: (relative: string, text: string): Promise<boolean> =>
       invoke("files:write", relative, text),
     // L'arbre dit ce qu'il ouvre et ce qu'il replie ; le principal ne surveille
@@ -255,6 +256,25 @@ const api = {
       }
       return invoke("files:import", sources, intoDir)
     },
+    /**
+     * Ouvrir des fichiers lâchés depuis le bureau, où qu'ils soient. Comme
+     * `importDropped`, prend les `File` du dépôt : le rendu ne nomme pas le
+     * disque. Rend le chemin d'onglet de chacun (voir shared/external).
+     */
+    openDropped: (dropped: File[]): Promise<string[]> => {
+      const sources: string[] = []
+      for (const file of dropped) {
+        try {
+          const absolute = webUtils.getPathForFile(file)
+          if (absolute) sources.push(absolute)
+        } catch {
+          // Pas d'emplacement : rien à ouvrir.
+        }
+      }
+      return invoke("files:open-external", sources)
+    },
+    /** File › Open File… : la boîte du système, puis comme `openDropped`. */
+    chooseExternal: (): Promise<string[]> => invoke("files:choose-external"),
     /** Lesquels de ces chemins relatifs sont des fichiers du projet. */
     exist: (relatives: string[]): Promise<boolean[]> => invoke("files:exist", relatives),
     /** Tous les fichiers du projet, relatifs, pour Quick Open (⌘P). */
@@ -615,6 +635,7 @@ const api = {
     onGoToSymbol: (cb: () => void): Unsubscribe => on("menu:go-to-symbol", cb),
     onGoToLine: (cb: () => void): Unsubscribe => on("menu:go-to-line", cb),
     onFormatDocument: (cb: () => void): Unsubscribe => on("menu:format-document", cb),
+    onOpenFileDialog: (cb: () => void): Unsubscribe => on("menu:open-file", cb),
     onProblems: (cb: () => void): Unsubscribe => on("menu:problems", cb),
     onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),
     /** Le menu de l'application, à plat, pour la palette de commandes. */

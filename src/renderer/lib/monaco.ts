@@ -1,4 +1,5 @@
 import * as monaco from "monaco-editor"
+import { isAbsolutePath } from "../../shared/external"
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker"
 import jsonWorker from "monaco-editor/esm/vs/language/json/json.worker?worker"
 import cssWorker from "monaco-editor/esm/vs/language/css/css.worker?worker"
@@ -93,13 +94,21 @@ for (const defaults of [monaco.languages.typescript.typescriptDefaults, monaco.l
 // modelUri : l'adresse du modèle d'un fichier du projet. Le chemin relatif, en
 // `file:///` : c'est ce qui dit à TypeScript qu'un `.tsx` contient du JSX, et
 // ce qui permet au panneau Problems de dire de quel fichier vient une erreur.
+//
+// Un fichier hors du projet (chemin absolu, voir shared/external) porte une
+// autorité à lui : `/Users/x/a.ts` du disque et `Users/x/a.ts` du projet ne
+// doivent pas se confondre.
+const DEHORS = "zyvro-external"
 export function modelUri(path: string): monaco.Uri {
+  if (isAbsolutePath(path)) return monaco.Uri.from({ scheme: "file", authority: DEHORS, path: path.startsWith("/") ? path : `/${path}` })
   return monaco.Uri.from({ scheme: "file", path: `/${path}` })
 }
 
 /** L'inverse de `modelUri`, ou null pour un modèle qui n'est pas un fichier. */
 export function pathOfUri(uri: monaco.Uri): string | null {
-  return uri.scheme === "file" ? uri.path.replace(/^\//, "") : null
+  if (uri.scheme !== "file") return null
+  if (uri.authority === DEHORS) return /^\/[A-Za-z]:\//.test(uri.path) ? uri.path.slice(1) : uri.path
+  return uri.path.replace(/^\//, "")
 }
 
 // formatDocument : le formateur de Monaco pour le langage du fichier — ceux

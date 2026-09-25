@@ -78,6 +78,13 @@ export class Workspace {
   // Les dossiers que l'arbre de cette fenêtre a ouverts. Par fenêtre, parce
   // que deux fenêtres ont deux projets et deux arbres dépliés différemment.
   watcher: Watcher | null = null
+  /**
+   * Les fichiers hors du projet que cette fenêtre peut lire et écrire : ceux
+   * qu'on y a lâchés ou choisis par File › Open File…, chemins résolus. Un
+   * chemin absolu qui n'est pas ici est refusé — la fenêtre ne nomme pas le
+   * disque, elle reçoit ce qu'on lui a donné.
+   */
+  readonly grants = new Set<string>()
 
   async dispose(): Promise<void> {
     this.agent.cancelAll()
@@ -217,6 +224,11 @@ async function ensureEngine(ws: Workspace): Promise<DaemonInfo | null> {
   if (!ws.project) ws.root = home
   return info
 }
+
+// Un fichier hors du projet : seulement s'il a été accordé à cette fenêtre
+// (files.grantedPath, files.openOutside).
+const accorde = (ws: Workspace, p: string): string | null => files.grantedPath(ws.grants, p)
+const ouvrirDehors = (ws: Workspace, paths: string[]): Promise<string[]> => files.openOutside(ws.grants, ws.project, paths)
 
 export type OpenResult = { project: string; name: string; daemon: DaemonInfo }
 
@@ -470,15 +482,36 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
-  ipcMain.handle("files:read", async (event, relative: string) => {
+  ipcMain.handle("files:read", async (event, relative: string, force?: boolean) => {
     const { ws } = requireWorkspace(event)
-    return files.readFile(requireRoot(ws), relative)
+    const dehors = accorde(ws, relative)
+    if (dehors) return files.readAt(dehors, relative, force === true)
+    return files.readFile(requireRoot(ws), relative, force === true)
   })
 
   ipcMain.handle("files:write", async (event, relative: string, text: string) => {
     const { ws } = requireWorkspace(event)
-    await files.writeFile(requireRoot(ws), relative, String(text))
+    const dehors = accorde(ws, relative)
+    if (dehors) await files.writeAt(dehors, String(text))
+    else await files.writeFile(requireRoot(ws), relative, String(text))
     return true
+  })
+
+  // Ouvrir des fichiers d'ailleurs : lâchés sur la fenêtre, ou choisis. Rend le
+  // chemin de l'onglet de chacun — relatif s'il est dans le projet, absolu
+  // sinon, et alors accordé à cette fenêtre.
+  ipcMain.handle("files:open-external", async (event, paths: string[]) => {
+    const { ws } = requireWorkspace(event)
+    return ouvrirDehors(ws, Array.isArray(paths) ? paths : [])
+  })
+  ipcMain.handle("files:choose-external", async (event) => {
+    const { win, ws } = requireWorkspace(event)
+    const r = await dialog.showOpenDialog(win, {
+      title: "Open a file",
+      properties: ["openFile", "multiSelections"],
+    })
+    if (r.canceled) return []
+    return ouvrirDehors(ws, r.filePaths)
   })
 
   ipcMain.handle("files:create", async (event, relative: string, kind: "file" | "directory") => {
@@ -1279,7 +1312,7 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle("shell:reveal", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
-    const target = await files.resolveInside(requireRoot(ws), relative)
+    const target = accorde(ws, relative) ?? (await files.resolveInside(requireRoot(ws), relative))
     shell.showItemInFolder(target)
     return true
   })

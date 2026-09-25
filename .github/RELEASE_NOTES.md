@@ -49,6 +49,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.25
+
+**Drop any file from your desktop onto the window to open it**, as in Cursor and
+VS Code, even when it is not in the project. It opens in its own tab, you can
+edit it, and ⌘S saves it where it lives. Drop several files and each gets a tab.
+A file that belongs to the open project opens in the same tab the file tree would
+use. **File › Open File…** does the same from a dialog.
+
+A binary file (or one too large, or in an encoding the editor does not read) is
+not opened as text straight away, since saving it would damage it. The editor says
+so, as Cursor does, and **Open Anyway** opens it regardless. Images still show as
+images.
+
+The window can only open files outside the project that you dropped on it or
+chose in the dialog. Any other path on your disk is refused, even if something
+asks for it by name.
+
 ## New in alpha.24
 
 **Updates install themselves.** When a new version is out, click **Update** and

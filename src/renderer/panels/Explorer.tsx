@@ -18,6 +18,7 @@ import { ZYVRO_PATH } from "../../shared/dropped"
 import { ZYVRO_ENTRY, canMove, dropFolder, entriesFromText, parentOf, topmost } from "../../shared/treedrop"
 import { clearHeld, heldItem } from "~/state/clipboard"
 import { EntryMenu } from "~/panels/EntryMenu"
+import { isAbsolutePath } from "../../shared/external"
 import { ancestorsOf, clickSelect, dragged, navigate, scrollToShow, typeAhead, TYPE_AHEAD_MS, type Selection } from "../../shared/treenav"
 import { renameEntry, trashEntries } from "~/lib/entryActions"
 import { useGitStatus } from "~/lib/git"
@@ -381,7 +382,8 @@ export function Explorer() {
   // recherche ou par l'agent déplie l'arbre jusqu'à lui et le montre. Décidé
   // pendant le rendu, en comparant à ce qu'on a déjà révélé — c'est la forme
   // que prend ici ce que d'autres écriraient dans un effet.
-  const actif = activeTabId.startsWith("file:") ? activeTabId.slice(5) : null
+  // Un fichier hors du projet (chemin absolu) n'est pas dans l'arbre.
+  const actif = activeTabId.startsWith("file:") && !isAbsolutePath(activeTabId.slice(5)) ? activeTabId.slice(5) : null
   const [revele, setRevele] = useState<string | null>(null)
   if (project && actif !== revele) {
     setRevele(actif)

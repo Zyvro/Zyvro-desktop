@@ -9,9 +9,6 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-0. **Déposer n'importe quel fichier du bureau sur l'éditeur** (demandé) : il
-   s'ouvre même hors du projet, modifiable ; un binaire affiche « Open
-   Anyway » comme Cursor.
 1. **Terminal : scinder.**
 2. **Éditeurs côte à côte** (⌘\).
 3. **Fichiers récents** dans File › Open Recent, à côté des projets.
@@ -116,3 +113,8 @@ Petits correctifs repérés en passant :
   l'application fermée, avec retour à l'ancienne si la copie échoue, et
   relance ; le paquet complet quand Electron change ; l'image disque seulement
   si l'application ne peut pas s'écrire.
+- **0.1.0-alpha.25 — les fichiers d'ailleurs (demandé).** Lâchés depuis le
+  bureau ou choisis par File › Open File…, ouverts et enregistrés à leur place
+  (chemin absolu dans l'onglet, `shared/external`) ; accordés par fenêtre, tout
+  autre chemin refusé ; un binaire s'annonce avec « Open Anyway », comme
+  Cursor.

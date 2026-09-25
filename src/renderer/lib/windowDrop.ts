@@ -6,11 +6,11 @@
 // geste qu'on fait dans VS Code sans y penser :
 //
 // - un **dossier** lâché sur la fenêtre s'ouvre comme projet ;
-// - un **fichier du projet** lâché sur l'éditeur s'ouvre dans un onglet.
-//
-// Un fichier hors du projet n'est pas ouvert : l'éditeur ne lit que dans le
-// projet, par le même portail que tout le reste, et ce n'est pas un dépôt qui
-// doit y percer un trou. Le lâcher sur l'arbre le copie dedans.
+// - un **fichier**, d'où qu'il vienne, s'ouvre dans un onglet — épinglé, pas
+//   en aperçu : trois fichiers lâchés font trois onglets. Hors du projet, il
+//   s'ouvre quand même et s'enregistre à sa place, comme dans Cursor ; le
+//   principal ne l'accorde qu'à cette fenêtre, et seulement parce qu'on l'a
+//   lâché (shared/external). Le lâcher sur l'arbre, lui, le copie dedans.
 //
 // Importé pour son effet, comme `menuBridge` : les écouteurs s'installent une
 // fois, au chargement, sans effet React.
@@ -18,7 +18,6 @@
 import { useWorkspace } from "~/state/workspace"
 import { askConfirm } from "~/state/prompt"
 import { openProject } from "./project"
-import { relativeInside } from "../../shared/treedrop"
 
 function porteDesFichiers(event: DragEvent): boolean {
   return Boolean(event.dataTransfer && [...event.dataTransfer.types].includes("Files"))
@@ -44,6 +43,7 @@ window.addEventListener("drop", (event) => {
       return {
         dossier: Boolean(item.webkitGetAsEntry?.()?.isDirectory),
         chemin: file ? window.zyvro.files.droppedPath(file) : "",
+        file,
       }
     })
     .filter((lu) => lu.chemin)
@@ -51,7 +51,7 @@ window.addEventListener("drop", (event) => {
   void agir(lus)
 })
 
-async function agir(lus: { dossier: boolean; chemin: string }[]): Promise<void> {
+async function agir(lus: { dossier: boolean; chemin: string; file: File | null }[]): Promise<void> {
   const store = useWorkspace.getState()
 
   // Un seul dossier : c'est un projet à ouvrir. Plusieurs, on ne devine pas
@@ -80,11 +80,16 @@ async function agir(lus: { dossier: boolean; chemin: string }[]): Promise<void> 
     return
   }
 
-  const racine = store.project?.project
-  if (!racine) return
-  for (const lu of lus) {
-    if (lu.dossier) continue
-    const relatif = relativeInside(racine, lu.chemin, window.zyvro.platform)
-    if (relatif) store.openFile(relatif)
+  const fichiers = lus.filter((lu) => !lu.dossier && lu.file).map((lu) => lu.file as File)
+  if (fichiers.length === 0) return
+  openFiles(await window.zyvro.files.openDropped(fichiers))
+}
+
+/** Ouvrir des chemins d'onglet (relatifs ou absolus) épinglés, le dernier devant. */
+export function openFiles(chemins: string[]): void {
+  const store = useWorkspace.getState()
+  for (const chemin of chemins) {
+    store.openFile(chemin)
+    store.pinTab(`file:${chemin}`)
   }
 }
