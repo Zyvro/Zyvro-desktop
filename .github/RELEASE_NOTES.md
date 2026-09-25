@@ -49,6 +49,16 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.39
+
+**Filter the file tree.** Press ⌥⌘F (Ctrl+Alt+F on Windows) in the Explorer, or
+click its new filter button, and type part of a file name. The tree then shows
+every matching file in the whole project, not only the folders you have opened,
+together with the folders that lead to each one. Include a `/` to match on the
+path instead (`app/page`). ↓ moves into the results, Enter opens the first one,
+and Escape brings back the normal tree. It is also in the command palette as
+"Filter Files in Explorer".
+
 ## New in alpha.38
 
 **Auto-synthesize in the agent chat.** A new ✦ button beside the permissions

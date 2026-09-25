@@ -9,9 +9,7 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
-   « taper pour chercher ».
-2. **Menu contextuel des onglets de droite** (côte à côte).
+1. **Menu contextuel des onglets de droite** (côte à côte).
 
 Petits correctifs repérés en passant :
 
@@ -166,3 +164,7 @@ Petits correctifs repérés en passant :
   améliorer, les deux, ou une tâche structurée, avant l'envoi
   (`shared/synthesize`) ; relire (Entrée envoie, Undo rend l'original) ou
   envoyer tout seul ; par le CLI de la machine, sans outils.
+- **0.1.0-alpha.39 — filtrer l'arbre (⌥⌘F).** Les fichiers de tout le projet
+  dont le nom contient ce qu'on tape, avec les dossiers qui y mènent
+  (`shared/treefilter`, la liste de ⌘P) ; avec un `/`, le chemin. ↓, Entrée,
+  Échap ; aussi dans la palette.

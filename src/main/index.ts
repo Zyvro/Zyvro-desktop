@@ -369,6 +369,12 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+Shift+V",
           click: (_item, win) => send(win as BrowserWindow, "menu:markdown-preview"),
         },
+        // Sans raccourci ici : ⌥⌘F est « Remplacer » dans l'éditeur. L'arbre le
+        // prend lui-même quand il a le focus ; ici, pour la palette.
+        {
+          label: "Filter Files in Explorer",
+          click: (_item, win) => send(win as BrowserWindow, "menu:filter-files"),
+        },
         {
           label: "Toggle Sidebar",
           accelerator: "CmdOrCtrl+B",

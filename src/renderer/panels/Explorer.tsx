@@ -1,13 +1,15 @@
 import { useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { useQueries, useQueryClient } from "@tanstack/react-query"
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   FilePlus2,
   FolderPlus,
+  ListFilter,
   Loader2,
   RefreshCw,
+  X,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DirEntry } from "../../preload"
@@ -21,6 +23,15 @@ import { EntryMenu } from "~/panels/EntryMenu"
 import { isAbsolutePath } from "../../shared/external"
 import { ancestorsOf, clickSelect, dragged, navigate, scrollToShow, typeAhead, TYPE_AHEAD_MS, type Selection } from "../../shared/treenav"
 import { renameEntry, trashEntries } from "~/lib/entryActions"
+import { filterTree } from "../../shared/treefilter"
+import {
+  closeTreeFilter,
+  openTreeFilter,
+  setTreeFilter,
+  subscribeTreeFilter,
+  treeFilter,
+  treeFilterFocus,
+} from "~/state/treeFilter"
 import { useGitStatus } from "~/lib/git"
 import { FileTypeIcon } from "~/lib/fileIcons"
 import { decorations, type Decoration, type Tone } from "../../shared/gitdecor"
@@ -94,6 +105,9 @@ let enMain: string[] = []
 // qu'il faut pour viser, pas assez pour s'impatienter : c'est ce que fait le
 // Finder, et c'est ce qui permet de déposer trois niveaux plus bas sans lâcher.
 const OPEN_ON_HOVER_MS = 600
+
+// Un dossier filtré ne se replie pas : un clic dessus ne fait rien.
+const ignorer = (): void => {}
 
 function Row({
   entry,
@@ -332,11 +346,48 @@ export function Explorer() {
     return carte
   }, [ouverts, listes])
 
-  const lignes = useMemo(() => {
+  const arbre = useMemo(() => {
     const out: Ligne[] = []
     aplatir(parDossier, expanded, ".", 0, out)
     return out
   }, [parDossier, expanded])
+
+  // Le filtre (⌥⌘F) : tant qu'il contient un mot, l'arbre dessiné est celui
+  // des fichiers dont le nom le contient, pris dans tout le projet — la liste
+  // de ⌘P, même clé, donc une seule lecture pour les deux.
+  const f = useSyncExternalStore(subscribeTreeFilter, treeFilter, () => null)
+  const filtre = f && project && f.project === project.project ? f.text : null
+  const filtreActif = filtre !== null && filtre.trim() !== ""
+  const tous = useQuery({
+    queryKey: ["files", "all", project?.project],
+    queryFn: () => window.zyvro.files.all(),
+    enabled: Boolean(project) && filtreActif,
+    staleTime: 5000,
+  })
+  const filtrees = useMemo(
+    () => (filtreActif && tous.data ? filterTree(tous.data.files, filtre ?? "") : null),
+    [filtreActif, tous.data, filtre]
+  )
+  const lignes: Ligne[] = filtrees ? filtrees.rows : arbre
+  // Filtré, tout dossier dessiné est ouvert : c'est pour voir ce qu'il
+  // contient qu'on filtre.
+  const ouvertsVus = useMemo(
+    () => (filtrees ? new Set(filtrees.rows.filter((l) => l.entry.kind === "directory").map((l) => l.entry.path)) : expanded),
+    [filtrees, expanded]
+  )
+
+  // Le champ du filtre, et le focus qu'on lui rend quand on le redemande alors
+  // qu'il est déjà là. À son apparition, `autoFocus` suffit.
+  const champ = useRef<HTMLInputElement | null>(null)
+  const demandeFocus = useSyncExternalStore(subscribeTreeFilter, treeFilterFocus, () => 0)
+  const focusVu = useRef(demandeFocus)
+  if (demandeFocus !== focusVu.current) {
+    focusVu.current = demandeFocus
+    window.queueMicrotask(() => {
+      champ.current?.focus()
+      champ.current?.select()
+    })
+  }
 
   const enCours = new Set(ouverts.filter((_, index) => listes[index]?.isFetching))
 
@@ -435,6 +486,14 @@ export function Explorer() {
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>): void => {
     if (menu) return
+    // ⌥⌘F (Ctrl+Alt+F ailleurs) quand l'arbre a le focus, comme VS Code. Pas
+    // dans le menu : dans l'éditeur, ⌥⌘F est « Remplacer ».
+    const mac = window.zyvro.platform === "darwin"
+    if (project && event.code === "KeyF" && event.altKey && (mac ? event.metaKey : event.ctrlKey)) {
+      event.preventDefault()
+      openTreeFilter(project.project)
+      return
+    }
     const entree = focus ? lignes.find((l) => l.entry.path === focus)?.entry : undefined
     if (entree && event.key === "F2") {
       event.preventDefault()
@@ -457,6 +516,11 @@ export function Explorer() {
       setSelection({ paths: new Set(focus ? [focus] : []), anchor: focus })
       return
     }
+    // Puis ferme le filtre.
+    if (event.key === "Escape" && filtre !== null) {
+      closeTreeFilter()
+      return
+    }
     const rows = lignes.map((l) => ({ path: l.entry.path, kind: l.entry.kind, depth: l.depth }))
     // Taper pour chercher : un caractère imprimable, sans modificateur, saute à
     // la ligne dont le nom commence par ce qu'on tape (`typeAhead`).
@@ -473,15 +537,40 @@ export function Explorer() {
       }
       return
     }
-    const r = navigate(rows, focus, event.key, expanded)
+    const r = navigate(rows, focus, event.key, ouvertsVus)
     if (Object.keys(r).length === 0) return
     event.preventDefault()
-    if (r.expand) deplier(r.expand)
-    if (r.collapse) toggle(r.collapse)
+    // Filtré, on ne replie rien : les dossiers dessinés sont ceux qui mènent à
+    // un résultat.
+    if (r.expand && !filtrees) deplier(r.expand)
+    if (r.collapse && !filtrees) toggle(r.collapse)
     if (r.open) openFile(r.open)
     if (r.focus) {
       setFocus(r.focus)
       montrer(r.focus)
+    }
+  }
+
+  // Le champ du filtre : Échap le ferme, ↓ descend dans l'arbre sur le premier
+  // fichier, Entrée ouvre ce premier fichier — assez pour ne jamais toucher la
+  // souris.
+  const premierFichier = (): string | null => lignes.find((l) => l.entry.kind === "file")?.entry.path ?? null
+  const onFiltreKey = (event: React.KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === "Escape") {
+      event.preventDefault()
+      closeTreeFilter()
+      cadre.current?.focus({ preventScroll: true })
+      return
+    }
+    if (event.key === "ArrowDown" || event.key === "Enter") {
+      const vers = premierFichier()
+      if (!vers) return
+      event.preventDefault()
+      setFocus(vers)
+      setSelection({ paths: new Set([vers]), anchor: vers })
+      montrer(vers)
+      if (event.key === "Enter") openFile(vers)
+      else cadre.current?.focus({ preventScroll: true })
     }
   }
 
@@ -638,6 +727,16 @@ export function Explorer() {
           <FolderPlus className="h-3.5 w-3.5" />
         </button>
         <button
+          className={cn(
+            "rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground",
+            filtre !== null && "bg-white/[0.07] text-foreground"
+          )}
+          title={`Filter Files (${window.zyvro.platform === "darwin" ? "⌥⌘F" : "Ctrl+Alt+F"})`}
+          onClick={() => (filtre === null ? openTreeFilter(project.project) : closeTreeFilter())}
+        >
+          <ListFilter className="h-3.5 w-3.5" />
+        </button>
+        <button
           className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
           title="Collapse Folders"
           onClick={toutReplier}
@@ -652,6 +751,48 @@ export function Explorer() {
           <RefreshCw className={cn("h-3.5 w-3.5", enCours.size > 0 && "zy-spin")} />
         </button>
       </header>
+
+      {filtre !== null && (
+        <div className="mx-2 mb-1" data-tree-filter>
+          <div className="flex items-center gap-1 rounded border border-white/10 bg-black/20 px-1.5 focus-within:border-sky-400/50">
+            <ListFilter className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <input
+              ref={champ}
+              autoFocus
+              value={filtre}
+              placeholder="Filter files by name"
+              spellCheck={false}
+              onChange={(event) => setTreeFilter(project.project, event.target.value)}
+              onKeyDown={onFiltreKey}
+              className="min-w-0 flex-1 bg-transparent py-1 text-[12px] outline-none placeholder:text-muted-foreground/60"
+            />
+            {filtrees && (
+              <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                {filtrees.truncated ? `${filtrees.matched}+` : filtrees.matched}
+              </span>
+            )}
+            <button
+              className="rounded p-0.5 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground"
+              title="Close Filter (Escape)"
+              onClick={() => {
+                closeTreeFilter()
+                cadre.current?.focus({ preventScroll: true })
+              }}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          {filtreActif && tous.isFetching && !tous.data && (
+            <p className="px-1 pt-1 text-[12px] text-muted-foreground">Listing the project…</p>
+          )}
+          {filtrees && filtrees.matched === 0 && (
+            <p className="px-1 pt-1 text-[12px] text-muted-foreground">No file name contains “{filtre.trim()}”.</p>
+          )}
+          {filtrees?.truncated && (
+            <p className="px-1 pt-1 text-[12px] text-muted-foreground">Showing the first matches — type more to narrow.</p>
+          )}
+        </div>
+      )}
 
       {/* Seules les lignes qu'on voit sont dessinées. Le reste est deux
           remplissages, un au-dessus et un en dessous : l'ascenseur a la bonne
@@ -690,7 +831,7 @@ export function Explorer() {
               key={entry.path}
               entry={entry}
               depth={depth}
-              isOpen={expanded.has(entry.path)}
+              isOpen={ouvertsVus.has(entry.path)}
               isActive={activeTabId === `file:${entry.path}`}
               isDropTarget={cible !== null && cible !== "" && entry.path === cible}
               isFocused={focus === entry.path}
@@ -700,7 +841,7 @@ export function Explorer() {
               folderTone={entry.kind === "directory" ? deco?.folders.get(entry.path) : undefined}
               onFocusRow={prendreLeFocus}
               chargement={entry.kind === "directory" && enCours.has(entry.path)}
-              onToggle={toggle}
+              onToggle={filtrees ? ignorer : toggle}
               onOpen={openFile}
               onMenu={(cible, at) => setMenu({ entry: cible, at })}
               root={project.project}

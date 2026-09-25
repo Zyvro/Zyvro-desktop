@@ -10,6 +10,7 @@ import { clearActiveTerminal } from "~/panels/TerminalPanel"
 import { openFiles } from "./windowDrop"
 import { isAbsolutePath } from "../../shared/external"
 import { requestTerminalSplit } from "~/state/terminalSplit"
+import { openTreeFilter } from "~/state/treeFilter"
 
 // Menu commands arrive from the main process as IPC events, which is a
 // subscription — and the project bans useEffect for exactly this. Registering
@@ -146,6 +147,12 @@ window.zyvro.menu.onCloseProject(() => {
 })
 window.zyvro.menu.onForgetRecents(() => {
   void forgetRecents()
+})
+window.zyvro.menu.onFilterFiles(() => {
+  const project = useWorkspace.getState().project
+  if (!project) return
+  useWorkspace.getState().setPanel("explorer", true)
+  openTreeFilter(project.project)
 })
 window.zyvro.menu.onToggleSidebar(() => {
   useWorkspace.getState().togglePanel("explorer")
