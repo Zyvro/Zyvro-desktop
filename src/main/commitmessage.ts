@@ -98,6 +98,12 @@ export async function suggest(root: string): Promise<string> {
   return clean(answer)
 }
 
+// askOnce : une question, une réponse, par le CLI d'agent de la machine — la
+// même mécanique sert aussi à l'auto-synthèse du chat (shared/synthesize).
+export function askOnce(agent: Agent, prompt: string, cwd: string): Promise<string> {
+  return ask(agent, prompt, cwd)
+}
+
 function ask(agent: Agent, prompt: string, cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // Print mode, no tools, no MCP: this reads a diff and writes a sentence.

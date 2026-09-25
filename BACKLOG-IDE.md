@@ -9,8 +9,6 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-0. **Auto-synthèse du prompt dans le chat** (demandé) : traduire en anglais,
-   améliorer, structurer ; relire ou envoyer tout seul.
 1. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
    « taper pour chercher ».
 2. **Menu contextuel des onglets de droite** (côte à côte).
@@ -164,3 +162,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.37 — la Timeline.** Les commits du fichier (`git log
   --follow`, `shared/gitlog`), en bas de l'Explorateur ; un clic ouvre ce que
   le commit y a changé, côte à côte, sous le nom d'alors.
+- **0.1.0-alpha.38 — l'auto-synthèse du chat (demandé).** Traduire en anglais,
+  améliorer, les deux, ou une tâche structurée, avant l'envoi
+  (`shared/synthesize`) ; relire (Entrée envoie, Undo rend l'original) ou
+  envoyer tout seul ; par le CLI de la machine, sans outils.

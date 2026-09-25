@@ -6,11 +6,12 @@ import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
 import { harness, interactiveCommand, isAgentKind } from "../shared/harness"
 import { isAbsolutePath } from "../shared/external"
+import { cleanSynthesis, isSynthesisMode, synthesisPrompt } from "../shared/synthesize"
 import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
-import { helpOf } from "./cli"
+import { helpOf, installed } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import * as textSearch from "./search"
@@ -995,6 +996,22 @@ export function registerIpc(onRecents?: () => void): void {
     const { ws } = requireWorkspace(event)
     if (!isAgentKind(kind)) throw new Error(`Unknown agent: ${String(kind)}`)
     return interactiveCommand(kind, ws.agent.sessionFor(kind, String(conversationId ?? "")))
+  })
+
+  // L'auto-synthèse : réécrire une demande avant de l'envoyer (shared/
+  // synthesize), en une question au CLI d'agent de la machine — celui du chat
+  // s'il sait répondre d'un coup (claude, codex), sinon le premier trouvé.
+  // Sans outils ni MCP : il lit un texte et en écrit un autre.
+  ipcMain.handle("agent:synthesize", async (event, text: string, mode: string, kind: string) => {
+    const { ws } = requireWorkspace(event)
+    const demande = String(text ?? "").trim()
+    if (!demande) throw new Error("There is nothing to rewrite.")
+    if (!isSynthesisMode(mode) || mode === "off") throw new Error(`Unknown rewrite mode: ${String(mode)}`)
+    if (demande.length > 40_000) throw new Error("This message is too long to rewrite.")
+    const agent = (kind === "claude" || kind === "codex") && installed(kind) ? kind : await commitMessage.availableAgent()
+    if (!agent) throw new Error("Rewriting needs the claude or codex CLI on this machine.")
+    const cwd = ws.root ?? app.getPath("home")
+    return cleanSynthesis(await commitMessage.askOnce(agent, synthesisPrompt(mode, demande), cwd))
   })
 
   ipcMain.handle("agent:models", async (event, kind: AgentKind) => {

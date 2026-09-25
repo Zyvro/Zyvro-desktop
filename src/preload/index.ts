@@ -435,6 +435,8 @@ const api = {
     // lui et de ses greffons, jamais d'une liste écrite ici.
     commands: (kind: AgentKind): Promise<string[]> => invoke("agent:commands", kind),
     /** La ligne à taper pour ouvrir ce harnais dans le terminal, sur cette conversation. */
+    /** Réécrire une demande avant de l'envoyer (auto-synthèse, shared/synthesize). */
+    synthesize: (text: string, mode: string, kind: string): Promise<string> => invoke("agent:synthesize", text, mode, kind),
     interactiveCommand: (kind: AgentKind, conversationId: string): Promise<string> =>
       invoke("agent:interactive-command", kind, conversationId),
     onCommands: (cb: (p: { kind: AgentKind; commands: string[] }) => void): Unsubscribe =>

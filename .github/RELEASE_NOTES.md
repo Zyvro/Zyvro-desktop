@@ -49,6 +49,28 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.38
+
+**Auto-synthesize in the agent chat.** A new ✦ button beside the permissions
+picker rewrites what you type before it goes to the agent, so the request says
+more clearly what you want:
+
+- **Translate to English.** The same request in English, with nothing added.
+  Models tend to do better in English, and many projects mix languages.
+- **Improve.** A clearer request in your own language: the goal first, then the
+  context you gave, the constraints, and how to tell it is done.
+- **Improve in English.** Both at once.
+- **Structured task.** Goal, Context, Requirements, Done when, for a job you hand
+  over in full.
+
+The rewrite never invents requirements or adds scope, and keeps code, paths,
+names, commands and error messages exactly as you wrote them. By default the
+rewritten request comes back into the box for you to read: press Enter again to
+send it, or **Undo** to get your own text back. Turn on **Send automatically**
+and it goes straight to the agent. **Rewrite the box now** shows what a mode
+does before you send. It uses the `claude` or `codex` already on your machine, in
+a one-shot call with no tools.
+
 ## New in alpha.37
 
 **Timeline**, at the bottom of the Explorer next to the Outline, as in VS Code: the

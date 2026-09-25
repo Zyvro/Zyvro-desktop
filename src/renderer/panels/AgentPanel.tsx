@@ -17,6 +17,8 @@ import { permissionFor, setPermissionFor, subscribePermission } from "~/state/pe
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
+import { SynthesisPicker } from "~/panels/SynthesisPicker"
+import { synthesisSettings } from "~/state/synthesis"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
@@ -1232,6 +1234,60 @@ export function AgentPanel(): JSX.Element {
     await dispatch(threadId, text, images)
   }
 
+  // L'auto-synthèse (shared/synthesize) : avant de partir, la demande est
+  // réécrite selon le mode choisi. Soit elle part d'elle-même, soit elle revient
+  // dans la boîte, et Entrée l'envoie telle quelle — ce qu'on vient de relire
+  // n'est pas réécrit une seconde fois. « Undo » rend le texte d'origine, qui
+  // part alors tel quel lui aussi.
+  const [reecriture, setReecriture] = useState<{ busy: boolean; original: string | null; sortie: string | null; erreur: string }>({
+    busy: false,
+    original: null,
+    sortie: null,
+    erreur: "",
+  })
+  const reecrire = async (text: string): Promise<string | null> => {
+    setReecriture((r) => ({ ...r, busy: true, erreur: "" }))
+    try {
+      return await window.zyvro.agent.synthesize(text, synthesisSettings().mode, kind)
+    } catch (err) {
+      setReecriture((r) => ({ ...r, erreur: (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") }))
+      return null
+    } finally {
+      setReecriture((r) => ({ ...r, busy: false }))
+    }
+  }
+  const envoyer = async (prompt: string): Promise<void> => {
+    const { mode, autoSend } = synthesisSettings()
+    const text = prompt.trim()
+    if (reecriture.busy) return
+    if (mode === "off" || text === "" || text === reecriture.sortie) {
+      setReecriture((r) => ({ ...r, original: null, sortie: null }))
+      await send(prompt)
+      return
+    }
+    const sortie = await reecrire(text)
+    if (sortie === null) return
+    if (autoSend) {
+      setReecriture((r) => ({ ...r, original: null, sortie: null }))
+      await send(sortie)
+      return
+    }
+    setDraft(sortie)
+    setReecriture((r) => ({ ...r, original: text, sortie }))
+    requestAnimationFrame(() => {
+      const node = composer.current
+      if (node) grow(node)
+    })
+  }
+  const reecrireMaintenant = async (): Promise<void> => {
+    const text = draft.trim()
+    if (!text || synthesisSettings().mode === "off") return
+    const sortie = await reecrire(text)
+    if (sortie === null) return
+    setDraft(sortie)
+    setReecriture((r) => ({ ...r, original: text, sortie }))
+  }
+
   const stop = (): void => {
     const turnId = thread.turnId
     if (turnId === null) return
@@ -1324,7 +1380,7 @@ export function AgentPanel(): JSX.Element {
     }
     if (event.key !== "Enter" || event.shiftKey) return
     event.preventDefault()
-    void send(draft)
+    void envoyer(draft)
   }
 
   const useExample = (example: string): void => {
@@ -1798,6 +1854,32 @@ export function AgentPanel(): JSX.Element {
           </div>
         )}
 
+        {(reecriture.busy || reecriture.erreur || (reecriture.original !== null && draft.trim() === reecriture.sortie)) && (
+          <p className="mb-1 flex items-center gap-2 px-0.5 text-[11px] text-muted-foreground" data-synthesis-note>
+            {reecriture.busy ? (
+              <span>Rewriting your request…</span>
+            ) : reecriture.erreur ? (
+              <span className="text-destructive">{reecriture.erreur}</span>
+            ) : (
+              <>
+                <span className="text-sky-300/90">Rewritten — read it, then press Enter to send.</span>
+                <button
+                  type="button"
+                  className="underline decoration-dotted hover:text-foreground"
+                  onClick={() => {
+                    const original = reecriture.original ?? ""
+                    setDraft(original)
+                    // Rendu, il part tel quel : on ne le réécrit pas une seconde fois.
+                    setReecriture((r) => ({ ...r, original: null, sortie: original }))
+                  }}
+                >
+                  Undo
+                </button>
+              </>
+            )}
+          </p>
+        )}
+
         {/* Deux rangées : ce qu'on écrit, puis ce qui le gouverne.
             Sur une seule, le sélecteur de droits et le trombone mangeaient la
             moitié d'un panneau large de 360 points — il restait une ligne de
@@ -1836,6 +1918,12 @@ export function AgentPanel(): JSX.Element {
               disabled={disabled}
               onChange={(next) => setPermissionFor(projectDir, next)}
             />
+            <SynthesisPicker
+              disabled={disabled}
+              busy={reecriture.busy}
+              canRewrite={draft.trim() !== ""}
+              onRewriteNow={() => void reecrireMaintenant()}
+            />
             <button
               type="button"
               title="Attach an image"
@@ -1860,7 +1948,7 @@ export function AgentPanel(): JSX.Element {
             ) : (
               <button
                 type="button"
-                onClick={() => void send(draft)}
+                onClick={() => void envoyer(draft)}
                 disabled={disabled || draft.trim() === ""}
                 title="Send"
                 className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12] disabled:opacity-30"
