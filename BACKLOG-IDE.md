@@ -9,8 +9,10 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Comparer deux fichiers** (« Select for Compare » / « Compare with
-   Selected » du clic droit de l'arbre).
+1. **Go to Symbol in Workspace (⌘T)** : les symboles de tout le projet, par
+   l'index TypeScript déjà chargé pour F12.
+2. **Blame en ligne** : l'auteur et la date de la ligne du curseur, en gris au
+   bout de la ligne, comme GitLens et Cursor.
 
 Petits correctifs repérés en passant :
 
@@ -177,3 +179,6 @@ Petits correctifs repérés en passant :
   images du projet (SVG compris) et du web, liens relatifs qui ouvrent le
   fichier ou son aperçu, listes imbriquées et cases, tableaux alignés, liens
   par référence, `<img>` et `<br>` des README — jamais de HTML brut.
+- **0.1.0-alpha.43 — comparer deux fichiers.** « Select for Compare » puis
+  « Compare with Selected » au clic droit de l'arbre ; un onglet de diff lu
+  du disque (`openCompare`), qui suit les deux fichiers renommés.

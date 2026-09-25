@@ -29,7 +29,17 @@ export type Tab =
   // it is read-only, and closing it must not look like closing the file.
   // `commit` : ce que ce commit a changé dans le fichier (la Timeline), au
   // lieu de l'index ou du disque.
-  | { kind: "diff"; id: string; path: string; staged: boolean; title: string; commit?: { hash: string; short: string } }
+  // `against` : deux fichiers comparés (« Compare with Selected ») — `against`
+  // à gauche, `path` à droite, tels qu'ils sont sur le disque.
+  | {
+      kind: "diff"
+      id: string
+      path: string
+      staged: boolean
+      title: string
+      commit?: { hash: string; short: string }
+      against?: string
+    }
   | { kind: "gitOutput"; id: "git-output"; title: string }
 
 export type PanelKey = "explorer" | "search" | "terminal" | "agent" | "git"
@@ -120,6 +130,8 @@ type WorkspaceState = {
   openDiff: (path: string, staged: boolean) => void
   /** Ce qu'un commit a changé dans un fichier (la Timeline). */
   openCommitDiff: (path: string, hash: string, short: string) => void
+  /** Deux fichiers côte à côte : `left` à gauche, `right` à droite. */
+  openCompare: (left: string, right: string) => void
   openGitOutput: () => void
   openProviders: () => void
   openSettings: () => void
@@ -326,6 +338,19 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }))
   },
 
+  openCompare: (left, right) => {
+    const id = `compare:${left}\u0000${right}`
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "diff", id, path: right, staged: false, against: left, title: `${basename(left)} ↔ ${basename(right)}` }
+    set((s) => ({
+      tabs: [...s.tabs.filter((t) => t.kind !== "welcome" && !replacedByOpening(s, t, id)), tab],
+      activeTabId: id,
+    }))
+  },
+
   openGitOutput: () => {
     const id = "git-output"
     if (get().tabs.some((t) => t.id === id)) {
@@ -481,7 +506,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   movePath: (from, to) =>
     set((s) => {
       const renamed = new Map<string, string>()
-      const tabs = s.tabs.map((t) => {
+      const tabs = s.tabs.map((t): Tab => {
+        // Une comparaison suit ses deux fichiers.
+        if (t.kind === "diff" && t.against !== undefined) {
+          const left = retarget(t.against, from, to) ?? t.against
+          const right = retarget(t.path, from, to) ?? t.path
+          if (left === t.against && right === t.path) return t
+          const id = `compare:${left}\u0000${right}`
+          renamed.set(t.id, id)
+          return { ...t, id, path: right, against: left, title: `${basename(left)} ↔ ${basename(right)}` }
+        }
         if (t.kind !== "file" && t.kind !== "preview") return t
         const path = retarget(t.path, from, to)
         if (path === null) return t

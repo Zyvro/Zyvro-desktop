@@ -10,6 +10,7 @@ import { clearHeld, heldItem, hold, released, subscribeClipboard } from "~/state
 import { askSearchFocus } from "~/state/reveal"
 import { quotePath } from "../../shared/dropped"
 import { useWorkspace } from "~/state/workspace"
+import { selectForCompare, selectedForCompare, subscribeCompare } from "~/state/compare"
 
 // Le clic droit sur un fichier ou un dossier.
 //
@@ -91,6 +92,8 @@ export function EntryMenu({
 
   // Ce qui attend d'être collé, s'il y a quelque chose.
   const retenu = useSyncExternalStore(subscribeClipboard, heldItem, () => null)
+  // Le fichier choisi pour la comparaison, s'il y en a un.
+  const aComparer = useSyncExternalStore(subscribeCompare, selectedForCompare, () => null)
 
   // Où l'on colle : dans le dossier visé, ou dans celui qui contient le fichier
   // visé. Coller « sur » un fichier n'a pas de sens — un fichier ne contient
@@ -137,9 +140,27 @@ export function EntryMenu({
               </Menu.Item>
             </>
           ) : (
-            <Menu.Item className={item} onSelect={fermerPuis(() => openFile(entry.path))}>
-              Open
-            </Menu.Item>
+            <>
+              <Menu.Item className={item} onSelect={fermerPuis(() => openFile(entry.path))}>
+                Open
+              </Menu.Item>
+              {/* Comparer deux fichiers, en deux clics, comme VS Code : le
+                  premier retenu à gauche, celui-ci à droite. */}
+              {aComparer && aComparer !== entry.path && (
+                <Menu.Item
+                  className={item}
+                  onSelect={fermerPuis(() => useWorkspace.getState().openCompare(aComparer, entry.path))}
+                >
+                  Compare with Selected
+                  <span className="ml-3 max-w-[140px] truncate text-muted-foreground">
+                    {aComparer.slice(aComparer.lastIndexOf("/") + 1)}
+                  </span>
+                </Menu.Item>
+              )}
+              <Menu.Item className={item} onSelect={fermerPuis(() => selectForCompare(entry.path))}>
+                Select for Compare
+              </Menu.Item>
+            </>
           )}
 
           <Menu.Separator className="my-1 h-px bg-white/[0.08]" />

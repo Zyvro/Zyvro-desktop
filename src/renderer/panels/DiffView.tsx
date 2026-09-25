@@ -21,15 +21,26 @@ import { gitKey } from "~/lib/git"
 
 //   commit    son parent      → ce commit      ("ce que ce commit a changé",
 //                                               depuis la Timeline)
-type Props = { path: string; staged: boolean; commit?: string }
+type Props = { path: string; staged: boolean; commit?: string; against?: string }
 
-export function DiffView({ path, staged, commit }: Props) {
+//   compare   un fichier     → un autre      (« Compare with Selected »), les
+//             deux tels qu'ils sont sur le disque.
+
+export function DiffView({ path, staged, commit, against }: Props) {
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const modelsRef = useRef<monaco.editor.ITextModel[]>([])
 
   const sides = useQuery({
-    queryKey: [...gitKey, "diff-sides", path, staged, commit ?? ""],
+    queryKey: [...gitKey, "diff-sides", path, staged, commit ?? "", against ?? ""],
     queryFn: async () => {
+      if (against !== undefined) {
+        const [left, right] = await Promise.all([window.zyvro.files.read(against), window.zyvro.files.read(path)])
+        // Une image ou un binaire n'a pas de lignes à comparer : le dire.
+        if (!("text" in left) || !("text" in right)) {
+          throw new Error("One of these files is not text, so there are no lines to compare.")
+        }
+        return { left: left.text, right: right.text }
+      }
       // Un premier commit n'a pas de parent : `fileAt` rend alors un côté
       // vide, ce qui est vrai — le fichier naissait.
       if (commit) {

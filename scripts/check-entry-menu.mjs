@@ -81,7 +81,7 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
 
 // ---- ce qu'il propose est ce que l'application sait faire -----------------
 {
-  for (const entree of ["New file…", "New folder…", "Open", "Add to agent", "Open in terminal", "Find in folder…", "Cut", "Copy", "Paste", "Open with default app", "Reveal in Finder", "Copy path", "Copy relative path", "Rename…"]) {
+  for (const entree of ["New file…", "New folder…", "Open", "Add to agent", "Open in terminal", "Find in folder…", "Cut", "Copy", "Paste", "Open with default app", "Reveal in Finder", "Copy path", "Copy relative path", "Rename…", "Select for Compare", "Compare with Selected"]) {
     check(`il propose « ${entree} »`, menu.includes(entree))
   }
   // Et pas ce qui n'existe pas ici : un menu qui propose « Open to the Side »
@@ -91,7 +91,7 @@ const files = readFileSync(path.join(ROOT, "src/main/files.ts"), "utf8")
   // du haut nomme justement ces entrées pour dire pourquoi elles n'y sont pas,
   // et la première version de ce garde échouait sur sa propre explication.
   const rendu = menu.slice(menu.indexOf("<Menu.Portal>")).replace(/\{\/\*[\s\S]*?\*\/\}/g, "")
-  for (const absent of ["Open to the Side", "Select for Compare", "Open Timeline", "Find File References"]) {
+  for (const absent of ["Open to the Side", "Open Timeline", "Find File References"]) {
     check(`**il ne promet pas « ${absent} »**`, !rendu.includes(absent))
   }
 }

@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.43
+
+**Compare two files.** Right-click a file in the Explorer and choose **Select for
+Compare**, then right-click another and choose **Compare with Selected**. The
+two open side by side in a diff tab, the first one on the left. The tab follows
+both files if you rename or move them.
+
 ## New in alpha.42
 
 **The Markdown preview reads like a document.** ⇧⌘V now renders a README the
