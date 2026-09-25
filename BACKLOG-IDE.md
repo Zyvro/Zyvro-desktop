@@ -9,16 +9,12 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 ## À faire
 
-1. **Aller à la définition d'un fichier à l'autre** (F12, ⇧F12) : le service
-   TypeScript ne voit que le fichier ouvert ; lui donner les fichiers TS/JS du
-   projet (bornés), ce qui fait aussi taire les imports relatifs signalés à
-   tort.
-2. **Outline** dans la barre latérale : les symboles du fichier actif, qui
+1. **Outline** dans la barre latérale : les symboles du fichier actif, qui
    suivent le curseur.
-3. **Timeline** : l'historique git du fichier, et son diff à chaque commit.
-4. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
+2. **Timeline** : l'historique git du fichier, et son diff à chaque commit.
+3. **Filtrer l'arbre** en tapant (⌥⌘F de VS Code), au-delà du saut de
    « taper pour chercher ».
-5. **Menu contextuel des onglets de droite** (côte à côte).
+4. **Menu contextuel des onglets de droite** (côte à côte).
 
 Petits correctifs repérés en passant :
 
@@ -159,3 +155,7 @@ Petits correctifs repérés en passant :
   disque et demande (Overwrite / Use Disk Version) au lieu d'écraser
   (`shared/diskSync`). Surveillance comptée ; l'éditeur ne renaît plus à
   chaque ⌘S (le curseur ne repart plus en haut).
+- **0.1.0-alpha.35 — F12 d'un fichier à l'autre.** Les sources du projet
+  (bornées, sans node_modules ni builds) données à TypeScript comme
+  bibliothèques ; une définition ailleurs ouvre son onglet à la bonne ligne
+  (`registerEditorOpener`).

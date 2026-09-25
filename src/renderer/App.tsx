@@ -26,6 +26,7 @@ import "~/state/problems"
 // Imported for its side effect: the menu listeners register once, at import
 // time, which is how this app subscribes to anything without a useEffect.
 import "~/lib/menuBridge"
+import "~/lib/projectIndex"
 // Pareil pour les dépôts sur la fenêtre : un dossier lâché s'ouvre en projet.
 import "~/lib/windowDrop"
 

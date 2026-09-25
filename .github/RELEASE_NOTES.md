@@ -49,6 +49,17 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.35
+
+**Go to Definition across files.** F12, or ⌘-click (Ctrl-click) on a name
+imported from another file, opens that file at the definition with the name
+selected, as in VS Code. Find All References (⇧F12) and hover types also take
+the whole project into account, and imports of your own files are no longer
+reported as missing. The editor reads the project's TypeScript and JavaScript
+sources, up to 1,500 files and leaving out `node_modules` and build folders,
+and reads them again when files change. An open tab always counts over its
+copy on disk, unsaved changes included.
+
 ## New in alpha.34
 
 **Files changed on disk show up in their tabs**: by the agent, by git (a
