@@ -50,3 +50,27 @@ export function withRestored(groups: Groups, keys: string[]): Groups {
   const autres = groups.map((g) => g.filter((k) => !repris.has(k))).filter((g) => g.length > 0)
   return [...keys.map((k) => [k]), ...autres]
 }
+
+// ---- la largeur de chaque shell ----------------------------------------------------
+
+// placeIn : la place du shell `i` de son onglet, en fractions de la largeur,
+// d'après la part (le poids) de chacun.
+export function placeIn(weights: number[], i: number): { left: number; width: number } {
+  const total = weights.reduce((a, b) => a + b, 0) || 1
+  const avant = weights.slice(0, i).reduce((a, b) => a + b, 0)
+  return { left: avant / total, width: (weights[i] ?? 0) / total }
+}
+
+// resizePair : tirer la séparation entre le shell `i` et son voisin de `delta`
+// (en unités de poids). Les deux autres ne bougent pas, et aucun des deux ne
+// descend sous `min`.
+export function resizePair(weights: number[], i: number, delta: number, min: number): number[] {
+  const a = weights[i]
+  const b = weights[i + 1]
+  if (a === undefined || b === undefined) return weights
+  const d = Math.max(min - a, Math.min(b - min, delta))
+  const out = [...weights]
+  out[i] = a + d
+  out[i + 1] = b - d
+  return out
+}

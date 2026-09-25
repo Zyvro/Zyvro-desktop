@@ -3,7 +3,7 @@ import { Terminal, type ITheme } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
 import { Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
-import { addGroup, groupOf, removeKey, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
+import { addGroup, groupOf, placeIn, removeKey, resizePair, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
 import { splitToken, subscribeSplit } from "~/state/terminalSplit"
 import { cn } from "@/lib/utils"
 import { droppedText } from "../../shared/dropped"
@@ -460,6 +460,10 @@ export function TerminalPanel(): JSX.Element {
   // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
   const [groups, setGroups] = useState<Groups>([])
   const sessions = groups.flat()
+  // La part de largeur de chaque shell dans son onglet (1 par défaut) : la
+  // séparation se tire, comme dans VS Code.
+  const [poids, setPoids] = useState<Record<string, number>>({})
+  const zone = useRef<HTMLDivElement | null>(null)
   const [activeKey, setActiveKey] = useState("")
   const [boundProject, setBoundProject] = useState<string | null>(null)
 
@@ -783,7 +787,7 @@ export function TerminalPanel(): JSX.Element {
 
       {/* Every session stays mounted. Hiding the wrapper (never the xterm host
           itself) keeps the instance, its pty and its scrollback alive. */}
-      <div className="relative min-h-0 flex-1">
+      <div ref={zone} className="relative min-h-0 flex-1">
         {/* Un onglet, ses shells côte à côte. Chaque shell reste un enfant
             direct, sous sa propre clé, et se place par sa part de largeur :
             l'emboîter dans un conteneur de groupe le démonterait — son pty
@@ -794,6 +798,7 @@ export function TerminalPanel(): JSX.Element {
           const i = group.indexOf(key)
           const n = group.length
           const visible = group.includes(activeKey)
+          const { left, width } = placeIn(group.map((k) => poids[k] ?? 1), i)
           return (
             <div
               key={key}
@@ -804,13 +809,44 @@ export function TerminalPanel(): JSX.Element {
                 // Le shell qui a la main, quand il y en a plusieurs.
                 n > 1 && key === activeKey && "shadow-[inset_0_1px_0_0_rgb(56_189_248/0.6)]"
               )}
-              style={{ left: `${(i / n) * 100}%`, width: `${100 / n}%` }}
+              style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
               onMouseDownCapture={() => {
                 if (key !== activeKey) setActiveKey(key)
               }}
             >
               <TerminalSession sessionKey={key} active={visible} />
             </div>
+          )
+        })}
+        {/* Les séparations de l'onglet visible, entre deux shells voisins. */}
+        {(groupOf(groups, activeKey) ?? []).slice(1).map((droite, j) => {
+          const group = groupOf(groups, activeKey) ?? []
+          const gauche = group[j]
+          const { left } = placeIn(group.map((k) => poids[k] ?? 1), j + 1)
+          return (
+            <div
+              key={`sep-${droite}`}
+              className="absolute inset-y-0 z-10 w-1 -translate-x-1/2 cursor-col-resize hover:bg-sky-400/40"
+              style={{ left: `${left * 100}%` }}
+              onPointerDown={(event) => {
+                const largeur = zone.current?.getBoundingClientRect().width ?? 0
+                if (!largeur) return
+                event.currentTarget.setPointerCapture(event.pointerId)
+                const depart = event.clientX
+                const poidsDepart = group.map((k) => poids[k] ?? 1)
+                const total = poidsDepart.reduce((a, b) => a + b, 0)
+                const bouger = (e: PointerEvent) => {
+                  const next = resizePair(poidsDepart, j, ((e.clientX - depart) / largeur) * total, total * 0.1)
+                  setPoids((p) => ({ ...p, [gauche]: next[j], [droite]: next[j + 1] }))
+                }
+                const lacher = () => {
+                  window.removeEventListener("pointermove", bouger)
+                  window.removeEventListener("pointerup", lacher)
+                }
+                window.addEventListener("pointermove", bouger)
+                window.addEventListener("pointerup", lacher)
+              }}
+            />
           )
         })}
         {sessions.length === 0 ? (

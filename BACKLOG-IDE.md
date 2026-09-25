@@ -16,11 +16,8 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 Petits correctifs repérés en passant :
 
 - terminal scindé : les shells repris au redémarrage reviennent chacun dans
-  son onglet (les groupes ne sont pas retenus), et la séparation ne se tire
-  pas encore ;
-- éditeurs côte à côte : ouvrir depuis l'arbre dans le groupe qui a la main
-  (aujourd'hui toujours à gauche), glisser un onglet de droite à gauche, un
-  menu contextuel sur les onglets de droite ;
+  son onglet (les groupes ne sont pas retenus) ;
+- éditeurs côte à côte : un menu contextuel sur les onglets de droite ;
 - `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
 - l'aperçu Markdown garde la typographie du chat : des titres de document
   plus grands, et les images relatives du dépôt.
@@ -147,3 +144,6 @@ Petits correctifs repérés en passant :
   marque montre, sous le changement, le texte du dernier commit, et « Revert »
   le remet par une édition défaisable (`hunks`, `revertHunk`, vérifiés sur 300
   cas au hasard).
+- **0.1.0-alpha.33 — côte à côte, fini.** Un fichier ouvert quand la droite a
+  la main s'ouvre à droite ; un onglet de droite lâché à gauche y revient ; la
+  séparation des shells se tire (`placeIn`, `resizePair`).

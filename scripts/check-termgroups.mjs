@@ -60,6 +60,18 @@ check(
 )
 check("un repris déjà là n'est pas en double", j(t.withRestored([["r1", "m"]], ["r1"])) === j([["r1"], ["m"]]))
 
+// ---- la séparation qui se tire -----------------------------------------------------
+{
+  const p = t.placeIn([1, 1, 2], 2)
+  check("chaque shell prend sa part", p.left === 0.5 && p.width === 0.5)
+  check("à parts égales par défaut", t.placeIn([1, 1], 1).left === 0.5)
+  const r = t.resizePair([1, 1, 1], 0, 0.5, 0.3)
+  check("**tirer donne à l'un ce que l'autre perd, sans toucher les autres**", JSON.stringify(r) === JSON.stringify([1.5, 0.5, 1]))
+  const proche = (a, b) => a.length === b.length && a.every((x, i) => Math.abs(x - b[i]) < 1e-9)
+  check("**aucun ne disparaît sous le minimum**", proche(t.resizePair([1, 1], 0, 5, 0.2), [1.8, 0.2]))
+  check("vers la gauche aussi", proche(t.resizePair([1, 1], 0, -5, 0.2), [0.2, 1.8]))
+}
+
 {
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
   check(

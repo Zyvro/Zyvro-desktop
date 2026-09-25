@@ -311,17 +311,28 @@ export function EditorArea() {
         className="relative min-h-0 flex-1"
         // Sans groupe de droite, lâcher un onglet sur la moitié droite l'y
         // ouvre.
+        //
+        // Avec un groupe à droite, un de ses onglets lâché ici revient à
+        // gauche : sa vue de droite se ferme, il devient l'onglet actif.
         onDragOver={(event) => {
-          if (split || !tientUnOnglet(event)) return
+          if (!tientUnOnglet(event)) return
           event.preventDefault()
-          setVersDroite(aDroite(event))
+          if (!split) setVersDroite(aDroite(event))
         }}
         onDragLeave={() => setVersDroite(false)}
         onDrop={(event) => {
-          if (split || !tientUnOnglet(event)) return
+          if (!tientUnOnglet(event)) return
           event.preventDefault()
           setVersDroite(false)
-          if (aDroite(event)) useWorkspace.getState().splitEditor(event.dataTransfer.getData(ZYVRO_TAB))
+          const id = event.dataTransfer.getData(ZYVRO_TAB)
+          const store = useWorkspace.getState()
+          if (split) {
+            if (!split.ids.includes(id)) return
+            store.closeInSplit(id)
+            store.activateTab(id)
+            return
+          }
+          if (aDroite(event)) store.splitEditor(id)
         }}
       >
         {tabs.map((tab) => (

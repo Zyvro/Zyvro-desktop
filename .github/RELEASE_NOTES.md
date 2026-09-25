@@ -49,6 +49,15 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.33
+
+**Side-by-side editors, finished.** When the right-hand group has focus, a file
+you open from the tree, Go to File or Open Recent opens there, as in VS Code's
+active group. A tab dragged from the right onto the left editor moves back to the
+left.
+
+**Split terminals can be resized.** Drag the line between two shells.
+
 ## New in alpha.32
 
 **Click a git mark in the editor's margin to see what was there before**, as in

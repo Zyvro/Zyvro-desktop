@@ -79,15 +79,26 @@ check("un onglet nommé (glissé) s'ajoute à droite", st().split.ids.join() ===
 st().focusGroup("main")
 check("cliquer à gauche rend la main à gauche", focusedTabId() === "settings")
 
-st().focusGroup("split")
 st().openFile("c.ts")
-check("**un fichier ouvert à gauche y ramène la main**", st().focusedGroup === "main" && focusedTabId() === "file:c.ts")
+st().focusGroup("split")
+st().activateTab("settings")
+check("**un onglet activé à gauche y ramène la main**", st().focusedGroup === "main" && focusedTabId() === "settings")
 
 st().movePath("b.ts", "lib/b.ts")
 check("**renommé, il suit à droite**", st().split.ids.join() === "file:a.ts,file:lib/b.ts" && st().split.active === "file:lib/b.ts")
 
 st().closeTab("file:a.ts")
 check("**fermé à gauche, il part de droite**", st().split.ids.join() === "file:lib/b.ts")
+
+// Le côté droit a la main : un fichier ouvert (arbre, ⌘P) s'y ouvre.
+st().focusGroup("split")
+const gaucheAvant = st().activeTabId
+st().openFile("d.ts")
+check("**avec la main à droite, un fichier s'ouvre à droite**", st().split.active === "file:d.ts" && st().split.ids.includes("file:d.ts"))
+check("sans changer l'onglet regardé à gauche", st().activeTabId === gaucheAvant && st().focusedGroup === "split")
+check("et épinglé, pour qu'un aperçu ne l'emporte pas", st().tabs.find((x) => x.id === "file:d.ts")?.pinned === true)
+st().closeInSplit("file:d.ts")
+st().focusGroup("main")
 
 st().closeInSplit("file:lib/b.ts")
 check("fermer la dernière vue de droite referme le groupe", st().split === null && st().focusedGroup === "main")
@@ -114,6 +125,8 @@ check("sans fermer l'onglet de gauche", st().tabs.some((x) => x.id === "file:lib
   check("⌘F et Go to Line visent le côté qui a la main", /useWorkspace\.getState\(\)\.focusedGroup === group/.test(editeur))
   const pont = lire("src/renderer/lib/menuBridge.ts")
   check("⌘S enregistre l'onglet du côté qui a la main", /saveTab\(focusedTabId\(\)\)/.test(pont))
+  const zone = lire("src/renderer/panels/EditorArea.tsx")
+  check("un onglet de droite lâché à gauche y revient", /store\.closeInSplit\(id\)\s*\n\s*store\.activateTab\(id\)/.test(zone))
   check("⌘W à droite ne ferme que la vue", /s\.closeInSplit\(s\.split\.active\)/.test(pont))
   const menu = lire("src/main/index.ts")
   check("View › Split Editor, ⌘\\", /label: "Split Editor",\s*accelerator: "CmdOrCtrl\+\\\\"/.test(menu))

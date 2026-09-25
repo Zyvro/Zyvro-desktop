@@ -253,6 +253,20 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   openFile: (path) => {
     const id = `file:${path}`
+    // Le côté droit a la main (⌘\) : le fichier s'y ouvre, comme dans le
+    // groupe actif de VS Code. Il entre aussi dans la liste — épinglé, pour
+    // qu'un aperçu ouvert ensuite à gauche ne l'emporte pas — sans prendre la
+    // place de l'onglet qu'on regarde à gauche.
+    const avant = get()
+    if (avant.split && avant.focusedGroup === "split") {
+      const present = avant.tabs.some((t) => t.id === id)
+      const tabs = present
+        ? avant.tabs.map((t) => (t.id === id && t.kind === "file" && !t.pinned ? { ...t, pinned: true } : t))
+        : [...avant.tabs.filter((t) => t.kind !== "welcome"), { kind: "file" as const, id, path, title: basename(path), pinned: true }]
+      const ids = avant.split.ids.includes(id) ? avant.split.ids : [...avant.split.ids, id]
+      set({ tabs, split: { ids, active: id } })
+      return
+    }
     const existing = get().tabs.find((t) => t.id === id)
     if (existing) {
       set({ activeTabId: id })
