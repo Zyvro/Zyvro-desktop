@@ -78,7 +78,7 @@ const check = (name, ok, detail = "") => {
   check("plus de police écrite en dur", !/fontSize: 13,/.test(editeur))
   check("la sauvegarde après un délai", /r\.autoSave !== "afterDelay"/.test(editeur) && /setTimeout\(sauverSiModifie, r\.autoSaveDelay\)/.test(editeur))
   check("et à la perte du focus, fenêtre comprise", /onDidBlurEditorText\(perdFocus\)/.test(editeur) && /addEventListener\("blur", perdFocus\)/.test(editeur))
-  check("seulement ce qui a un brouillon", /if \(modifie\(\)\) void save\(\)/.test(editeur))
+  check("seulement ce qui a un brouillon", /if \(modifie\(\)\) void save\(true\)/.test(editeur))
   const menu = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
   check("⌘, ouvre les réglages", /label: "Settings…",\s*accelerator: "CmdOrCtrl\+,"/.test(menu))
 }

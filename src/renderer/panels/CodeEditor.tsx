@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Eye, FileWarning, Loader2 } from "lucide-react"
-import { languageFor, modelUri, monaco } from "~/lib/monaco"
+import { formatDocument, languageFor, modelUri, monaco } from "~/lib/monaco"
 import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
@@ -81,9 +81,13 @@ export function CodeEditor({ tabId, path }: Props) {
   // than the store so it always writes exactly what is on screen. It says
   // whether it worked, because closing a tab after a failed save would lose
   // exactly what the person asked to keep.
-  const save = useCallback(async (): Promise<boolean> => {
+  //
+  // Format on Save, as in VS Code: an explicit save (⌘S, Save All, closing)
+  // formats first; an automatic one never rewrites what is being typed.
+  const save = useCallback(async (auto = false): Promise<boolean> => {
     const editor = editorRef.current
     if (!editor) return false
+    if (!auto && getSettings().formatOnSave) await formatDocument(editor)
     const text = editor.getValue()
     try {
       await window.zyvro.files.write(path, text)
@@ -157,7 +161,7 @@ export function CodeEditor({ tabId, path }: Props) {
       const sauverSiModifie = () => {
         if (minuterie) clearTimeout(minuterie)
         minuterie = null
-        if (modifie()) void save()
+        if (modifie()) void save(true)
       }
       const apresFrappe = () => {
         const r = getSettings()
@@ -287,7 +291,7 @@ export function CodeEditor({ tabId, path }: Props) {
       // Le menu Save, Save All et la fermeture d'un onglet modifié passent par
       // le registre, qui vise un onglet. Écouter la commande ici faisait
       // enregistrer tous les éditeurs montés à la fois — onglets cachés compris.
-      const unregister = registerSaver(tabId, save)
+      const unregister = registerSaver(tabId, () => save())
       // La barre de recherche de Monaco, celle que ⌘F ouvre partout ailleurs.
       // Seul l'éditeur visible répond : les autres onglets restent montés, et
       // ouvrir la recherche dans un fichier qu'on ne regarde pas ne servirait
@@ -310,12 +314,18 @@ export function CodeEditor({ tabId, path }: Props) {
         editor.focus()
         void editor.getAction("editor.action.gotoLine")?.run()
       })
+      const menuFormat = onCommand("format-document", () => {
+        if (!visible()) return
+        editor.focus()
+        void formatDocument(editor)
+      })
 
       teardownRef.current = () => {
         offReveal()
         menuFind()
         menuSymbol()
         menuLine()
+        menuFormat()
         unregister()
         unregisterEditor()
         offSettings()

@@ -162,6 +162,10 @@ export function SettingsTab() {
           </Ligne>
         )}
 
+        <Ligne titre="Format on save" aide="Format the file when you save it (⌘S), with the built-in formatter for TypeScript, JavaScript, JSON, CSS and HTML. Auto save never formats.">
+          <Case valeur={r.formatOnSave} onChange={(formatOnSave) => updateSettings({ formatOnSave })} />
+        </Ligne>
+
         <h2 className="mt-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</h2>
         <Ligne titre="Check for updates" aide="Ask GitHub for a newer release at startup and every few hours. Nothing is downloaded without asking.">
           <Case valeur={r.checkForUpdates} onChange={(checkForUpdates) => updateSettings({ checkForUpdates })} />

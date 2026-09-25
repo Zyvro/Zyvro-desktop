@@ -42,7 +42,10 @@ check("**le plan et la ligne visent l'éditeur visible**", /onCommand\("go-to-sy
 const fil = lire("src/renderer/panels/Breadcrumbs.tsx")
 check("le fil d'Ariane surmonte l'éditeur", /<Breadcrumbs path=\{path\} \/>/.test(editeur))
 check("un dossier du fil ouvre ⌘P filtré sur lui", /openQuickOpen\(`\$\{dossier\}\/`\)/.test(fil))
+check("**la sauvegarde automatique ne formate jamais**", /if \(!auto && getSettings\(\)\.formatOnSave\) await formatDocument\(editor\)/.test(editeur) && /if \(modifie\(\)\) void save\(true\)/.test(editeur))
+check("un langage sans formateur : rien, pas d'erreur", /if \(!action\?\.isSupported\(\)\) return/.test(monaco))
 const menu = lire("src/main/index.ts")
+check("⇧⌥F formate", /accelerator: "Shift\+Alt\+F"/.test(menu) && /"menu:format-document"/.test(menu))
 check("⇧⌘O, ⌃G et ⇧⌘M dans les menus", /"CmdOrCtrl\+Shift\+O"/.test(menu) && /"Ctrl\+G"/.test(menu) && /"CmdOrCtrl\+Shift\+M"/.test(menu))
 
 if (failures) {

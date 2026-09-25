@@ -612,6 +612,7 @@ const api = {
     onClearTerminal: (cb: () => void): Unsubscribe => on("menu:clear-terminal", cb),
     onGoToSymbol: (cb: () => void): Unsubscribe => on("menu:go-to-symbol", cb),
     onGoToLine: (cb: () => void): Unsubscribe => on("menu:go-to-line", cb),
+    onFormatDocument: (cb: () => void): Unsubscribe => on("menu:format-document", cb),
     onProblems: (cb: () => void): Unsubscribe => on("menu:problems", cb),
     onCommandPalette: (cb: () => void): Unsubscribe => on("menu:command-palette", cb),
     /** Le menu de l'application, à plat, pour la palette de commandes. */

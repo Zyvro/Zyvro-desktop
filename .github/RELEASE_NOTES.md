@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.23
+
+**Format Document (⇧⌥F / Shift+Alt+F)** uses the editor's built-in formatters:
+TypeScript, JavaScript, JSON, CSS, SCSS, Less and HTML. For other languages it
+changes nothing. The new **Format on save** setting (Settings › Files) formats the
+file when you save it yourself; auto save never rewrites what you are typing.
+
 ## New in alpha.22
 
 **Type to search in the file tree.** With the tree focused, type the start of a

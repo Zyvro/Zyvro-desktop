@@ -11,13 +11,11 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 1. **Terminal : scinder.**
 2. **Éditeurs côte à côte** (⌘\).
-3. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
-    choix à l'enregistrement.
-4. **Fichiers récents** dans File › Open Recent, à côté des projets.
-5. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-6. **Réglages de plus** : paires de crochets colorées, défilement collant
+3. **Fichiers récents** dans File › Open Recent, à côté des projets.
+4. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+5. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-7. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+6. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -110,3 +108,5 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.22 — taper pour chercher dans l'arbre.** Les lettres tapées
   sautent au nom qui commence ainsi ; la même lettre répétée passe au suivant
   (`typeAhead`).
+- **0.1.0-alpha.23 — formater le document.** ⇧⌥F avec les formateurs de
+  Monaco ; « Format on save » au choix, jamais à la sauvegarde automatique.

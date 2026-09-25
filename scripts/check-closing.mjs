@@ -176,7 +176,7 @@ function etat(tabs, drafts = {}) {
   const editeur = lire("src/renderer/panels/CodeEditor.tsx")
   check(
     "**aucun éditeur n'écoute la commande Save du menu**",
-    !/onCommand\("save"/.test(editeur) && /registerSaver\(tabId, save\)/.test(editeur)
+    !/onCommand\("save"/.test(editeur) && /registerSaver\(tabId, \(\) => save\(\)\)/.test(editeur)
   )
   const zone = lire("src/renderer/panels/EditorArea.tsx")
   check(

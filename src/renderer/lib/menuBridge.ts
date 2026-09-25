@@ -25,6 +25,7 @@ type Command =
   | "find"
   | "go-to-symbol"
   | "go-to-line"
+  | "format-document"
 
 const listeners = new Map<Command, Set<() => void>>()
 
@@ -87,6 +88,7 @@ window.zyvro.menu.onMarkdownPreview(() => {
 // comme ⌘F.
 window.zyvro.menu.onGoToSymbol(() => fire("go-to-symbol"))
 window.zyvro.menu.onGoToLine(() => fire("go-to-line"))
+window.zyvro.menu.onFormatDocument(() => fire("format-document"))
 window.zyvro.menu.onProblems(() => {
   useWorkspace.getState().openProblems()
 })

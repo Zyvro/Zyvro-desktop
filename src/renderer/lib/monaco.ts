@@ -102,6 +102,19 @@ export function pathOfUri(uri: monaco.Uri): string | null {
   return uri.scheme === "file" ? uri.path.replace(/^\//, "") : null
 }
 
+// formatDocument : le formateur de Monaco pour le langage du fichier — ceux
+// qu'il embarque : TypeScript et JavaScript, JSON, CSS, SCSS, Less, HTML. Pour
+// un autre langage, rien ne change : pas d'erreur, le texte reste tel quel.
+export async function formatDocument(editor: monaco.editor.IStandaloneCodeEditor): Promise<void> {
+  const action = editor.getAction("editor.action.formatDocument")
+  if (!action?.isSupported()) return
+  try {
+    await action.run()
+  } catch {
+    // Un formateur qui échoue n'empêche pas d'enregistrer.
+  }
+}
+
 const BY_EXTENSION: Record<string, string> = {
   ts: "typescript",
   tsx: "typescript",

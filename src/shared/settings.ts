@@ -25,6 +25,8 @@ export type EditorSettings = {
   autoSave: AutoSave
   /** Millisecondes, pour `afterDelay`. */
   autoSaveDelay: number
+  /** Formater le fichier quand on l'enregistre — pas à la sauvegarde automatique. */
+  formatOnSave: boolean
   /** Demander à GitHub, au démarrage puis de temps en temps, s'il y a mieux. */
   checkForUpdates: boolean
 }
@@ -42,6 +44,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   // est une chose qu'on choisit, pas qu'on découvre.
   autoSave: "off",
   autoSaveDelay: 1000,
+  formatOnSave: false,
   checkForUpdates: true,
 }
 
@@ -73,6 +76,7 @@ export function sanitizeSettings(raw: unknown): EditorSettings {
     renderWhitespace: parmi(r.renderWhitespace, ["none", "selection", "boundary", "all"] as const, d.renderWhitespace),
     autoSave: parmi(r.autoSave, ["off", "afterDelay", "onFocusChange"] as const, d.autoSave),
     autoSaveDelay: entre(r.autoSaveDelay, 200, 60_000, d.autoSaveDelay),
+    formatOnSave: booleen(r.formatOnSave, d.formatOnSave),
     checkForUpdates: booleen(r.checkForUpdates, d.checkForUpdates),
   }
 }

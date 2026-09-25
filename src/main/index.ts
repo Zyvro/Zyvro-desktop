@@ -314,6 +314,13 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+Shift+F",
           click: (_item, win) => send(win as BrowserWindow, "menu:find-in-project"),
         },
+        { type: "separator" },
+        // ⇧⌥F, comme VS Code sur les trois systèmes.
+        {
+          label: "Format Document",
+          accelerator: "Shift+Alt+F",
+          click: (_item, win) => send(win as BrowserWindow, "menu:format-document"),
+        },
       ],
     },
     {
