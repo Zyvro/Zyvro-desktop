@@ -182,7 +182,7 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
   check(
     "**un onglet de session porte son nom, pas « Shell 3 »**",
-    panel.includes("readStatus(key).persistent ?? `Shell ${index + 1}`"),
+    panel.includes("readStatus(key).persistent ?? `Shell ${sessions.indexOf(key) + 1}`"),
     "on ne sait plus laquelle on regarde"
   )
 
@@ -241,7 +241,9 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
   check(
     "**et la reprise n'écrase pas un onglet ouvert entre-temps**",
-    panel.includes("setSessions((actuelles) => [...keys, ...actuelles.filter((key) => !keys.includes(key))])"),
+    // Les onglets sont des groupes de shells ; la fusion est `withRestored`
+    // (shared/termgroups, vérifiée par check-termgroups).
+    panel.includes("setGroups((actuels) => withRestored(actuels, keys))"),
     "cliquer une session pendant la reprise ne fait rien du tout"
   )
 }
