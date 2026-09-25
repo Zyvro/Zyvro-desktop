@@ -49,6 +49,11 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.21
+
+**Breadcrumbs above the editor.** The open file's path, one segment per folder,
+with its file icon. Click a folder to open Go to File limited to that folder.
+
 ## New in alpha.20
 
 **Problems (⇧⌘M / Ctrl+Shift+M).** The errors and warnings in your open files,

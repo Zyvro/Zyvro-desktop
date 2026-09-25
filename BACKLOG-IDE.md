@@ -10,17 +10,16 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 ## À faire
 
 1. **Terminal : scinder.**
-2. **Fil d'Ariane** au-dessus de l'éditeur.
-3. **Éditeurs côte à côte** (⌘\).
-4. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
+2. **Éditeurs côte à côte** (⌘\).
+3. **Taper pour chercher dans l'arbre**, comme VS Code : les lettres tapées
    sautent à la ligne qui commence ainsi.
-5. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
+4. **Formater le document** (⇧⌥F) avec les formateurs de Monaco, et au
     choix à l'enregistrement.
-6. **Fichiers récents** dans File › Open Recent, à côté des projets.
-7. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
-8. **Réglages de plus** : paires de crochets colorées, défilement collant
+5. **Fichiers récents** dans File › Open Recent, à côté des projets.
+6. **Un graphe modifié demande aussi avant de fermer**, comme un fichier.
+7. **Réglages de plus** : paires de crochets colorées, défilement collant
     (sticky scroll), zoom de la fenêtre retenu.
-9. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
+8. **Cliquer une marque de git** pour voir l'ancien texte et le rétablir, comme
     le coup d'œil de VS Code.
 
 Petits correctifs repérés en passant :
@@ -108,3 +107,5 @@ Petits correctifs repérés en passant :
   Monaco en liste et en compteur ; les modèles portent l'adresse de leur
   fichier (JSX compris dans un `.tsx`) ; « Cannot find module » tu, faute de
   `node_modules` visible.
+- **0.1.0-alpha.21 — le fil d'Ariane.** Le chemin du fichier au-dessus de
+  l'éditeur ; un dossier ouvre ⌘P filtré sur lui.

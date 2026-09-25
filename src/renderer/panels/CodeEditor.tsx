@@ -6,6 +6,7 @@ import { onCommand } from "~/lib/menuBridge"
 import { subscribeReveal, takeReveal } from "~/state/reveal"
 import { useWorkspace } from "~/state/workspace"
 import { registerSaver } from "~/state/savers"
+import { Breadcrumbs } from "~/panels/Breadcrumbs"
 import { getSettings, subscribeSettings } from "~/state/settings"
 import { lineHeightFor, type EditorSettings } from "../../shared/settings"
 import { lineChanges, type LineChange } from "../../shared/linediff"
@@ -395,6 +396,7 @@ export function CodeEditor({ tabId, path }: Props) {
           {saveError}
         </p>
       )}
+      <Breadcrumbs path={path} />
       <div className="relative min-h-0 flex-1">
         <div ref={attach} className="absolute inset-0" />
         {/* Un fichier Markdown s'ouvre aussi rendu, d'un clic, comme dans VS
