@@ -65,9 +65,9 @@ const release = (tag, extra = {}) => ({
     asset(`Zyvro.Studio-${tag.slice(1)}.dmg`),
     asset(`Zyvro.Studio-${tag.slice(1)}-mac.zip`),
     asset(`Zyvro.Studio-${tag.slice(1)}-arm64-mac.zip`),
-    asset(`Zyvro.Studio-${tag.slice(1)}-mac-arm64-patch-e33.0.0.tar.gz`),
-    asset(`Zyvro.Studio-${tag.slice(1)}-mac-x64-patch-e33.0.0.tar.gz`),
-    asset(`Zyvro.Studio-${tag.slice(1)}-win-x64-patch-e33.0.0.tar.gz`),
+    asset(`Zyvro.Studio-${tag.slice(1)}-mac-arm64-app-e33.0.0.tar.gz`),
+    asset(`Zyvro.Studio-${tag.slice(1)}-mac-x64-app-e33.0.0.tar.gz`),
+    asset(`Zyvro.Studio-${tag.slice(1)}-win-x64-app-e33.0.0.tar.gz`),
     asset(`Zyvro.Studio.Setup.${tag.slice(1)}.exe`),
   ],
   ...extra,
@@ -89,13 +89,17 @@ const release = (tag, extra = {}) => ({
     const c = t.pickUpdate(r, platform, arch, electron, inPlace)
     return c ? `${c.kind} ${c.asset.name}` : null
   }
-  check("**le correctif d'abord, sur un Mac Apple Silicon**", choix("darwin", "arm64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-arm64-patch-e33.0.0.tar.gz", choix("darwin", "arm64", "33.0.0", true))
-  check("et le sien sur un Mac Intel", choix("darwin", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-x64-patch-e33.0.0.tar.gz")
+  check("**le correctif d'abord, sur un Mac Apple Silicon**", choix("darwin", "arm64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-arm64-app-e33.0.0.tar.gz", choix("darwin", "arm64", "33.0.0", true))
+  check("et le sien sur un Mac Intel", choix("darwin", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-x64-app-e33.0.0.tar.gz")
   check("**Electron a changé : le zip complet, de la bonne architecture**", choix("darwin", "arm64", "32.1.0", true) === "full Zyvro.Studio-0.1.0-alpha.24-arm64-mac.zip" && choix("darwin", "x64", "32.1.0", true) === "full Zyvro.Studio-0.1.0-alpha.24-mac.zip", choix("darwin", "x64", "32.1.0", true))
   check("**une application qui ne peut pas s'écrire : l'image à ouvrir**", choix("darwin", "arm64", "33.0.0", false) === "manual Zyvro.Studio-0.1.0-alpha.24-arm64.dmg")
-  check("Windows : le correctif, sinon l'installeur sans questions", choix("win32", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-win-x64-patch-e33.0.0.tar.gz" && choix("win32", "x64", "33.0.0", false) === "full Zyvro.Studio.Setup.0.1.0-alpha.24.exe")
+  check("Windows : le correctif, sinon l'installeur sans questions", choix("win32", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-win-x64-app-e33.0.0.tar.gz" && choix("win32", "x64", "33.0.0", false) === "full Zyvro.Studio.Setup.0.1.0-alpha.24.exe")
   check("Linux : rien", choix("linux", "x64", "33.0.0", true) === null)
-  check("le nom du correctif ignore le `v` du tag", t.patchName("v1.0.0", "darwin", "arm64", "33.0.0") === "Zyvro.Studio-1.0.0-mac-arm64-patch-e33.0.0.tar.gz")
+  check(
+    "**les versions 24 à 29 ne trouvent plus de correctif : elles prennent le paquet complet**",
+    !t.patchName("0.1.0-alpha.30", "darwin", "arm64", "44.4.0").includes("-patch-e")
+  )
+  check("le nom du correctif ignore le `v` du tag", t.patchName("v1.0.0", "darwin", "arm64", "33.0.0") === "Zyvro.Studio-1.0.0-mac-arm64-app-e33.0.0.tar.gz")
 }
 
 // ---- le correctif fabriqué a la forme que l'application attend ----------------

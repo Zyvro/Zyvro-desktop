@@ -135,3 +135,9 @@ Petits correctifs repérés en passant :
   attend son enregistrement automatique (le badge de l'éditeur, lu sans toucher
   au composant partagé, `lib/graphSave`) ; Close Folder et Open Folder posent
   la question des brouillons.
+- **0.1.0-alpha.30 — la mise à jour sur Mac réparée (signalé).** `fs` d'Electron
+  voit `app.asar` comme un dossier : le correctif déplié paraissait vide et ne
+  s'effaçait plus. `original-fs` pour tout ce que fait la mise à jour ;
+  `check-update-electron` la fait tourner dans le vrai Electron ; correctifs
+  renommés (`-app-e…`) pour que les versions 24 à 29 prennent le paquet
+  complet, qu'elles savent poser.

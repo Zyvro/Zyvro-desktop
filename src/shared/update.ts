@@ -117,11 +117,18 @@ export type PackageKind = "patch" | "full" | "manual"
 const plateformeNom = (platform: string): string | null =>
   platform === "darwin" ? "mac" : platform === "win32" ? "win" : null
 
-/** Le nom du correctif, tel qu'écrit par `scripts/make-patch.mjs` et publié. */
+/**
+ * Le nom du correctif, tel qu'écrit par `scripts/make-patch.mjs` et publié.
+ *
+ * `-app-e…` et plus `-patch-e…` depuis alpha.30 : les versions 24 à 29
+ * cherchent `-patch-e…` et dépliaient mal un correctif (voir main/updater,
+ * `fsBrut`). Ne le trouvant plus, elles prennent le paquet complet, qu'elles
+ * savent poser — une seule fois, puis les correctifs reprennent.
+ */
 export function patchName(version: string, platform: string, arch: string, electron: string): string | null {
   const p = plateformeNom(platform)
   if (!p) return null
-  return `Zyvro.Studio-${version.replace(/^v/, "")}-${p}-${arch}-patch-e${electron}.tar.gz`
+  return `Zyvro.Studio-${version.replace(/^v/, "")}-${p}-${arch}-app-e${electron}.tar.gz`
 }
 
 // pickUpdate : le paquet à télécharger, du plus léger au plus lourd.

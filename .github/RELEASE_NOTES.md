@@ -49,6 +49,29 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## Fixed in alpha.30
+
+**Updating from alpha.24 to alpha.29 failed** with "The update package is not
+shaped like this app", and then "ENOTEMPTY: directory not empty" when you tried
+again. Inside Electron, the file system treats every `app.asar` file as a folder.
+That is how the app reads its own code, but it meant the updater could not see
+the `app.asar` in the package it had just unpacked, and could not delete it
+afterwards. The updater now reads the disk as it really is. A new check runs it
+inside the real Electron, where the bug showed up, rather than in plain Node,
+where it could not.
+
+Versions 24 to 29 cannot install the new small packages. They now download the
+full package instead, which they can install, just once. **If you already saw
+the error**, delete the leftover folder first, then choose **File › Check for
+Updates…**:
+
+```sh
+rm -rf ~/Library/Application\ Support/zyvro-desktop/updates
+```
+
+Or install this version from the `.dmg` as usual. From alpha.30 on, updates
+download only the latest small package, however many versions behind you are.
+
 ## Fixed in alpha.29
 
 - **The last change to a workflow could be lost.** The graph editor saves on its

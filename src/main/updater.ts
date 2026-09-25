@@ -1,7 +1,6 @@
 import { app, net, shell, type WebContents } from "electron"
 import { createHash } from "node:crypto"
-import { createWriteStream } from "node:fs"
-import fs from "node:fs/promises"
+import * as nodeFs from "node:fs"
 import path from "node:path"
 import { spawn } from "node:child_process"
 import { checksumFrom, compareVersions, newestRelease, pickUpdate, type PackageKind, type Release } from "../shared/update"
@@ -33,6 +32,30 @@ import { checksumFrom, compareVersions, newestRelease, pickUpdate, type PackageK
 // différence, et l'interface ne prétend rien de plus.
 
 const REPO = "Zyvro/Zyvro-desktop"
+
+// **Le système de fichiers sans asar.** Dans Electron, `fs` voit chaque
+// `app.asar` comme un dossier : c'est ce qui permet à l'application de lire son
+// propre code. Mais un correctif contient justement un `app.asar` — et alors
+// `access` le dit absent (« The update package is not shaped like this app »),
+// et `rm` du dossier déplié échoue sur ENOTEMPTY, en essayant de vider ce
+// faux dossier. Vécu sur un Mac en alpha.25, reproduit ici avec le vrai
+// Electron. `original-fs` est le module d'Electron qui voit les fichiers tels
+// qu'ils sont ; hors d'Electron (les vérifications sous Node), c'est `fs`.
+function fsBrut(): typeof nodeFs {
+  try {
+    return module.require("original-fs") as typeof nodeFs
+  } catch {
+    return nodeFs
+  }
+}
+const fs = {
+  access: (p: string) => fsBrut().promises.access(p),
+  mkdir: (p: string, o: nodeFs.MakeDirectoryOptions) => fsBrut().promises.mkdir(p, o),
+  readdir: (p: string) => fsBrut().promises.readdir(p),
+  rm: (p: string, o: nodeFs.RmOptions) => fsBrut().promises.rm(p, o),
+  writeFile: (p: string, data: string, o?: nodeFs.WriteFileOptions) => fsBrut().promises.writeFile(p, data, o),
+}
+const createWriteStream = (p: string) => fsBrut().createWriteStream(p)
 
 export type UpdateInfo = {
   current: string
@@ -120,8 +143,10 @@ export async function downloadUpdate(
   await fs.mkdir(dir, { recursive: true })
   // Les paquets des fois précédentes, déjà posés ou abandonnés : plus de cent
   // Mo chacun pour les complets. Le journal reste.
+  // Un reste qu'on n'arrive pas à effacer ne doit pas empêcher de télécharger :
+  // le nouveau paquet a son propre nom.
   for (const vieux of await fs.readdir(dir)) {
-    if (vieux !== JOURNAL) await fs.rm(path.join(dir, vieux), { recursive: true, force: true })
+    if (vieux !== JOURNAL) await fs.rm(path.join(dir, vieux), { recursive: true, force: true }).catch(() => undefined)
   }
   const file = path.join(dir, path.basename(name))
 
@@ -281,7 +306,7 @@ async function existe(p: string): Promise<boolean> {
 
 // deplier : le paquet ouvert dans un dossier à côté, et vérifié — un correctif
 // qui n'a pas la forme attendue ne sera pas posé sur l'application.
-async function deplier(file: string, kind: PackageKind): Promise<string> {
+export async function deplier(file: string, kind: PackageKind): Promise<string> {
   const stage = path.join(dossierMaj(), "stage")
   await fs.rm(stage, { recursive: true, force: true })
   await fs.mkdir(stage, { recursive: true })
@@ -301,7 +326,8 @@ async function deplier(file: string, kind: PackageKind): Promise<string> {
   }
   // Le tar de Windows (bsdtar, livré depuis Windows 10), par son chemin : un
   // autre `tar` dans le PATH lirait `C:` comme une machine distante.
-  const tar = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe")
+  const tar =
+    process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "/usr/bin/tar"
   await lancer(tar, ["-xzf", path.relative(stage, file)], stage)
   if (!(await existe(path.join(stage, "resources", "app.asar")))) {
     throw new Error("The update package is not shaped like this app. Nothing was installed.")
