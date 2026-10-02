@@ -138,7 +138,11 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   )
   check(
     "et il lit le projet et la permission au moment d'envoyer",
-    /useWorkspace\.getState\(\)\.project\?\.project/.test(panel) && /permissionFor\(projectDir\)/.test(panel)
+    // La permission ne prend plus de dossier — c'est une préférence de la
+    // personne, la même partout, voir state/permission.ts — mais elle est
+    // toujours lue à l'envoi et non capturée à l'ouverture de l'onglet : un
+    // message mis en file il y a dix minutes part avec le niveau d'aujourd'hui.
+    /useWorkspace\.getState\(\)\.project\?\.project/.test(panel) && /agentPermission\(\)/.test(panel)
   )
 }
 

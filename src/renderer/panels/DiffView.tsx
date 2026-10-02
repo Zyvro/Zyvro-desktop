@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Loader2 } from "lucide-react"
 import { languageFor, monaco } from "~/lib/monaco"
-import { gitKey } from "~/lib/git"
+import { gitKey, useGitRepositories } from "~/lib/git"
 
 // A change, shown side by side.
 //
@@ -30,8 +30,14 @@ export function DiffView({ path, staged, commit, against }: Props) {
   const editorRef = useRef<monaco.editor.IStandaloneDiffEditor | null>(null)
   const modelsRef = useRef<monaco.editor.ITextModel[]>([])
 
+  // Le chemin est relatif au dépôt choisi dans l'onglet Git, et le disque se
+  // lit relativement au projet : pour un dépôt en sous-dossier, il faut le
+  // préfixe. (Changer de dépôt ferme les diffs, donc celui-ci est le bon.)
+  const repos = useGitRepositories()
+  const repo = repos.data?.selected
   const sides = useQuery({
-    queryKey: [...gitKey, "diff-sides", path, staged, commit ?? "", against ?? ""],
+    queryKey: [...gitKey, "diff-sides", repo ?? "", path, staged, commit ?? "", against ?? ""],
+    enabled: repo !== undefined || repos.isError,
     queryFn: async () => {
       if (against !== undefined) {
         const [left, right] = await Promise.all([window.zyvro.files.read(against), window.zyvro.files.read(path)])
@@ -45,8 +51,10 @@ export function DiffView({ path, staged, commit, against }: Props) {
       // vide, ce qui est vrai — le fichier naissait.
       if (commit) {
         const [left, right] = await Promise.all([
-          window.zyvro.git.fileAt(path, `${commit}^`),
-          window.zyvro.git.fileAt(path, commit),
+          // Le chemin vient de l'arbre : c'est le dépôt qui tient le fichier
+          // qui répond, pas celui que l'onglet Git regarde.
+          window.zyvro.git.fileAt(path, `${commit}^`, true),
+          window.zyvro.git.fileAt(path, commit, true),
         ])
         return { left, right }
       }
@@ -56,7 +64,7 @@ export function DiffView({ path, staged, commit, against }: Props) {
       if (staged) {
         return { left, right: await window.zyvro.git.fileAt(path, "") }
       }
-      const onDisk = await window.zyvro.files.read(path)
+      const onDisk = await window.zyvro.files.read(repo ? `${repo}/${path}` : path)
       return { left, right: "text" in onDisk ? onDisk.text : "" }
     },
   })
@@ -103,7 +111,7 @@ export function DiffView({ path, staged, commit, against }: Props) {
     [path, sides.data]
   )
 
-  if (sides.isLoading) {
+  if (sides.isPending && !sides.isError) {
     return (
       <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 zy-spin" /> Reading both sides

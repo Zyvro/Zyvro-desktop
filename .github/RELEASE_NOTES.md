@@ -49,6 +49,24 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.44
+
+**Several repositories in one project.** A project handed to agents is often a
+folder holding several repositories side by side — a backend, a frontend, the
+desktop app. Source Control now lists the project and every folder directly
+inside it that has its own `.git`, with its branch, what it has to push or pull
+and how many files changed. Click one and the panel works on it: stage, commit,
+push, branches, stashes. The editor's git margin, the Timeline and a commit's
+diff follow the repository the file actually belongs to.
+
+**Agents open in the terminal without asking.** Both terminal buttons — the one
+in the agent panel header and *Open … in a terminal* — now launch the agent in
+full-auto mode: `claude --permission-mode=bypassPermissions
+--allow-dangerously-skip-permissions`, and `codex -c
+model_reasoning_effort="high" --dangerously-bypass-approvals-and-sandbox`. The
+agent runs commands and edits files anywhere the shell can reach, without a
+prompt; turns in the agent panel keep the permission you chose there.
+
 ## New in alpha.43
 
 **Compare two files.** Right-click a file in the Explorer and choose **Select for

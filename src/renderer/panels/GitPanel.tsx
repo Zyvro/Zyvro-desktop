@@ -4,6 +4,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleSlash,
+  FolderGit2,
   GitBranch,
   Loader2,
   Minus,
@@ -14,8 +15,8 @@ import {
 } from "lucide-react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
-import type { Change, GitStatus } from "../../preload"
-import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
+import type { Change, GitStatus, RepositorySummary } from "../../preload"
+import { gitActions, useGitAction, useGitRepositories, useGitStatus, useSelectRepo } from "~/lib/git"
 import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
 import { GitMenu } from "~/panels/GitMenu"
@@ -191,6 +192,113 @@ function Group({
         </div>
       )}
     </section>
+  )
+}
+
+// Les dépôts du projet, comme la section « Repositories » de VS Code : un
+// projet confié à des agents est souvent plusieurs dépôts côte à côte, et
+// chacun dit d'un coup d'œil sa branche et s'il a quelque chose à committer ou
+// à pousser. Cliquer en choisit un ; le reste du panneau parle alors de lui.
+//
+// Rien n'est affiché quand il n'y a que le projet lui-même : une liste d'une
+// ligne qui redit le nom du dossier ouvert ne sert à rien.
+function RepositoryList({ projectName }: { projectName: string }) {
+  const repos = useGitRepositories()
+  const select = useSelectRepo()
+  const [open, setOpen] = useState(true)
+  const list = repos.data?.repositories ?? []
+  if (list.length === 0 || (list.length === 1 && list[0].name === "")) return null
+  const selected = repos.data?.selected ?? ""
+
+  return (
+    <section className="border-b border-white/[0.06] pb-1 pt-1">
+      <div className="flex items-center gap-1 px-1">
+        <button className="flex min-w-0 flex-1 items-center gap-1 py-1 text-left" onClick={() => setOpen((o) => !o)}>
+          {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Repositories
+          </span>
+        </button>
+        <span className="ml-1 shrink-0 rounded-full bg-white/[0.09] px-1.5 text-[11px] text-muted-foreground">
+          {list.length}
+        </span>
+      </div>
+      {open && (
+        <div className="pl-1">
+          {list.map((repo) => (
+            <RepositoryRow
+              key={repo.name || "."}
+              repo={repo}
+              label={repo.name || projectName}
+              active={repo.name === selected}
+              busy={select.isPending && select.variables === repo.name}
+              onSelect={() => {
+                if (repo.name !== selected) select.mutate(repo.name)
+              }}
+            />
+          ))}
+        </div>
+      )}
+      {select.isError && (
+        <p className="mx-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1 text-[12px] text-destructive">
+          {(select.error as Error).message}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function RepositoryRow({
+  repo,
+  label,
+  active,
+  busy,
+  onSelect,
+}: {
+  repo: RepositorySummary
+  label: string
+  active: boolean
+  busy: boolean
+  onSelect: () => void
+}) {
+  const where = repo.branch ?? (repo.head ? `detached at ${repo.head}` : "no commit yet")
+  return (
+    <button
+      className={cn(
+        "flex w-full items-center gap-1.5 rounded-md px-2 py-[3px] text-left hover:bg-white/[0.06]",
+        active && "bg-white/[0.08]"
+      )}
+      title={`${label} · ${where}`}
+      onClick={onSelect}
+    >
+      {busy ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 zy-spin" />
+      ) : (
+        <FolderGit2 className={cn("h-3.5 w-3.5 shrink-0", active ? "text-primary" : "text-muted-foreground")} />
+      )}
+      <span className={cn("truncate text-[13px] leading-5", active && "font-medium")}>{label}</span>
+      <span className="flex min-w-0 items-center gap-1 truncate text-[11px] text-muted-foreground">
+        <GitBranch className="h-3 w-3 shrink-0" />
+        <span className="truncate">{where}</span>
+      </span>
+      <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2 text-[11px] text-muted-foreground">
+        {repo.ahead > 0 && <span title={`${repo.ahead} to push`}>↑{repo.ahead}</span>}
+        {repo.behind > 0 && <span title={`${repo.behind} to pull`}>↓{repo.behind}</span>}
+        {repo.conflicts > 0 && (
+          <span className="font-semibold text-red-400" title={`${repo.conflicts} conflicted`}>
+            !{repo.conflicts}
+          </span>
+        )}
+        {repo.changes > 0 && (
+          <span
+            className="rounded-full bg-white/[0.09] px-1.5"
+            title={`${repo.changes} changed file${repo.changes === 1 ? "" : "s"}`}
+          >
+            {repo.changes}
+          </span>
+        )}
+      </span>
+    </button>
   )
 }
 
@@ -399,7 +507,10 @@ export function GitPanel() {
   if (!project) {
     return <p className="p-3 text-[12px] text-muted-foreground">Open a project to use source control.</p>
   }
-  if (status.isLoading && !status.data) {
+  // isPending plutôt que isLoading : tant que la liste des dépôts n'a pas dit
+  // lequel lire, la requête du statut est en attente sans rien chercher, et
+  // isLoading la donnait pour finie — le panneau tombait sur « pas de dépôt ».
+  if (status.isPending && !status.isError) {
     return (
       <p className="flex items-center gap-2 p-3 text-[12px] text-muted-foreground">
         <Loader2 className="h-3.5 w-3.5 zy-spin" /> Reading the repository
@@ -407,10 +518,15 @@ export function GitPanel() {
     )
   }
   if (status.isError) {
+    // La liste reste là : une erreur dans un dépôt ne doit pas empêcher d'aller
+    // regarder les autres.
     return (
-      <p className="m-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[12px] text-destructive">
-        {(status.error as Error).message}
-      </p>
+      <>
+        <RepositoryList projectName={project.name} />
+        <p className="m-2 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-1.5 text-[12px] text-destructive">
+          {(status.error as Error).message}
+        </p>
+      </>
     )
   }
   if (!status.data?.repository) {
@@ -444,6 +560,7 @@ export function GitPanel() {
 
   return (
     <div className="zy-scroll flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <RepositoryList projectName={project.name} />
       <div className="flex items-center gap-1 px-2 pt-2">
         <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           <GitBranch className="h-3.5 w-3.5" />

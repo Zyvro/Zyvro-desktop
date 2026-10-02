@@ -18,8 +18,12 @@ import { gitActions, useGitAction } from "~/lib/git"
 
 const item =
   "flex cursor-default select-none items-center gap-2 rounded px-2 py-1 text-[13px] outline-none data-[highlighted]:bg-white/[0.09] data-[disabled]:opacity-40"
+// Le plafond est dans la constante, donc le sous-menu des branches l'a aussi —
+// et c'est lui qui peut être long : un dépôt a autant de branches qu'il veut, et
+// un menu se dimensionne sur son contenu jusqu'à sortir de la fenêtre. Voir
+// check-scroll-clip.mjs.
 const panel =
-  "panel z-50 min-w-[190px] p-1 shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
+  "panel zy-scroll z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[190px] overflow-y-auto p-1 shadow-[0_8px_32px_rgba(0,0,0,0.6)]"
 
 function Item({
   children,

@@ -1,3 +1,5 @@
+import type { AgentKind } from "../../shared/harness"
+
 // Ouvrir une session persistante depuis la barre latérale.
 //
 // La liste des sessions vit dans la barre ; les shells vivent dans le panneau
@@ -12,13 +14,39 @@
 // distinguer les deux à l'arrivée, et c'est le genre de distinction qu'on
 // oublie un jour.
 
-let demande: string | null = null
+/**
+ * Ce qu'on demande au panneau du bas d'ouvrir.
+ *
+ * Deux sortes, et il fallait les distinguer : une session persistante, dont on
+ * n'est que le client — fermer l'onglet la détache — et un harnais lancé dans
+ * son interface à lui, qu'on tue en fermant l'onglet. Le panneau les ouvre par
+ * deux chemins différents ; ce qu'elles ont en commun est d'être demandées
+ * d'ailleurs, et c'est ce que ce module transporte.
+ *
+ * Un seul jeton pour les deux, parce qu'il n'y a qu'une file d'une place : la
+ * dernière demande est celle qu'on ouvre, et deux compteurs à surveiller dans
+ * le panneau seraient deux chances d'en manquer une.
+ */
+export type Demande =
+  | { sorte: "persistante"; label: string }
+  | { sorte: "harnais"; harnais: AgentKind; model: string | null }
+
+let demande: Demande | null = null
 let jeton = 0
 const listeners = new Set<() => void>()
 
 /** Ouvrir la session portant cette étiquette. Vide = une nouvelle, sans nom. */
 export function askOpen(label: string): void {
-  demande = label
+  poser({ sorte: "persistante", label })
+}
+
+/** Ouvrir ce harnais dans son interface à lui, avec ce modèle. */
+export function askHarness(harnais: AgentKind, model: string | null): void {
+  poser({ sorte: "harnais", harnais, model })
+}
+
+function poser(valeur: Demande): void {
+  demande = valeur
   jeton++
   for (const listener of listeners) listener()
 }
@@ -31,7 +59,7 @@ export function openToken(): number {
  * Prendre la demande. Prendre, pas lire : un deuxième rendu ne doit pas ouvrir
  * une seconde session.
  */
-export function takeOpen(): string | null {
+export function takeOpen(): Demande | null {
   const valeur = demande
   demande = null
   return valeur

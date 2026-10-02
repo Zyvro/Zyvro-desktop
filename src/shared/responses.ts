@@ -34,9 +34,21 @@ export type ChatRequest = {
   tool_choice?: unknown
 }
 
+/**
+ * Un morceau de message quand le contenu n'est pas qu'du texte.
+ *
+ * Chat Completions accepte une chaîne ou une liste de morceaux ; la liste est
+ * ce qu'il faut pour une image. Le traducteur de codex n'en produit jamais —
+ * codex passe ses images autrement — mais celui de claude, si : ses images
+ * arrivent en base64 dans le corps.
+ */
+export type ChatContent =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+
 export type ChatMessage = {
   role: string
-  content: string | null
+  content: string | ChatContent[] | null
   tool_calls?: { id: string; type: "function"; function: { name: string; arguments: string } }[]
   tool_call_id?: string
 }
@@ -355,6 +367,11 @@ function usageFrom(usage: Record<string, unknown> | null): Record<string, number
 }
 
 /** sseLine : un événement, dans la forme qu'un flux SSE attend. */
-export function sseLine(event: ResponsesEvent): string {
+// sseLine écrit un événement sur le fil. Les deux protocoles que cette
+// application traduit — Responses et Anthropic Messages — emploient la même
+// forme : un nom d'événement, puis sa charge en JSON. D'où le type le plus
+// large qui les couvre tous les deux plutôt qu'une seconde copie de trois
+// lignes dans l'autre traducteur.
+export function sseLine(event: { type: string }): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
 }

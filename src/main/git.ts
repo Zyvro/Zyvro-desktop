@@ -378,6 +378,90 @@ export async function status(root: string): Promise<GitStatus | NoRepository> {
   return { repository: true, root: top, head, ...branchInfo, ...groups, remotes, projectPrefix }
 }
 
+// ---------- plusieurs dépôts ----------
+//
+// Un projet mené par des agents est rarement un seul dépôt : c'est un dossier
+// qui en tient plusieurs côte à côte — `Zyvro-backend/`, `Zyvro-frontend/`,
+// `Zyvro-desktop/`. L'onglet Git les liste et en regarde un à la fois.
+//
+// Un étage, pas plus. Descendre plus bas trouverait les dépôts que les
+// gestionnaires de paquets clonent dans `node_modules` ou `vendor`, et le
+// panneau se mettrait à proposer de committer dans une dépendance.
+
+// RepositorySummary est ce qu'il faut pour choisir : où, sur quelle branche,
+// et s'il y a quelque chose à faire là-dedans.
+export type RepositorySummary = {
+  // "" pour le projet lui-même, sinon le nom du sous-dossier.
+  name: string
+  branch: string | null
+  head: string | null
+  changes: number
+  conflicts: number
+  ahead: number
+  behind: number
+}
+
+// Les dossiers dans lesquels on ne cherche jamais de dépôt, même à un étage :
+// ce qu'on y trouverait appartient à un outil, pas à la personne.
+const NOT_A_PROJECT = new Set(["node_modules", "vendor", "dist", "build", "out", "target"])
+
+// isRepositoryName dit si un nom venu de la fenêtre peut désigner un
+// sous-dossier direct, et rien d'autre : un seul segment, ni `..`, ni chemin.
+export function isRepositoryName(name: string): boolean {
+  return (
+    typeof name === "string" &&
+    name.length > 0 &&
+    name !== "." &&
+    name !== ".." &&
+    !name.startsWith(".") &&
+    !/[\\/\0]/.test(name) &&
+    !NOT_A_PROJECT.has(name)
+  )
+}
+
+// hasOwnRepository : ce dossier est la racine d'un dépôt, pas seulement un
+// dossier à l'intérieur d'un dépôt. Un `.git` fichier compte aussi — c'est ce
+// qu'ont un worktree et un sous-module.
+export async function hasOwnRepository(dir: string): Promise<boolean> {
+  const stat = await fs.lstat(dir).catch(() => null)
+  // Un lien symbolique est refusé : il mènerait git hors du projet.
+  if (!stat || !stat.isDirectory()) return false
+  return (await fs.lstat(path.join(dir, ".git")).catch(() => null)) !== null
+}
+
+async function summarize(dir: string, name: string): Promise<RepositorySummary | null> {
+  const found = await status(dir).catch(() => null)
+  if (!found || !found.repository) return null
+  return {
+    name,
+    branch: found.branch,
+    head: found.head,
+    changes: new Set([...found.staged, ...found.unstaged].map((c) => c.path)).size,
+    conflicts: found.conflicts.length,
+    ahead: found.ahead,
+    behind: found.behind,
+  }
+}
+
+// repositories liste le projet (s'il est dans un dépôt) puis chacun de ses
+// sous-dossiers directs qui a son propre `.git`, dans l'ordre alphabétique.
+export async function repositories(root: string): Promise<RepositorySummary[]> {
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => [])
+  const names = entries
+    .filter((entry) => entry.isDirectory() && isRepositoryName(entry.name))
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b))
+
+  const children = await Promise.all(
+    names.map(async (name) => {
+      const dir = path.join(root, name)
+      return (await hasOwnRepository(dir)) ? summarize(dir, name) : null
+    })
+  )
+  const self = await summarize(root, "")
+  return [self, ...children].filter((repo): repo is RepositorySummary => repo !== null)
+}
+
 // diff answers with a unified diff for one path, so the renderer can show the
 // two sides. `--no-color` and a fixed context keep the output stable.
 export async function diff(root: string, relative: string, staged: boolean): Promise<string> {

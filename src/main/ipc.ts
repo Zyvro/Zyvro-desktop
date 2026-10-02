@@ -11,7 +11,7 @@ import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
-import { helpOf, installed } from "./cli"
+import { helpOf, installed, locate } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import * as textSearch from "./search"
@@ -74,6 +74,13 @@ export class Workspace {
    * ouvert.
    */
   root: string | null = null
+  /**
+   * Le dépôt Git que l'onglet Git regarde : "" pour le projet lui-même, sinon
+   * le nom d'un sous-dossier direct qui a son propre `.git`. Un projet confié à
+   * des agents est souvent plusieurs dépôts côte à côte — le front, le back, le
+   * bureau — et un onglet qui ne voyait que la racine n'en voyait aucun.
+   */
+  gitRepo = ""
   readonly daemon = new Daemon()
   readonly terminals = new Terminals()
   readonly agent = new AgentRunner()
@@ -208,6 +215,41 @@ function requireRoot(ws: Workspace): string {
   return ws.root
 }
 
+// requireGitRoot rend le dossier du dépôt choisi dans l'onglet Git. Le nom
+// vient de la fenêtre mais il a été vérifié à la sélection (`git:select-repo`) :
+// un seul segment, sous la racine, avec un `.git`. Il est revérifié ici parce
+// que le dossier a pu disparaître depuis, et qu'on retombe alors sur le projet
+// plutôt que de lancer git dans le vide.
+async function requireGitRoot(ws: Workspace): Promise<string> {
+  const root = requireRoot(ws)
+  if (!ws.gitRepo) return root
+  if (git.isRepositoryName(ws.gitRepo) && (await git.hasOwnRepository(path.join(root, ws.gitRepo)))) {
+    return path.join(root, ws.gitRepo)
+  }
+  ws.gitRepo = ""
+  return root
+}
+
+// gitOwnerOf rend le dépôt qui tient un fichier nommé depuis la racine du
+// projet, et le chemin du fichier dans ce dépôt.
+//
+// Pour ce que l'éditeur demande à git — la marge, la Timeline, le diff d'un
+// commit — le chemin est celui de l'arbre, relatif au projet, et non au dépôt
+// choisi dans l'onglet Git. Un fichier de `Zyvro-backend/` appartient au dépôt
+// `Zyvro-backend`, quel que soit celui qu'on regarde dans l'onglet.
+async function gitOwnerOf(ws: Workspace, relative: string): Promise<{ root: string; relative: string }> {
+  const root = requireRoot(ws)
+  const clean = relative.replace(/\\/g, "/")
+  const cut = clean.indexOf("/")
+  if (cut > 0) {
+    const first = clean.slice(0, cut)
+    if (git.isRepositoryName(first) && (await git.hasOwnRepository(path.join(root, first)))) {
+      return { root: path.join(root, first), relative: clean.slice(cut + 1) }
+    }
+  }
+  return { root, relative }
+}
+
 // ensureEngine garantit qu'une fenêtre a un moteur, avec ou sans projet.
 //
 // C'est le point unique où « aucun projet » cesse d'être un cas particulier :
@@ -297,6 +339,7 @@ export function registerIpc(onRecents?: () => void): void {
       ws.watcher = null
       ws.root = dir
       ws.project = dir
+      ws.gitRepo = ""
       win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
       win.setRepresentedFilename?.(dir)
       // Only a folder that opened successfully is worth offering again.
@@ -718,9 +761,7 @@ export function registerIpc(onRecents?: () => void): void {
         daemonOrigin: ws.daemon.current?.origin,
         daemonToken: ws.daemon.current?.token,
       },
-      null,
-      undefined,
-      typeof history === "string" ? history : ""
+      { seed: typeof history === "string" ? history : "" }
     )
   })
 
@@ -776,8 +817,7 @@ export function registerIpc(onRecents?: () => void): void {
       cols || 80,
       rows || 24,
       { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token },
-      command,
-      persistent.labelOf(root, name)
+      { command, label: persistent.labelOf(root, name), attached: true }
     )
     return { ...session, name, label: persistent.labelOf(root, name) }
   })
@@ -1035,12 +1075,95 @@ export function registerIpc(onRecents?: () => void): void {
     // modèle d'un seul choix.
     if (harness(kind).aimable) {
       const { ws } = requireWorkspace(event)
-      return aimableModels(ws.daemon.current)
+      const vises = await aimableModels(ws.daemon.current)
+      // Les deux listes, et pas seulement celle des serveurs.
+      //
+      // Tant que claude n'était pas visable, « visable » voulait dire « n'a pas
+      // de compte à lui qui vaille un menu ». Ce n'est plus vrai : viser est
+      // devenu quelque chose qu'on peut faire avec les trois, et un abonnement
+      // reste quelque chose qu'on a. Ne montrer que les serveurs ferait perdre
+      // `opus` et `sonnet` à qui ouvre ce menu sur son propre compte — un
+      // réglage retiré pour en ajouter un autre.
+      //
+      // Les siens d'abord : c'est le chemin par défaut. Les visés portent une
+      // barre oblique, ce qui les distingue sans qu'on ait à les étiqueter.
+      const siens = agentModule.aliasesFrom(helpOf(harness(kind).bin))
+      return { models: [...siens, ...vises.models], trouble: vises.trouble }
     }
     // Un CLI n'a pas de serveur à qui la question puisse mal tourner : sa liste
     // vient de son propre --help, et une analyse qui ne trouve rien n'est pas
     // une panne — le sélecteur propose alors le défaut et une case à remplir.
     return { models: agentModule.aliasesFrom(helpOf(harness(kind).bin)), trouble: [] }
+  })
+
+  /**
+   * Le même harnais, mais dans son interface à lui, dans un shell du panneau.
+   *
+   * Le panneau lance ces CLI en mode impression et redessine leur flux. C'est
+   * ce qu'il faut pour tenir une conversation ici. Mais ces programmes ont leur
+   * propre interface, et certaines personnes la préfèrent — ce chemin existe
+   * pour elles, sans leur demander de retrouver à la main le dossier, les
+   * serveurs MCP du projet et le modèle qu'elles venaient de choisir.
+   *
+   * Tout ce qu'un tour du panneau aurait eu, ce shell l'a : le même dossier, le
+   * même démon, la même visée. Ce qu'il n'a pas, c'est la permission décidée
+   * d'avance — dans une interface interactive, c'est la CLI qui demande.
+   */
+  ipcMain.handle("agent:shell", async (event, kind: string, model: string | null, cols: number, rows: number) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    // Le harnais vient de la fenêtre : c'est du texte jusqu'à preuve du
+    // contraire, et « lance ce harnais » deviendrait sinon « lance ce que je
+    // veux ».
+    if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
+    const table = harness(kind)
+
+    const found = locate(table.bin)
+    if (!found) {
+      throw new Error(`"${table.bin}" was not found on this machine. Install it with: ${table.install}`)
+    }
+
+    const pinned = typeof model === "string" && model.trim() ? model.trim() : null
+    const aim = await aimFor(pinned, ws.daemon.current)
+    // La passerelle n'est allumée que si ce harnais en a besoin ET qu'il vise
+    // quelque chose — exactement comme pour un tour du panneau, et c'est la
+    // même passerelle : elle route sur le nom du modèle, donc deux shells visant
+    // deux fournisseurs ne peuvent pas se marcher dessus.
+    if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
+    const passerelle = ws.agent.gatewayAim()
+
+    const env: Record<string, string> = {}
+    if (aim && kind === "qwen") Object.assign(env, agentModule.aimEnv(aim))
+    if (aim && passerelle && table.gateway) {
+      env[agentModule.GATEWAY_KEY_VAR] = passerelle.token
+      if (kind === "claude") Object.assign(env, agentModule.claudeAimEnv(passerelle.origin, passerelle.token))
+    }
+
+    // `codexAimArgs` déclare la passerelle comme un fournisseur, et il lui faut
+    // le NOM de la variable qui porte la clef, pas la clef : `env_key` dans sa
+    // configuration. C'est ce que `GatewayAim` ajoute à la poignée.
+    const vise =
+      aim && passerelle ? { baseUrl: passerelle.baseUrl, keyVar: agentModule.GATEWAY_KEY_VAR } : null
+    const args = agentModule.shellArgsFor(kind, pinned, aim, vise)
+
+    // Sous Windows, `claude` est `claude.cmd` : un script pour l'interpréteur
+    // de commandes, que rien ne lance directement. `cli.ts` le signale, et ici
+    // la réponse est de lancer l'interpréteur avec lui.
+    const command = found.needsShell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", found.file, ...args], env }
+      : { file: found.file, args, env }
+
+    return ws.terminals.create(
+      event.sender,
+      root,
+      cols || 80,
+      rows || 24,
+      { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token },
+      // L'étiquette est ce que l'onglet portera. Le modèle avec, quand il y en
+      // a un : deux shells du même harnais sur deux modèles différents sont la
+      // raison d'être de ce bouton pour qui compare.
+      { command, label: pinned ? `${kind} · ${pinned}` : kind }
+    )
   })
 
   // Arrêter une session qui se réveille toute seule. Le bouton du panneau, et
@@ -1134,35 +1257,64 @@ export function registerIpc(onRecents?: () => void): void {
   // from the workspace, never from the renderer, so a window cannot be talked
   // into running git somewhere else. The paths inside are checked against that
   // root by git.ts itself.
+  //
+  // « Le projet » veut dire le projet ou l'un de ses sous-dossiers directs qui
+  // est un dépôt : `requireGitRoot` rend celui que l'onglet a choisi, et ce
+  // choix ne passe que par `git:select-repo`, qui le vérifie.
+
+  ipcMain.handle("git:repositories", async (event) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    // Relu à chaque fois : un agent qui clone ou `git init` un sous-dossier
+    // doit le faire apparaître sans qu'on rouvre le projet.
+    const repos = await git.repositories(root)
+    // Un dossier qui n'est pas un dépôt mais qui en contient : on regarde le
+    // premier plutôt que de proposer un `git init` à la racine, qui ferait un
+    // dépôt de plus par-dessus ceux qui existent déjà.
+    if (repos.length > 0 && !repos.some((repo) => repo.name === ws.gitRepo)) ws.gitRepo = repos[0].name
+    const current = await requireGitRoot(ws)
+    return { selected: path.relative(root, current), repositories: repos }
+  })
+
+  ipcMain.handle("git:select-repo", async (event, name: string) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    const wanted = String(name ?? "")
+    if (wanted && !(git.isRepositoryName(wanted) && (await git.hasOwnRepository(path.join(root, wanted))))) {
+      throw new Error(`"${wanted}" is not a Git repository directly inside this project.`)
+    }
+    ws.gitRepo = wanted
+    return wanted
+  })
 
   ipcMain.handle("git:status", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.status(requireRoot(ws))
+    return git.status(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:init", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.init(requireRoot(ws))
+    return git.init(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:stage", async (event, paths: string[]) => {
     const { ws } = requireWorkspace(event)
-    return git.stage(requireRoot(ws), paths.map(String))
+    return git.stage(await requireGitRoot(ws), paths.map(String))
   })
 
   ipcMain.handle("git:unstage", async (event, paths: string[]) => {
     const { ws } = requireWorkspace(event)
-    return git.unstage(requireRoot(ws), paths.map(String))
+    return git.unstage(await requireGitRoot(ws), paths.map(String))
   })
 
   ipcMain.handle("git:discard", async (event, paths: string[]) => {
     const { ws } = requireWorkspace(event)
-    return git.discard(requireRoot(ws), paths.map(String))
+    return git.discard(await requireGitRoot(ws), paths.map(String))
   })
 
   ipcMain.handle("git:commit", async (event, message: string, options: git.CommitOptions) => {
     const { ws } = requireWorkspace(event)
-    return git.commit(requireRoot(ws), String(message), {
+    return git.commit(await requireGitRoot(ws), String(message), {
       amend: Boolean(options?.amend),
       stageAll: Boolean(options?.stageAll),
     })
@@ -1170,132 +1322,140 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle("git:diff", async (event, relative: string, staged: boolean) => {
     const { ws } = requireWorkspace(event)
-    return git.diff(requireRoot(ws), String(relative), Boolean(staged))
+    return git.diff(await requireGitRoot(ws), String(relative), Boolean(staged))
   })
 
   ipcMain.handle("git:head-text", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
-    return git.headText(requireRoot(ws), String(relative))
+    const owner = await gitOwnerOf(ws, String(relative))
+    return git.headText(owner.root, owner.relative)
   })
 
-  ipcMain.handle("git:file-at", async (event, relative: string, revision: string) => {
+  // `fromProject` : le chemin vient de l'arbre (la Timeline), pas de l'onglet
+  // Git, et c'est le dépôt qui tient le fichier qui répond.
+  ipcMain.handle("git:file-at", async (event, relative: string, revision: string, fromProject?: boolean) => {
     const { ws } = requireWorkspace(event)
-    return git.fileAt(requireRoot(ws), String(relative), String(revision))
+    if (fromProject) {
+      const owner = await gitOwnerOf(ws, String(relative))
+      return git.fileAt(owner.root, owner.relative, String(revision))
+    }
+    return git.fileAt(await requireGitRoot(ws), String(relative), String(revision))
   })
 
   ipcMain.handle("git:file-log", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
-    return git.fileLog(requireRoot(ws), String(relative))
+    const owner = await gitOwnerOf(ws, String(relative))
+    return git.fileLog(owner.root, owner.relative)
   })
 
   ipcMain.handle("git:log", async (event, limit?: number) => {
     const { ws } = requireWorkspace(event)
-    return git.log(requireRoot(ws), Number(limit) || 50)
+    return git.log(await requireGitRoot(ws), Number(limit) || 50)
   })
 
   ipcMain.handle("git:branches", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.branches(requireRoot(ws))
+    return git.branches(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:checkout", async (event, branch: string) => {
     const { ws } = requireWorkspace(event)
-    return git.checkout(requireRoot(ws), String(branch))
+    return git.checkout(await requireGitRoot(ws), String(branch))
   })
 
   ipcMain.handle("git:create-branch", async (event, name: string) => {
     const { ws } = requireWorkspace(event)
-    return git.createBranch(requireRoot(ws), String(name))
+    return git.createBranch(await requireGitRoot(ws), String(name))
   })
 
   ipcMain.handle("git:fetch", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.fetch(requireRoot(ws))
+    return git.fetch(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:pull", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.pull(requireRoot(ws))
+    return git.pull(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:push", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.push(requireRoot(ws))
+    return git.push(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:push-to", async (event, remote: string, setUpstream: boolean) => {
     const { ws } = requireWorkspace(event)
-    return git.pushTo(requireRoot(ws), String(remote), Boolean(setUpstream))
+    return git.pushTo(await requireGitRoot(ws), String(remote), Boolean(setUpstream))
   })
 
   ipcMain.handle("git:push-tags", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.pushTags(requireRoot(ws))
+    return git.pushTags(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:remotes", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.remoteList(requireRoot(ws))
+    return git.remoteList(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:add-remote", async (event, name: string, url: string) => {
     const { ws } = requireWorkspace(event)
-    return git.addRemote(requireRoot(ws), String(name), String(url))
+    return git.addRemote(await requireGitRoot(ws), String(name), String(url))
   })
 
   ipcMain.handle("git:remove-remote", async (event, name: string) => {
     const { ws } = requireWorkspace(event)
-    return git.removeRemote(requireRoot(ws), String(name))
+    return git.removeRemote(await requireGitRoot(ws), String(name))
   })
 
   ipcMain.handle("git:stash-list", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.stashList(requireRoot(ws))
+    return git.stashList(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:stash", async (event, message: string, includeUntracked: boolean) => {
     const { ws } = requireWorkspace(event)
-    return git.stash(requireRoot(ws), String(message ?? ""), Boolean(includeUntracked))
+    return git.stash(await requireGitRoot(ws), String(message ?? ""), Boolean(includeUntracked))
   })
 
   ipcMain.handle("git:stash-pop", async (event, index: number) => {
     const { ws } = requireWorkspace(event)
-    return git.stashPop(requireRoot(ws), Number(index))
+    return git.stashPop(await requireGitRoot(ws), Number(index))
   })
 
   ipcMain.handle("git:stash-apply", async (event, index: number) => {
     const { ws } = requireWorkspace(event)
-    return git.stashApply(requireRoot(ws), Number(index))
+    return git.stashApply(await requireGitRoot(ws), Number(index))
   })
 
   ipcMain.handle("git:stash-drop", async (event, index: number) => {
     const { ws } = requireWorkspace(event)
-    return git.stashDrop(requireRoot(ws), Number(index))
+    return git.stashDrop(await requireGitRoot(ws), Number(index))
   })
 
   ipcMain.handle("git:tags", async (event) => {
     const { ws } = requireWorkspace(event)
-    return git.tags(requireRoot(ws))
+    return git.tags(await requireGitRoot(ws))
   })
 
   ipcMain.handle("git:create-tag", async (event, name: string, message: string) => {
     const { ws } = requireWorkspace(event)
-    return git.createTag(requireRoot(ws), String(name), String(message ?? ""))
+    return git.createTag(await requireGitRoot(ws), String(name), String(message ?? ""))
   })
 
   ipcMain.handle("git:delete-tag", async (event, name: string) => {
     const { ws } = requireWorkspace(event)
-    return git.deleteTag(requireRoot(ws), String(name))
+    return git.deleteTag(await requireGitRoot(ws), String(name))
   })
 
   ipcMain.handle("git:rename-branch", async (event, from: string, to: string) => {
     const { ws } = requireWorkspace(event)
-    return git.renameBranch(requireRoot(ws), String(from), String(to))
+    return git.renameBranch(await requireGitRoot(ws), String(from), String(to))
   })
 
   ipcMain.handle("git:delete-branch", async (event, name: string, force: boolean) => {
     const { ws } = requireWorkspace(event)
-    return git.deleteBranch(requireRoot(ws), String(name), Boolean(force))
+    return git.deleteBranch(await requireGitRoot(ws), String(name), Boolean(force))
   })
 
   ipcMain.handle("git:output", async () => git.output())
@@ -1304,7 +1464,7 @@ export function registerIpc(onRecents?: () => void): void {
 
   ipcMain.handle("git:suggest-message", async (event) => {
     const { ws } = requireWorkspace(event)
-    return commitMessage.suggest(requireRoot(ws))
+    return commitMessage.suggest(await requireGitRoot(ws))
   })
 
   // Clone is the one that has no project yet: the person picks where it lands

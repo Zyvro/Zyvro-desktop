@@ -6,6 +6,7 @@ import { Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { addGroup, groupOf, placeIn, removeKey, resizePair, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
 import { splitToken, subscribeSplit } from "~/state/terminalSplit"
 import { cn } from "@/lib/utils"
+import type { AgentKind } from "../../shared/harness"
 import { droppedText } from "../../shared/dropped"
 import { estEffacement, findPathLinks, toProjectPath, type PathLink } from "../../shared/termlinks"
 import { revealAt } from "~/state/reveal"
@@ -53,9 +54,29 @@ type SessionStatus = {
    * nom réel une fois la session ouverte.
    */
   persistent?: string
+  /**
+   * Le harnais que ce shell lance, quand il en lance un.
+   *
+   * Présent avant l'ouverture — c'est lui qui dit à la référence de rappel de
+   * lancer `claude` plutôt qu'un shell de connexion — et il reste ensuite pour
+   * que l'onglet porte son nom plutôt que « Shell 3 ».
+   */
+  harnais?: { nom: AgentKind; model: string | null }
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
+
+// Ce que l'onglet porte. Une session persistante a son étiquette, un harnais a
+// son nom et son modèle — deux shells du même harnais sur deux modèles sont
+// exactement ce qu'on ouvre quand on compare, et « Shell 2 » et « Shell 3 » ne
+// diraient pas lequel est lequel.
+function nomOnglet(key: string, index: number): string {
+  const statut = readStatus(key)
+  if (statut.persistent !== undefined) return statut.persistent
+  const harnais = statut.harnais
+  if (harnais) return harnais.model ? `${harnais.nom} · ${harnais.model}` : harnais.nom
+  return `Shell ${index + 1}`
+}
 
 const statuses = new Map<string, SessionStatus>()
 const listeners = new Map<string, Set<() => void>>()
@@ -327,9 +348,17 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   // composants ; il ne reste qu'à s'y brancher et à redemander ce qui a défilé.
   const dejaLa = readStatus(key).ptyId
   const persiste = readStatus(key).persistent
+  const harnais = readStatus(key).harnais
   const ouvrir = dejaLa
     ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
-    : persiste !== undefined
+    : harnais !== undefined
+      ? // Un harnais dans son interface à lui. Un shell ordinaire à tout point
+        // de vue — fermer l'onglet le tue, son défilement est gardé — sauf
+        // qu'il ne démarre pas sur une invite.
+        window.zyvro.agent
+          .shell(harnais.nom, harnais.model, term.cols, term.rows)
+          .then((session) => ({ ...session, reprise: false }))
+      : persiste !== undefined
       ? // Une session persistante : on n'est que son client. Fermer cet onglet
         // la détachera au lieu de la tuer — c'est toute la différence, et c'est
         // ce que `tmux` et `screen` savent faire et que nous ne savons pas.
@@ -665,10 +694,15 @@ export function TerminalPanel(): JSX.Element {
   if (demande !== vueDemande.current) {
     vueDemande.current = demande
     window.queueMicrotask(() => {
-      const label = takeOpen()
-      if (label === null) return
+      const ordre = takeOpen()
+      if (ordre === null) return
       const key = nextSessionKey()
-      patchStatus(key, { persistent: label })
+      patchStatus(
+        key,
+        ordre.sorte === "persistante"
+          ? { persistent: ordre.label }
+          : { harnais: { nom: ordre.harnais, model: ordre.model } }
+      )
       setGroups((actuels) => addGroup(actuels, key))
       setActiveKey(key)
     })
@@ -753,7 +787,7 @@ export function TerminalPanel(): JSX.Element {
           const isActive = group.includes(activeKey)
           // Un onglet partagé porte le nom de chacun de ses shells, comme VS
           // Code : « Shell 1, Shell 3 ».
-          const noms = group.map((key) => readStatus(key).persistent ?? `Shell ${sessions.indexOf(key) + 1}`)
+          const noms = group.map((key) => nomOnglet(key, sessions.indexOf(key)))
           const nom = noms.join(", ")
           const principal = group.includes(activeKey) ? activeKey : group[0]
           return (

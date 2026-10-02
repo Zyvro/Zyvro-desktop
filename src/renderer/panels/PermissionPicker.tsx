@@ -88,7 +88,13 @@ export function PermissionPicker({
       </Menu.Trigger>
 
       <Menu.Portal>
-        <Menu.Content className="panel z-50 w-[19rem] p-1" align="start" side="top" sideOffset={6}>
+        <Menu.Content
+          className="panel zy-scroll z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto w-[19rem] p-1"
+          align="start"
+          side="top"
+          sideOffset={6}
+          collisionPadding={8}
+        >
           {LEVELS.map((level) => (
             <Menu.Item
               key={level.value}

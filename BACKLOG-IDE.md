@@ -182,3 +182,9 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.43 — comparer deux fichiers.** « Select for Compare » puis
   « Compare with Selected » au clic droit de l'arbre ; un onglet de diff lu
   du disque (`openCompare`), qui suit les deux fichiers renommés.
+- **0.1.0-alpha.44 — plusieurs dépôts, et les agents du terminal en YOLO.**
+  L'onglet Git liste le projet et ses sous-dossiers directs qui ont un `.git`
+  (`git.repositories`, choix vérifié côté principal par `git:select-repo`) ; la
+  marge, la Timeline et le diff d'un commit suivent le dépôt du fichier
+  (`gitOwnerOf`). Les deux boutons du terminal lancent claude et codex avec
+  `SHELL_YOLO`.

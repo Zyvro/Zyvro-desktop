@@ -324,6 +324,54 @@ try {
   check("a URL whose name is .. is refused", badUrl)
 
   rmSync(remote, { recursive: true, force: true })
+
+  // ---- plusieurs dépôts dans un même projet ------------------------------
+  //
+  // Un projet confié à des agents tient souvent plusieurs dépôts côte à côte.
+  // Ce qui casse en silence : en manquer un, en trouver un dans `node_modules`,
+  // ou laisser la fenêtre nommer un dossier hors du projet.
+  const parent = mkdtempSync(path.join(os.tmpdir(), "zyvro-multi-"))
+  try {
+    const gitIn = (where, ...args) => execFileSync("git", args, { cwd: where, encoding: "utf8" })
+    const makeRepo = (name) => {
+      const where = path.join(parent, name)
+      mkdirSync(where, { recursive: true })
+      gitIn(where, "init", "-q")
+      writeFileSync(path.join(where, "a.txt"), "a\n")
+      return where
+    }
+    makeRepo("front")
+    makeRepo("back")
+    makeRepo("node_modules/dep")
+    mkdirSync(path.join(parent, "notes"))
+    // Deux étages plus bas : hors de portée, et c'est voulu.
+    makeRepo("deep/inner")
+
+    const plain = await git.repositories(parent)
+    check(
+      "**un dossier qui n'est pas un dépôt liste ceux qu'il contient**",
+      plain.map((r) => r.name).join(",") === "back,front",
+      plain.map((r) => r.name).join(",")
+    )
+    check("chacun dit ce qu'il a à committer", plain.every((r) => r.changes === 1), JSON.stringify(plain))
+
+    gitIn(parent, "init", "-q")
+    const nested = await git.repositories(parent)
+    check(
+      "**et le projet lui-même vient en premier quand il en est un**",
+      nested.map((r) => r.name).join(",") === ",back,front",
+      nested.map((r) => r.name).join(",")
+    )
+
+    check("un nom simple est un dépôt possible", git.isRepositoryName("front"))
+    for (const bad of ["", ".", "..", "../x", "a/b", "a\\b", ".git", "node_modules"]) {
+      check(`**« ${bad} » ne peut pas désigner un dépôt**`, !git.isRepositoryName(bad))
+    }
+    check("un dossier sans .git n'a pas son propre dépôt", !(await git.hasOwnRepository(path.join(parent, "notes"))))
+    check("un dossier avec, si", await git.hasOwnRepository(path.join(parent, "front")))
+  } finally {
+    rmSync(parent, { recursive: true, force: true })
+  }
 } finally {
   rmSync(repo, { recursive: true, force: true })
   rmSync(dir, { recursive: true, force: true })

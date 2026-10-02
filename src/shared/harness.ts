@@ -44,13 +44,28 @@ export type Harness = {
    * la traduction a été écrite : `shared/responses.ts` et la passerelle de
    * `main/responses.ts` se mettent entre lui et un serveur Chat Completions.
    *
-   * claude reste sur son compte : le viser demanderait le même travail côté
-   * Anthropic, et personne ne l'a demandé.
+   * claude ne poste que sur l'API Messages d'Anthropic, et il l'est depuis que
+   * `shared/messages.ts` existe — pour la même raison et par le même chemin.
+   * « Personne ne l'a demandé » a tenu jusqu'au jour où quelqu'un a ouvert le
+   * menu des modèles sur claude et n'y a pas trouvé ses serveurs.
    *
    * C'est toute la différence entre « trois harnais » et « trois harnais fois
    * tous nos fournisseurs ».
    */
   aimable: boolean
+  /**
+   * Passe-t-il par la passerelle pour atteindre un serveur Chat Completions ?
+   *
+   * Qwen Code parle Chat nativement : on lui donne l'adresse du fournisseur et
+   * il appelle. Les deux autres parlent chacun leur protocole, et la passerelle
+   * traduit — c'est elle qui porte la clef du fournisseur, donc elle n'est
+   * allumée que pour qui en a besoin.
+   *
+   * Écrit ici plutôt que déduit d'une liste de noms dans `openGateway` : un
+   * quatrième harnais s'ajoute dans cette table, et rien d'autre ne doit être
+   * à retrouver ailleurs.
+   */
+  gateway: boolean
 }
 
 /**
@@ -72,7 +87,8 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     bin: "claude",
     install: "npm install -g @anthropic-ai/claude-code",
     envelope: "claude",
-    aimable: false,
+    aimable: true,
+    gateway: true,
   },
   codex: {
     kind: "codex",
@@ -80,6 +96,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     install: "npm install -g @openai/codex",
     envelope: "codex",
     aimable: true,
+    gateway: true,
   },
   qwen: {
     kind: "qwen",
@@ -87,6 +104,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     install: "npm install -g @qwen-code/qwen-code",
     envelope: "claude",
     aimable: true,
+    gateway: false,
   },
 }
 
@@ -135,6 +153,27 @@ export function joinAimed(provider: string, model: string): string {
   return `${provider}/${model}`
 }
 
+/**
+ * SHELL_YOLO : ce que reçoit un harnais ouvert dans un terminal.
+ *
+ * Ce shell sert à confier un projet entier à un agent, et une CLI qui s'arrête
+ * à chaque commande pour demander l'autorisation défait l'intérêt de l'avoir
+ * lancée. Ça ne touche que les deux boutons du terminal : les tours du panneau
+ * gardent la permission qu'on leur a choisie.
+ *
+ * Les guillemets doubles de codex sont du TOML pour `-c`, pas du shell.
+ */
+export const SHELL_YOLO: Record<"claude" | "codex", readonly string[]> = {
+  claude: ["--permission-mode=bypassPermissions", "--allow-dangerously-skip-permissions"],
+  codex: ["-c", 'model_reasoning_effort="high"', "--dangerously-bypass-approvals-and-sandbox"],
+}
+
+// Un argument tapé dans un shell : tel quel s'il n'a rien que le shell
+// interprète, entre apostrophes sinon — `'model_reasoning_effort="high"'`.
+function forShell(arg: string): string {
+  return /^[A-Za-z0-9_./=:-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`
+}
+
 // interactiveCommand : la ligne à taper dans un terminal pour ouvrir le harnais
 // dans son interface à lui, sur la même conversation que le panneau.
 //
@@ -143,12 +182,20 @@ export function joinAimed(provider: string, model: string): string {
 // ses propres raccourcis, un long travail qu'on veut suivre. Les deux se
 // reprennent de la même façon qu'au panneau : `--resume` pour claude et qwen,
 // la sous-commande `resume` pour codex (`codex resume <id>`, identifiant
-// positionnel). Sans session encore, le harnais nu.
+// positionnel). Sans session encore, le harnais nu — en YOLO dans les deux cas.
 export function interactiveCommand(kind: AgentKind, sessionId: string | null): string {
   // Un identifiant de session est fait de lettres, chiffres et tirets ; tout
   // autre caractère est refusé plutôt que cité — il part dans un shell.
   const id = sessionId && /^[A-Za-z0-9_-]+$/.test(sessionId) ? sessionId : null
   const bin = HARNESSES[kind].bin
-  if (!id) return bin
-  return kind === "codex" ? `${bin} resume ${id}` : `${bin} --resume ${id}`
+  const yolo = kind === "claude" || kind === "codex" ? SHELL_YOLO[kind].map(forShell) : []
+  // `codex resume` prend ses options après la sous-commande, comme `--help`
+  // les liste ; l'identifiant reste le dernier mot.
+  const parts =
+    kind === "codex"
+      ? id
+        ? [bin, "resume", ...yolo, id]
+        : [bin, ...yolo]
+      : [bin, ...yolo, ...(id ? ["--resume", id] : [])]
+  return parts.join(" ")
 }

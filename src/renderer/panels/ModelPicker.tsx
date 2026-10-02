@@ -102,12 +102,40 @@ export function ModelPicker({
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
       </Menu.Trigger>
       <Menu.Portal>
-        <Menu.Content className="panel z-50 min-w-[190px] p-1" align="end" sideOffset={4}>
+        {/* Pas plus haut que la fenêtre.
+
+            Ce menu tenait en quatre lignes tant qu'il ne proposait que les
+            alias d'un CLI. Le jour où les modèles des serveurs locaux sont
+            entrés dedans, il y en a eu une trentaine : ouvert depuis l'en-tête
+            d'une conversation, il descendait sous le bas de la fenêtre et la
+            moitié de la liste était inatteignable.
+
+            Un plafond, donc, et pas une direction. J'ai d'abord posé
+            `side="top"` — le réflexe, parce que le sélecteur de permission juste
+            à côté l'a. Mesuré, ce déclencheur-ci est à 137 px du haut, pas en
+            bas : il n'y a pas de place au-dessus, Radix rebasculait vers le bas,
+            et le drapeau ne décrivait rien de vrai. Ce qui corrige vraiment est
+            le plafond, que Radix sait calculer des deux côtés :
+            `--radix-…-available-height` est ce qu'il mesure entre le déclencheur
+            et le bord de la fenêtre, `collisionPadding` laisse le jour qui
+            empêche de coller à ce bord. Mesuré après : menu de 161 à 892 dans
+            une fenêtre de 900, 660 px visibles pour 763 px de contenu. */}
+        <Menu.Content
+          className="panel z-50 flex max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[190px] max-w-[22rem] flex-col overflow-hidden p-1"
+          align="end"
+          sideOffset={4}
+          collisionPadding={8}
+        >
           <Menu.Item className={item} onSelect={() => choose(null)}>
             <Check className={cn("h-3 w-3", model ? "opacity-0" : "opacity-100")} />
             {ranWith ? `${ranWith} (default)` : "Default model"}
           </Menu.Item>
 
+          {/* Ce qui défile est le milieu, pas le menu entier : le modèle par
+              défaut en haut et « Other… » en bas restent sous la main. Sans ça,
+              épingler un nom qu'on tape demanderait de faire défiler trente
+              modèles pour atteindre la dernière ligne. */}
+          <div className="zy-scroll -mx-1 min-h-0 flex-1 overflow-y-auto px-1">
           {liste.length > 0 && <Menu.Separator className="my-1 h-px bg-white/[0.08]" />}
 
           {/* Une liste vide chez un harnais visable n'est pas une panne, c'est
@@ -142,10 +170,16 @@ export function ModelPicker({
           )}
           {liste.map((alias) => (
             <Menu.Item key={alias} className={item} onSelect={() => choose(alias)}>
-              <Check className={cn("h-3 w-3", model === alias ? "opacity-100" : "opacity-0")} />
-              {alias}
+              <Check className={cn("h-3 w-3 shrink-0", model === alias ? "opacity-100" : "opacity-0")} />
+              {/* Tronqué plutôt qu'élargissant : « ollama-local/nemotron-3-nano:30b-cloud »
+                  fait grandir le menu jusqu'à déborder par le côté, et il y en a
+                  trente. Le nom entier reste lisible dans l'infobulle. */}
+              <span className="truncate" title={alias}>
+                {alias}
+              </span>
             </Menu.Item>
           ))}
+          </div>
 
           <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
           <Menu.Item

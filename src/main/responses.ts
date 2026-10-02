@@ -1,10 +1,17 @@
-// La passerelle qui permet de viser codex ailleurs que sur son abonnement.
+// La passerelle qui permet de viser un harnais ailleurs que sur son abonnement.
 //
-// codex ne poste que sur l'API Responses d'OpenAI. Nos fournisseurs parlent
-// Chat Completions. Ce serveur se met entre les deux : il écoute en Responses
-// sur la boucle locale, appelle en Chat, et retraduit le flux. La traduction
-// elle-même est dans `shared/responses.ts` et ne connaît pas le réseau ; ici il
-// n'y a que la plomberie.
+// codex ne poste que sur l'API Responses d'OpenAI ; claude ne poste que sur
+// l'API Messages d'Anthropic. Nos fournisseurs parlent Chat Completions. Ce
+// serveur se met entre les deux : il écoute les deux protocoles sur la boucle
+// locale, appelle en Chat, et retraduit le flux. Les traductions elles-mêmes
+// sont dans `shared/responses.ts` et `shared/messages.ts` et ne connaissent pas
+// le réseau ; ici il n'y a que la plomberie.
+//
+// **Un serveur pour les deux, et pas deux serveurs.** Ils partagent tout ce qui
+// compte : le port, le jeton, et la table des visées — qui est indexée par le
+// nom du modèle, que les deux CLI renvoient dans leur corps de requête. Deux
+// serveurs, ce serait deux ports à ouvrir, deux jetons à tenir et deux tables à
+// garder d'accord, pour une différence qui tient dans le chemin de l'URL.
 //
 // Trois décisions, et chacune a une raison qu'on paie si on l'oublie :
 //
@@ -29,10 +36,23 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from "node:crypto"
 import type { Aim } from "../shared/harness"
 import { chatRequestFrom, sseLine, Translator, type ResponsesRequest } from "../shared/responses"
+import {
+  chatRequestFrom as messagesChatRequest,
+  Translator as MessagesTranslator,
+  type MessagesRequest,
+} from "../shared/messages"
 
 export type GatewayHandle = {
-  /** Ce qu'on écrit dans `base_url`. codex y ajoute `/responses`. */
+  /** Ce qu'on écrit dans `base_url` de codex. Il y ajoute `/responses`. */
   baseUrl: string
+  /**
+   * Ce qu'on écrit dans `ANTHROPIC_BASE_URL`.
+   *
+   * Sans `/v1` : claude l'ajoute lui-même — relevé à la sonde, il poste sur
+   * `/v1/messages?beta=true`. Donner l'adresse de codex ici ferait un
+   * `/v1/v1/messages` que rien ne sert.
+   */
+  origin: string
   token: string
   /** Enregistre une visée sous le nom de modèle que codex renverra. */
   aim: (key: string, aim: Aim) => void
@@ -52,6 +72,7 @@ export async function startGateway(): Promise<GatewayHandle> {
 
   return {
     baseUrl: `http://127.0.0.1:${port}/v1`,
+    origin: `http://127.0.0.1:${port}`,
     token,
     aim: (key, aim) => routes.set(key, aim),
     close: () => server.close(),
@@ -75,12 +96,21 @@ async function handle(
   token: string,
   routes: Map<string, Aim>
 ): Promise<void> {
+  const chemin = (req.url ?? "").split("?")[0]
+
+  // claude teste l'adresse avant de s'en servir : `HEAD /api/hello`, sans
+  // en-tête d'autorisation — relevé à la sonde. Répondre 401 ici lui fait
+  // conclure que le point d'accès n'existe pas, et le tour ne part jamais.
+  if (chemin === "/api/hello") {
+    res.writeHead(200, { "content-type": "application/json" })
+    res.end(req.method === "HEAD" ? undefined : JSON.stringify({ ok: true }))
+    return
+  }
+
   if (req.headers.authorization !== `Bearer ${token}`) {
     refuser(res, 401, "Unauthorized.")
     return
   }
-
-  const chemin = (req.url ?? "").split("?")[0]
 
   // codex interroge cette route au démarrage, et ce n'est PAS la liste de
   // modèles d'OpenAI : c'est son catalogue à lui. Relevé avec
@@ -102,6 +132,11 @@ async function handle(
   if (chemin === "/v1/models") {
     res.writeHead(200, { "content-type": "application/json" })
     res.end(JSON.stringify({ models: [] }))
+    return
+  }
+
+  if (chemin === "/v1/messages") {
+    await handleMessages(req, res, routes)
     return
   }
 
@@ -207,6 +242,108 @@ async function handle(
   }
 
   if (echoue) return
+
+  ouvrir()
+  for (const evenement of traducteur.end()) res.write(sseLine(evenement))
+  res.end()
+}
+
+// ---- l'autre protocole ---------------------------------------------------
+
+/**
+ * Le tour d'un claude visé sur un de nos serveurs.
+ *
+ * La même plomberie que ci-dessus, dans l'autre langue : lire le corps,
+ * retrouver la visée par le nom du modèle, appeler en Chat, retraduire le flux.
+ * Ce qui diffère tient en une phrase — une panne se dit `{"type":"error"}` chez
+ * Anthropic, et `response.failed` chez OpenAI — et c'est pour cette phrase-là
+ * que les deux boucles ne sont pas une seule : les fondre demanderait de passer
+ * deux traducteurs et deux façons d'échouer à une fonction qui ne saurait plus
+ * quoi faire de l'une ni de l'autre.
+ */
+async function handleMessages(req: IncomingMessage, res: ServerResponse, routes: Map<string, Aim>): Promise<void> {
+  let body: MessagesRequest
+  try {
+    body = JSON.parse(await corps(req)) as MessagesRequest
+  } catch {
+    refuser(res, 400, "The body is not JSON.")
+    return
+  }
+
+  const demande = typeof body.model === "string" ? body.model : ""
+  const aim = routes.get(demande)
+  if (!aim) {
+    refuser(res, 404, `This gateway serves ${[...routes.keys()].join(", ") || "no model yet"}, not "${demande}".`)
+    return
+  }
+
+  const chat = messagesChatRequest(body, aim.model)
+  let amont: Response
+  try {
+    amont = await fetch(`${aim.url.replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${aim.key.trim() || "local"}` },
+      body: JSON.stringify(chat),
+    })
+  } catch (err) {
+    refuser(res, 502, `Could not reach ${aim.provider} at ${aim.url}: ${(err as Error).message}`)
+    return
+  }
+
+  if (!amont.ok || !amont.body) {
+    const detail = await amont.text().catch(() => "")
+    refuser(res, amont.status === 200 ? 502 : amont.status, detail || `${aim.provider} answered ${amont.status}.`)
+    return
+  }
+
+  const traducteur = new MessagesTranslator(demande)
+  let commence = false
+  const ouvrir = (): void => {
+    if (commence) return
+    commence = true
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" })
+    res.write(sseLine(traducteur.created()))
+  }
+
+  const lecteur = amont.body.getReader()
+  const decodeur = new TextDecoder()
+  let reste = ""
+
+  for (;;) {
+    const { done, value } = await lecteur.read()
+    if (done) break
+    reste += decodeur.decode(value, { stream: true })
+    const lignes = reste.split("\n")
+    reste = lignes.pop() ?? ""
+    for (const ligne of lignes) {
+      const propre = ligne.trim()
+      if (!propre.startsWith("data:")) continue
+      const charge = propre.slice(5).trim()
+      if (charge === "" || charge === "[DONE]") continue
+      let brut: unknown
+      try {
+        brut = JSON.parse(charge)
+      } catch {
+        continue
+      }
+      // Un serveur Chat qui échoue en cours de flux pose un objet d'erreur au
+      // milieu des morceaux. Avant le premier octet, une erreur vaut mieux en
+      // HTTP : claude l'affiche mot pour mot au lieu d'un tour vide.
+      const erreur = (brut as { error?: { message?: unknown } })?.error
+      if (erreur) {
+        const dit = typeof erreur.message === "string" ? erreur.message : `${aim.provider} refused.`
+        if (!commence) refuser(res, 502, dit)
+        else {
+          res.write(sseLine(traducteur.failed(dit)))
+          res.end()
+        }
+        return
+      }
+      const evenements = traducteur.push(brut)
+      if (evenements.length > 0) ouvrir()
+      for (const evenement of evenements) res.write(sseLine(evenement))
+    }
+  }
 
   ouvrir()
   for (const evenement of traducteur.end()) res.write(sseLine(evenement))

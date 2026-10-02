@@ -12,7 +12,7 @@ import type { WebContents } from "electron"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect } from "./mcp"
 import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
-import { AGENT_KINDS, type Aim, type AgentKind, harness } from "../shared/harness"
+import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO } from "../shared/harness"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
@@ -396,6 +396,79 @@ export function aimEnv(aim: Aim): Record<string, string> {
   }
 }
 
+/**
+ * shellArgsFor : le même harnais, mais dans son interface à lui.
+ *
+ * Le panneau lance ces CLI en mode impression — `claude -p`, `codex exec` — et
+ * lit leur flux JSON pour le redessiner. C'est ce qu'il faut pour tenir une
+ * conversation dans une fenêtre qui est la nôtre. Mais ces programmes ont leur
+ * propre interface, qui est bonne, et certaines personnes la préfèrent : ce
+ * bouton ouvre un shell et la lance dedans, dans le même dossier, avec les
+ * mêmes serveurs MCP et le même modèle que le panneau aurait utilisés.
+ *
+ * Donc : pas de `-p`, pas de `--output-format`, pas de `--append-system-prompt`.
+ * Rien de ce qui sert à parler à un programme plutôt qu'à quelqu'un. Ce qui
+ * reste est le modèle, et la visée quand il y en a une.
+ *
+ * La permission, elle, est levée d'office : ce shell sert à confier un projet
+ * entier à un agent, et une CLI qui s'arrête à chaque commande pour demander
+ * l'autorisation défait l'intérêt de l'avoir lancée. C'est le mode « YOLO » —
+ * `SHELL_YOLO` — et il ne touche que les boutons du terminal : les tours du panneau gardent
+ * la permission qu'on leur a choisie.
+ */
+// Défini à côté de la ligne tapée par l'autre bouton, pour que les deux
+// ouvertures dans un terminal ne divergent jamais.
+export { SHELL_YOLO }
+
+export function shellArgsFor(
+  kind: AgentKind,
+  model: string | null,
+  aim: Aim | null = null,
+  gateway: GatewayAim | null = null
+): string[] {
+  const pinned = model?.trim() ? model.trim() : null
+  if (kind === "claude") {
+    // La route de la passerelle EST le nom du modèle, comme pour un tour du
+    // panneau : claude le renvoie tel quel dans son corps de requête.
+    return [...SHELL_YOLO.claude, ...(pinned ? ["--model", pinned] : [])]
+  }
+  if (kind === "qwen") {
+    return aim ? aimArgs(aim) : pinned ? ["-m", pinned] : []
+  }
+  return [
+    ...SHELL_YOLO.codex,
+    ...(aim && gateway ? codexAimArgs(gateway) : []),
+    ...(pinned ? ["--model", pinned] : []),
+  ]
+}
+
+/**
+ * claudeAimEnv : par où claude atteint le fournisseur visé.
+ *
+ * Trois variables, et pas un drapeau : Claude Code n'a aucune option de ligne
+ * de commande pour son point d'accès, et une clef sur la ligne de commande se
+ * lirait dans `ps` pour tout ce qui tourne sur la machine.
+ *
+ * **L'adresse est sans `/v1`.** Relevé à la sonde : avec
+ * `ANTHROPIC_BASE_URL=http://127.0.0.1:PORT`, la CLI poste sur
+ * `/v1/messages?beta=true` — elle ajoute le préfixe elle-même. Lui donner
+ * l'adresse que codex reçoit ferait un `/v1/v1/messages` que rien ne sert.
+ *
+ * **`ANTHROPIC_AUTH_TOKEN` et non `ANTHROPIC_API_KEY`** : la seconde fait
+ * basculer la CLI sur une authentification par clef d'API, avec le compte qui
+ * va avec. La première est ce qu'elle met dans `Authorization: Bearer`, ce que
+ * la passerelle attend.
+ *
+ * **Deux variables et pas trois** : le modèle reste sur `--model`, que
+ * `argsFor` pose déjà. Vérifié de bout en bout — la CLI écrit une mise en garde
+ * « unrecognized_model » pour un nom qu'elle ne connaît pas, puis envoie ce nom
+ * tel quel dans son corps de requête, ce qui est tout ce dont la passerelle a
+ * besoin pour router. La mise en garde est du bruit, pas un refus.
+ */
+export function claudeAimEnv(origin: string, token: string): Record<string, string> {
+  return { ANTHROPIC_BASE_URL: origin, ANTHROPIC_AUTH_TOKEN: token }
+}
+
 // directoriesOf is the set of folders a batch of images sits in, without
 // repeats — one --add-dir per folder rather than per file.
 function directoriesOf(files: string[]): string[] {
@@ -727,8 +800,21 @@ export class AgentRunner {
    * Rien ne s'allume pour un harnais qui n'en a pas besoin : une fenêtre qui ne
    * se sert que de claude n'ouvre jamais ce serveur.
    */
+  /**
+   * La passerelle allumée, si elle l'est.
+   *
+   * Rendue plutôt que gardée privée parce qu'un shell ouvert sur un harnais en
+   * a besoin des mêmes trois choses que `send` : l'adresse pour codex,
+   * l'origine pour claude, le jeton pour les deux. La rendre en entier plutôt
+   * qu'en recopier trois champs — c'est le même objet, et deux idées de ce
+   * qu'il contient finiraient par diverger.
+   */
+  gatewayAim(): GatewayHandle | null {
+    return this.gateway
+  }
+
   async openGateway(kind: AgentKind, aim: Aim, key: string): Promise<void> {
-    if (kind !== "codex") return
+    if (!harness(kind).gateway) return
     if (!this.gateway) this.gateway = await startGateway()
     this.gateway.aim(key, aim)
   }
@@ -760,7 +846,9 @@ export class AgentRunner {
     let disposeConfig: (() => void) | null = null
 
     const passerelle =
-      kind === "codex" && aim && this.gateway ? { baseUrl: this.gateway.baseUrl, keyVar: GATEWAY_KEY_VAR } : null
+      harness(kind).gateway && aim && this.gateway
+        ? { baseUrl: this.gateway.baseUrl, keyVar: GATEWAY_KEY_VAR }
+        : null
     const args: string[] = argsFor(kind, ctx, resume ?? null, model, images, aim, passerelle)
     // La clef du point d'accès arrive ici et pas dans `args` : la table des
     // processus est lisible par tout ce qui tourne sur cette machine.
@@ -770,6 +858,13 @@ export class AgentRunner {
     // lui poser en plus l'adresse d'un fournisseur serait un second chemin
     // vers le même serveur, c'est-à-dire celui des deux qui aura tort.
     if (aim && kind === "qwen") Object.assign(env, aimEnv(aim))
+    // claude lit son point d'accès dans l'environnement, comme qwen, mais c'est
+    // la passerelle qu'il y trouve et pas le fournisseur : il ne sait pas
+    // parler Chat Completions. `--model` porte déjà le nom visé, qui est la
+    // route — voir argsFor.
+    if (passerelle && kind === "claude" && this.gateway) {
+      Object.assign(env, claudeAimEnv(this.gateway.origin, this.gateway.token))
+    }
     if (passerelle && this.gateway) env[GATEWAY_KEY_VAR] = this.gateway.token
 
     if (mcpAvailable(ctx)) {

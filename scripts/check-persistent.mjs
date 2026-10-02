@@ -182,7 +182,10 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
   check(
     "**un onglet de session porte son nom, pas « Shell 3 »**",
-    panel.includes("readStatus(key).persistent ?? `Shell ${sessions.indexOf(key) + 1}`"),
+    // Le nom passe par `nomOnglet` depuis qu'il y a deux sortes de shells
+    // nommés — une session persistante et un harnais lancé dans son interface.
+    // Ce qui compte n'a pas changé : l'étiquette gagne sur le numéro.
+    /nomOnglet\(key, sessions\.indexOf\(key\)\)/.test(panel) && /statut\.persistent !== undefined\) return statut\.persistent/.test(panel),
     "on ne sait plus laquelle on regarde"
   )
 
@@ -214,11 +217,28 @@ const AUTRE = "/tmp/zyvro-autre-projet"
 // dedans.
 {
   const term = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
+  const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
 
+  // `attached` a d'abord été déduit — `command !== null` — parce que la seule
+  // commande qu'un pty recevait était celle qui attache. Ce n'est plus vrai :
+  // un harnais ouvert dans son interface est une commande aussi, et il n'est le
+  // client de rien. Déduire aurait fait passer un shell ordinaire pour une
+  // session persistante : son défilement jeté à la fermeture, et son nom dans
+  // la liste des sessions attachées de la barre latérale.
   check(
-    "**une session persistante se sait telle**",
-    /attached: command !== null/.test(term),
+    "**une session persistante se sait telle, et le dit plutôt qu'on le devine**",
+    /attached = false/.test(term) && !/attached: command !== null/.test(term),
     "rien ne la distingue d'un shell ordinaire"
+  )
+  check(
+    "et c'est l'attachement qui le déclare",
+    /\{ command, label: persistent\.labelOf\(root, name\), attached: true \}/.test(ipc),
+    "une session persistante passerait pour un shell ordinaire"
+  )
+  check(
+    "**tandis qu'un harnais dans un shell n'est le client de rien**",
+    /agent:shell/.test(ipc) && !/agent:shell[\s\S]{0,2000}?attached: true/.test(ipc),
+    "fermer son onglet le tue : son défilement se garde comme celui de n'importe quel shell"
   )
   check(
     "**et son défilement n'est pas gardé à la fermeture**",

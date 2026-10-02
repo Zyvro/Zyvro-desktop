@@ -41,7 +41,7 @@ const from = (rel) => path.join(ROOT, rel).replace(/\\/g, "/")
 writeFileSync(
   path.join(dir, "h.ts"),
   `export * from "${from("src/shared/harness")}"\n` +
-    `export { argsFor, promptWith, qwenPermission, aimArgs, aimEnv, AgentRunner } from "${from("src/main/agent")}"\n` +
+    `export { argsFor, promptWith, qwenPermission, aimArgs, aimEnv, claudeAimEnv, AgentRunner } from "${from("src/main/agent")}"\n` +
     `export { startShotsServer } from "${from("src/main/shots")}"\n` +
     `export { writeMcpConfig, mcpServers } from "${from("src/main/mcp")}"\n` +
     `export { launch } from "${from("src/main/cli")}"\n`
@@ -246,10 +246,45 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
     both
   )
 
-  // Seul un harnais visable l'est. Donner une adresse à claude ne ferait rien
-  // de bon : elle devrait parler son protocole, et c'est une traduction à
-  // écrire, pas un drapeau à poser. Personne n'a demandé celle-là.
-  check("claude ne se vise pas", mod.harness("claude").aimable === false)
+  // ---- claude, visé par la passerelle -----------------------------------
+  //
+  // « Donner une adresse à claude ne ferait rien de bon : elle devrait parler
+  // son protocole, et c'est une traduction à écrire, pas un drapeau à poser. »
+  // C'était vrai, et la traduction a été écrite — `shared/messages.ts`. Ce qui
+  // reste vrai, c'est que claude ne reçoit JAMAIS l'adresse du fournisseur :
+  // il reçoit celle de la passerelle, qui, elle, porte la clef.
+  check("**les trois harnais se visent**", ["claude", "codex", "qwen"].every((k) => mod.harness(k).aimable))
+  check(
+    "et deux d'entre eux passent par la passerelle",
+    mod.harness("claude").gateway && mod.harness("codex").gateway && !mod.harness("qwen").gateway,
+    "qwen parle Chat Completions nativement, les deux autres non"
+  )
+
+  const claudeVise = mod.argsFor("claude", ctx, null, "custom/m", [], secret).join(" ")
+  check("**la route voyage dans `--model`**", claudeVise.includes("--model custom/m"), claudeVise)
+  check(
+    "**et ni la clef ni l'adresse du fournisseur ne sont sur la ligne**",
+    !claudeVise.includes("sk-tres-secrete") && !claudeVise.includes("exemple.test"),
+    claudeVise
+  )
+
+  const env = mod.claudeAimEnv("http://127.0.0.1:1234", "jeton-de-passerelle")
+  check("**l'adresse arrive par l'environnement**", env.ANTHROPIC_BASE_URL === "http://127.0.0.1:1234", JSON.stringify(env))
+  check(
+    "**sans `/v1`, que la CLI ajoute elle-même**",
+    !env.ANTHROPIC_BASE_URL.endsWith("/v1"),
+    "relevé à la sonde : elle poste sur /v1/messages?beta=true"
+  )
+  check(
+    "**et le jeton sous `ANTHROPIC_AUTH_TOKEN`, jamais `ANTHROPIC_API_KEY`**",
+    env.ANTHROPIC_AUTH_TOKEN === "jeton-de-passerelle" && env.ANTHROPIC_API_KEY === undefined,
+    "la seconde fait basculer la CLI sur un autre compte"
+  )
+  check(
+    "et c'est le processus principal qui la pose",
+    agentSrc.includes("claudeAimEnv(this.gateway.origin, this.gateway.token)"),
+    "personne ne met la passerelle dans l'environnement du sous-processus"
+  )
   // codex, si — depuis le 18/09, parce que la traduction a été écrite : voir
   // check-responses.mjs, qui éprouve la passerelle elle-même.
   check("**codex se vise, par la passerelle**", mod.harness("codex").aimable === true)
@@ -511,11 +546,18 @@ await appServer?.stop?.()
 // identifiant mal placé chez codex serait lu comme la question.
 {
   const ic = mod.interactiveCommand
-  check("claude reprend sa session dans le terminal", ic("claude", "abc-123") === "claude --resume abc-123")
-  check("**codex par sa sous-commande, identifiant positionnel**", ic("codex", "abc-123") === "codex resume abc-123", ic("codex", "abc-123"))
-  check("qwen comme claude", ic("qwen", "abc-123") === "qwen --resume abc-123")
-  check("sans session encore : le harnais nu", ic("claude", null) === "claude")
-  check("**un identifiant qui n'en est pas un ne part pas dans le shell**", ic("claude", "x; rm -rf ~") === "claude")
+  const CLAUDE_YOLO = "--permission-mode=bypassPermissions --allow-dangerously-skip-permissions"
+  const CODEX_YOLO = `-c 'model_reasoning_effort="high"' --dangerously-bypass-approvals-and-sandbox`
+  check("claude reprend sa session dans le terminal, en YOLO", ic("claude", "abc-123") === `claude ${CLAUDE_YOLO} --resume abc-123`, ic("claude", "abc-123"))
+  check(
+    "**codex par sa sous-commande, identifiant positionnel, en YOLO**",
+    ic("codex", "abc-123") === `codex resume ${CODEX_YOLO} abc-123`,
+    ic("codex", "abc-123")
+  )
+  check("qwen comme claude, sans drapeau de permission", ic("qwen", "abc-123") === "qwen --resume abc-123")
+  check("sans session encore : le harnais, en YOLO", ic("claude", null) === `claude ${CLAUDE_YOLO}`, ic("claude", null))
+  check("et codex aussi", ic("codex", null) === `codex ${CODEX_YOLO}`, ic("codex", null))
+  check("**un identifiant qui n'en est pas un ne part pas dans le shell**", ic("claude", "x; rm -rf ~") === `claude ${CLAUDE_YOLO}`)
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
   check("le panneau a le bouton", /openInTerminal\(kind, thread\.id\)/.test(panneau))
 }

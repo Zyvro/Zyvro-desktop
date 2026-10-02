@@ -97,6 +97,7 @@ import type {
   LogEntry,
   NoRepository,
   Remote,
+  RepositorySummary,
   Stash,
 } from "../main/git"
 
@@ -118,6 +119,7 @@ export type {
   LogEntry,
   NoRepository,
   Remote,
+  RepositorySummary,
   Stash,
   Conversation,
   StoredMessage,
@@ -428,6 +430,20 @@ const api = {
     detach: (conversationId: string, id: string): Promise<void> =>
       invoke("agent:detach", conversationId, id),
     models: (kind: AgentKind): Promise<ModelChoices> => invoke("agent:models", kind),
+    /**
+     * Ouvrir ce harnais dans un shell du panneau, dans son interface à lui.
+     *
+     * Pour qui préfère l'interface de la CLI à celle du panneau. Le shell part
+     * avec ce que le panneau aurait utilisé : le dossier du projet, les
+     * serveurs MCP, et le modèle choisi — visé chez un fournisseur local s'il
+     * l'est.
+     */
+    shell: (
+      kind: AgentKind,
+      model: string | null,
+      cols: number,
+      rows: number
+    ): Promise<{ id: string; pty: boolean; banner?: string }> => invoke("agent:shell", kind, model, cols, rows),
     // Ce qu'une puce affiche d'elle-même. Une adresse `data:`, ou rien quand le
     // fichier n'est plus là.
     thumbnail: (conversationId: string, id: string): Promise<string | null> =>
@@ -570,6 +586,9 @@ const api = {
   },
 
   git: {
+    repositories: (): Promise<{ selected: string; repositories: RepositorySummary[] }> =>
+      invoke("git:repositories"),
+    selectRepo: (name: string): Promise<string> => invoke("git:select-repo", name),
     status: (): Promise<GitStatus | NoRepository> => invoke("git:status"),
     init: (): Promise<void> => invoke("git:init"),
     stage: (paths: string[]): Promise<void> => invoke("git:stage", paths),
@@ -580,8 +599,8 @@ const api = {
     diff: (path: string, staged: boolean): Promise<string> => invoke("git:diff", path, staged),
     /** Le fichier au dernier commit, chemin relatif au projet ; null s'il n'y en a pas. */
     headText: (path: string): Promise<string | null> => invoke("git:head-text", path),
-    fileAt: (path: string, revision: string): Promise<string> =>
-      invoke("git:file-at", path, revision),
+    fileAt: (path: string, revision: string, fromProject = false): Promise<string> =>
+      invoke("git:file-at", path, revision, fromProject),
     log: (limit?: number): Promise<LogEntry[]> => invoke("git:log", limit),
     /** La Timeline d'un fichier : ses commits, renommages suivis. */
     fileLog: (path: string): Promise<FileCommit[]> => invoke("git:file-log", path),

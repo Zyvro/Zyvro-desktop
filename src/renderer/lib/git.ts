@@ -25,12 +25,37 @@ export const gitKey = ["git"] as const
 // something to the repository somewhere else.
 const POLL_MS = 3000
 
-export function useGitStatus(enabled = true) {
+// Les dépôts du projet : lui-même et ses sous-dossiers directs qui en sont un.
+// Plus lent que le statut, parce que chaque entrée est un `git status` à elle
+// seule et qu'un dépôt qui apparaît n'a pas besoin d'apparaître en trois
+// secondes.
+const REPOS_POLL_MS = 6000
+
+export function useGitRepositories(enabled = true) {
   const project = useWorkspace((s) => s.project)
   return useQuery({
-    queryKey: [...gitKey, "status", project?.project ?? ""],
-    queryFn: () => window.zyvro.git.status(),
+    queryKey: [...gitKey, "repositories", project?.project ?? ""],
+    queryFn: () => window.zyvro.git.repositories(),
     enabled: enabled && Boolean(project),
+    refetchInterval: REPOS_POLL_MS,
+    refetchOnWindowFocus: true,
+    placeholderData: (previous) => previous,
+  })
+}
+
+export function useGitStatus(enabled = true) {
+  const project = useWorkspace((s) => s.project)
+  // Le statut attend de savoir quel dépôt il lit : sans ça, le premier appel
+  // part sur la racine du projet, qui n'est souvent pas un dépôt, et le panneau
+  // propose un « git init » l'espace d'un instant.
+  const repos = useGitRepositories(enabled)
+  const selected = repos.data?.selected
+  return useQuery({
+    queryKey: [...gitKey, "status", project?.project ?? "", selected ?? ""],
+    queryFn: () => window.zyvro.git.status(),
+    // Une liste qui échoue ne doit pas bloquer le statut : il lit alors la
+    // racine, comme avant, et dit lui-même ce qui ne va pas.
+    enabled: enabled && Boolean(project) && (selected !== undefined || repos.isError),
     refetchInterval: POLL_MS,
     refetchOnWindowFocus: true,
     // Keeping the previous answer while the next one is in flight is what stops
@@ -59,6 +84,27 @@ export function useGitAction<TArgs>(run: (args: TArgs) => Promise<unknown>) {
       gitFinished(verbThen(run, Boolean(error)), Boolean(error))
       void client.invalidateQueries({ queryKey: gitKey })
       void client.invalidateQueries({ queryKey: ["files"] })
+    },
+  })
+}
+
+// useSelectRepo fait regarder un autre dépôt à l'onglet Git.
+//
+// Les diffs ouverts sont fermés en même temps : leur chemin est relatif au
+// dépôt qu'on quitte, et relu dans le suivant il montrerait un autre fichier,
+// ou rien, sans dire pourquoi.
+export function useSelectRepo() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => window.zyvro.git.selectRepo(name),
+    onSuccess: () => {
+      const { tabs, closeTab } = useWorkspace.getState()
+      // Seulement ceux de l'onglet Git : un diff de la Timeline ou de Compare
+      // nomme ses fichiers depuis le projet et reste juste.
+      for (const tab of tabs) if (tab.kind === "diff" && !tab.commit && !tab.against) closeTab(tab.id)
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: gitKey })
     },
   })
 }

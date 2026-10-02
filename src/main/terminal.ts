@@ -68,6 +68,15 @@ export function ptyAvailable(): boolean {
 
 // Le shell du panneau vit dans shell.ts : c'est un choix de la personne, pas un
 // détail du pty. `$SHELL` reste le défaut, mais il n'est plus le seul mot.
+/**
+ * Ce qu'un pty lance à la place du shell de connexion.
+ *
+ * Deux choses s'en servent : la commande qui attache une session persistante,
+ * et le harnais qu'on ouvre dans son interface à lui depuis le panneau de
+ * l'agent. `env` est ce que la seconde a apporté — voir makePty.
+ */
+export type Command = { file: string; args: string[]; env?: Record<string, string> }
+
 function defaultShell(): { file: string; args: string[] } {
   return shellCommand()
 }
@@ -77,11 +86,18 @@ function makePty(
   cols: number,
   rows: number,
   extra: Record<string, string | undefined> = {},
-  command: { file: string; args: string[] } | null = null
+  command: Command | null = null
 ): PtyLike {
   const mod = loadPty()
   const { file, args } = command ?? defaultShell()
-  const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", ...extra }
+  // L'environnement de la commande en dernier : c'est le plus précis des trois.
+  //
+  // Il existe pour ce qu'un harnais lancé à la main doit savoir et qui ne peut
+  // pas passer par ses arguments — l'adresse et le jeton de la passerelle, la
+  // clef d'un fournisseur. Une clef sur la ligne de commande se lit dans `ps`,
+  // pour tout ce qui tourne sur la machine ; c'est la règle de ce dépôt depuis
+  // que la question de l'agent part sur stdin, et elle vaut ici aussi.
+  const env = { ...process.env, TERM: "xterm-256color", COLORTERM: "truecolor", ...extra, ...command?.env }
 
   if (mod) {
     const proc = mod.spawn(file, args, { name: "xterm-256color", cols, rows, cwd, env })
@@ -188,28 +204,51 @@ export class Terminals {
     cols = 80,
     rows = 24,
     mcp: McpTarget | null = null,
-    // Ce qu'on lance à la place du shell de connexion : la commande qui attache
-    // une session persistante. Le reste — le pty, le tampon, la reprise — est
-    // rigoureusement le même, et c'est voulu : une session persistante est un
-    // shell de plus dans le panneau, pas un second panneau.
-    command: { file: string; args: string[] } | null = null,
-    /** L'étiquette d'une session persistante, retenue pour la reprise. */
-    label?: string,
     /**
-     * Le défilement d'une session précédente, quand ce shell la remplace.
+     * Ce qui n'est pas un shell de connexion ordinaire.
      *
-     * Semé dans ce qu'il a « vu » : sans ça, la prochaine sauvegarde ne
-     * retiendrait que ce qu'il a écrit depuis, et l'historique repris
-     * disparaîtrait à la deuxième réouverture.
+     * Deux choses passent par ici : la commande qui attache une session
+     * persistante, et le harnais qu'on ouvre dans son interface à lui. Le reste
+     * — le pty, le tampon, la reprise — est rigoureusement le même, et c'est
+     * voulu : ce sont des shells de plus dans le panneau, pas un second
+     * panneau.
+     *
+     * Un objet plutôt qu'une suite d'arguments : `attached` s'est ajouté le
+     * jour où les deux ont cessé de vouloir dire la même chose, et une
+     * septième position optionnelle est une position qu'on remplit de travers.
      */
-    seed = ""
+    options: {
+      command?: Command | null
+      /** L'étiquette de la session, retenue pour la reprise et pour l'onglet. */
+      label?: string
+      /**
+       * Vrai quand ce shell n'est que le client d'une session qui lui survit.
+       *
+       * Déduit de `command !== null` tant que la commande ne servait qu'à
+       * attacher. Ce n'est plus vrai : un harnais lancé dans un shell est une
+       * commande aussi, et il n'est le client de rien — fermer son onglet le
+       * tue, et son défilement mérite d'être gardé comme celui de n'importe
+       * quel shell. Déduire ici aurait fait perdre l'un pour l'autre en
+       * silence.
+       */
+      attached?: boolean
+      /**
+       * Le défilement d'une session précédente, quand ce shell la remplace.
+       *
+       * Semé dans ce qu'il a « vu » : sans ça, la prochaine sauvegarde ne
+       * retiendrait que ce qu'il a écrit depuis, et l'historique repris
+       * disparaîtrait à la deuxième réouverture.
+       */
+      seed?: string
+    } = {}
   ): { id: string; pty: boolean; banner?: string } {
+    const { command = null, label, attached = false, seed = "" } = options
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
     const lieu = cwd || os.homedir()
     const pty = makePty(lieu, cols, rows, wired?.env, command)
     const vu = seed ? `${seed.slice(-SHELL_MAX_BYTES)}\r\n` : ""
-    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, attached: command !== null, label })
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, attached, label })
 
     pty.onData((data) => {
       this.remember(id, data)

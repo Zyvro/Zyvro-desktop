@@ -64,7 +64,7 @@ try {
 {
   const lire = (p) => readFileSync(path.join(ROOT, p), "utf8")
   check("le principal suit les renommages, hors du journal Git Output", /"log", "--follow"/.test(lire("src/main/git.ts")) && /quiet: true \}\s*\)\s*\n\s*return parseFileLog/.test(lire("src/main/git.ts")))
-  check("un commit se lit contre son parent", /fileAt\(path, `\$\{commit\}\^`\)/.test(lire("src/renderer/panels/DiffView.tsx")))
+  check("un commit se lit contre son parent", /fileAt\(path, `\$\{commit\}\^`, true\)/.test(lire("src/renderer/panels/DiffView.tsx")))
   check("la section est dans l'Explorateur", /<TimelineList \/>/.test(lire("src/renderer/App.tsx")))
 }
 

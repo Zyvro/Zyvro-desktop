@@ -61,7 +61,15 @@ export function ShellPicker() {
       </Menu.Trigger>
 
       <Menu.Portal>
-        <Menu.Content className="panel z-50 w-[17rem] p-1" align="end" sideOffset={6}>
+        {/* Plafonné comme tous les menus qui listent : le nombre de shells d'une
+            machine ne se connaît pas d'avance, et un menu qui sort de la fenêtre
+            emporte ses dernières lignes avec lui. Voir check-scroll-clip.mjs. */}
+        <Menu.Content
+          className="panel zy-scroll z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto w-[17rem] p-1"
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
+        >
           {shells.map((shell) => (
             <Menu.Item key={shell.file} onSelect={() => choisir(shell)} className={item}>
               <Check className={cn("mt-[3px] h-3 w-3 shrink-0", shell.current ? "opacity-100" : "opacity-0")} />

@@ -4,7 +4,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 // peut pas demander la sienne à un crochet. C'est la même, celle que la
 // doctrine impose de tenir ici plutôt que d'en fabriquer une par rendu.
 import { queryClient } from "~/lib/queryClient"
-import { ArrowUp, Image as ImageIcon, MessageSquarePlus, Paperclip, Repeat, Square, SquareTerminal, Target, X } from "lucide-react"
+import {
+  ArrowUp,
+  Image as ImageIcon,
+  MessageSquarePlus,
+  Paperclip,
+  Repeat,
+  Square,
+  SquareTerminal,
+  Target,
+  TerminalSquare,
+  X,
+} from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
@@ -13,7 +24,8 @@ import { AGENT_KINDS } from "../../shared/harness"
 import { droppedText, insertAt } from "../../shared/dropped"
 import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
-import { permissionFor, setPermissionFor, subscribePermission } from "~/state/permission"
+import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
+import { askHarness } from "~/state/persistent"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
@@ -456,7 +468,7 @@ async function dispatch(threadId: string, text: string, images: Attached[]): Pro
       threadId,
       thread.model,
       images.map((i) => i.id),
-      permissionFor(projectDir)
+      agentPermission()
     )
     bindTurn(threadId, messageId, turnId)
   } catch (error: unknown) {
@@ -1148,6 +1160,8 @@ function grow(node: HTMLTextAreaElement): void {
 
 export function AgentPanel(): JSX.Element {
   const project = useWorkspace((workspace) => workspace.project)
+  // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
+  const setPanel = useWorkspace((workspace) => workspace.setPanel)
   const chat = useSyncExternalStore(subscribe, getSnapshot)
   const queryClient = useQueryClient()
 
@@ -1158,14 +1172,11 @@ export function AgentPanel(): JSX.Element {
   // que rien n'est parti, tout se change encore.
   const started = thread.messages.length > 0
   const asks = chat.asks
-  // Ce que l'agent a le droit de faire appartient au projet, pas à cette
-  // conversation : on le choisit en fonction du dossier dans lequel on
-  // travaille, et il est encore là demain.
+  // Ce que l'agent a le droit de faire n'appartient ni à cette conversation ni
+  // à ce projet : c'est une façon de travailler, et elle ne change pas selon le
+  // dossier qu'on ouvre. Voir state/permission.ts.
   const projectDir = project?.project ?? null
-  const permission = useSyncExternalStore(
-    subscribePermission,
-    useCallback(() => permissionFor(projectDir), [projectDir])
-  )
+  const permission = useSyncExternalStore(subscribePermission, agentPermission)
   // Lu une fois ici plutôt que dans chaque bulle : le réglage est le même pour
   // toute la fenêtre, et cent messages n'ont pas à s'abonner cent fois.
   const showSpent = useSyncExternalStore(subscribeUsage, usageShown, () => true)
@@ -1706,6 +1717,40 @@ export function AgentPanel(): JSX.Element {
                   />
                 </div>
               </div>
+              {/* Et la porte de sortie : le même harnais, le même modèle, mais
+                  dans son interface à lui.
+
+                  Le panneau lance ces CLI en mode impression et redessine leur
+                  flux — c'est ce qu'il faut pour tenir une conversation ici, et
+                  ça reste une conversation redessinée. Leur propre interface est
+                  bonne, et certaines personnes la préfèrent. Le bouton est ici,
+                  sous les deux choix qu'il emporte, parce que c'est le moment où
+                  l'on décide comment on va travailler.
+
+                  Ce qu'il économise est tout le reste : le dossier, les serveurs
+                  MCP du projet, et un modèle local qu'il faudrait autrement
+                  viser à la main avec deux variables d'environnement. */}
+              <button
+                type="button"
+                onClick={() => {
+                  // Demander une chose et ne pas voir l'endroit où elle arrive
+                  // est un défaut à soi seul : le panneau du bas s'ouvre, comme
+                  // il s'ouvre quand on clique une session persistante.
+                  setPanel("terminal", true)
+                  askHarness(kind, thread.model)
+                }}
+                title={
+                  thread.model
+                    ? `Open ${kind} in a terminal, on ${thread.model}`
+                    : `Open ${kind} in a terminal, on whatever it picks`
+                }
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.04] px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.08] hover:text-foreground"
+              >
+                <TerminalSquare className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">
+                  Open {kind} in a terminal{thread.model ? ` · ${thread.model}` : ""}
+                </span>
+              </button>
               <p className="leading-snug text-[11px] text-muted-foreground/80">
                 The harness is fixed once this session starts — it is the one holding the thread. Open a
                 new session to use another.
@@ -1916,7 +1961,7 @@ export function AgentPanel(): JSX.Element {
               value={permission}
               kind={kind}
               disabled={disabled}
-              onChange={(next) => setPermissionFor(projectDir, next)}
+              onChange={(next) => setPermission(next)}
             />
             <SynthesisPicker
               disabled={disabled}

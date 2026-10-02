@@ -55,7 +55,7 @@ function EditorPills() {
           </button>
         </Menu.Trigger>
         <Menu.Portal>
-          <Menu.Content side="top" align="end" sideOffset={6} className="panel z-50 min-w-[180px] p-1">
+          <Menu.Content side="top" align="end" sideOffset={6} className="panel zy-scroll z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[180px] overflow-y-auto p-1">
             {[
               [true, 2],
               [true, 4],
