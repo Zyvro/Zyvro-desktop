@@ -49,6 +49,29 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.51
+
+**Recycle the context before a long task.** A recycle icon in the agent input
+shows how much of the model's window the conversation occupies — a percentage
+when the window is known, a token count when it is not, never a made-up number.
+One click runs `/compact` on the harness so a long feature starts on a clean
+slate instead of hitting auto-compact halfway through.
+
+**Shells stay closed.** Opening a project no longer restores dead shells with
+yesterday's scrollback. Persistent sessions (tmux/screen) stay in the sidebar
+list only — you open them when you want them, and closing a project detaches
+them rather than reopening them behind your back.
+
+**Collapsible sections.** Browser, Persistent shells and Workflows fold away
+with a count badge, so you can see whether anything is inside without opening
+them.
+
+**The shell panel takes the full height.** It is no longer capped at 640 px;
+drag it wherever you want on the window.
+
+**A faint outline marks the zone under the cursor** — Editor, Terminal, Agent,
+Explorer — so you always know which field of view you are in.
+
 ## New in alpha.50
 
 **Several projects in one window.** Each project you open gets its own tab in
