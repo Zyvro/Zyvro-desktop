@@ -230,6 +230,18 @@ c.setDraftFor("git:/projets/a", "feat: trois lignes\n\ndétail")
 c.flushDrafts()
 c = charger()
 check("**un message de commit survit au redémarrage**", c.draftFor("git:/projets/a") === "feat: trois lignes\n\ndétail" && c.draftFor("git:/projets/b") === "")
+check(
+  "**la croix d'un onglet demande avant d'effacer une conversation ou un brouillon**",
+  /onClick=\{\(\) => void requestCloseThread\(t\.id\)\}/.test(panel) &&
+    !/onClick=\{\(\) => closeThread\(t\.id\)\}/.test(panel) &&
+    /const perdu = whatClosingLoses\(thread, draftFor\(id\)\)\s*\n\s*if \(perdu\.length > 0\) \{[\s\S]{0,300}await askConfirm\(/.test(panel)
+)
+check(
+  "et compte le transcript, le brouillon, la file et les images",
+  ["thread.messages.length > 0", 'draft.trim() !== ""', "thread.queued.length > 0", "thread.images.length > 0"].every((t) =>
+    panel.slice(panel.indexOf("export function whatClosingLoses"), panel.indexOf("export async function requestCloseThread")).includes(t)
+  )
+)
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 
 console.log(failures === 0 ? "\nCe qu'on écrit reste, et ce qu'on a envoyé revient avec ↑." : `\n${failures} échec(s)`)

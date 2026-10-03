@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.63
+
+**Closing a conversation asks first.** The cross on a conversation tab deleted
+its transcript, the prompt being written, its queued messages and its attached
+images in one click, with no way back; a click next to the intended tab was
+enough. It now asks first, naming what would be lost. An empty session still
+closes in one click.
+
 ## New in alpha.62
 
 **The search panel keeps your search.** Switching to the file tree or to Git

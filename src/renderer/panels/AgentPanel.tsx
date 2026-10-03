@@ -27,10 +27,12 @@ import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { askHarness } from "~/state/persistent"
+import { askConfirm } from "~/state/prompt"
 import {
   blankKey,
   cancelHistory,
   chipsFor,
+  draftFor,
   draftShown,
   forgetDraft,
   holdsBlank,
@@ -1290,6 +1292,37 @@ function closeThread(id: string): void {
   commit({ threads, activeId: state.activeId === id ? next.id : state.activeId, asks: state.asks })
 }
 
+// Ce que la croix d'un onglet ferait perdre. Fermer efface le transcript sur
+// le disque et le brouillon : un clic à côté de l'onglet visé suffisait à
+// perdre une conversation entière, ou le long prompt qu'on y écrivait.
+export function whatClosingLoses(thread: Pick<Thread, "messages" | "queued" | "images">, draft: string): string[] {
+  const perdu: string[] = []
+  if (thread.messages.length > 0) perdu.push("its transcript")
+  if (draft.trim() !== "") perdu.push("the prompt you were writing")
+  if (thread.queued.length > 0) perdu.push(thread.queued.length === 1 ? "1 queued message" : `${thread.queued.length} queued messages`)
+  if (thread.images.length > 0) perdu.push(thread.images.length === 1 ? "1 attached image" : `${thread.images.length} attached images`)
+  return perdu
+}
+
+// La croix : demander d'abord quand il y a quelque chose à perdre. Une session
+// vide se ferme d'un clic, comme avant.
+export async function requestCloseThread(id: string): Promise<boolean> {
+  const thread = threadById(id)
+  if (!thread) return false
+  const perdu = whatClosingLoses(thread, draftFor(id))
+  if (perdu.length > 0) {
+    const liste = perdu.length === 1 ? perdu[0] : `${perdu.slice(0, -1).join(", ")} and ${perdu[perdu.length - 1]}`
+    const ok = await askConfirm({
+      title: `Close “${thread.title}”?`,
+      label: `This deletes ${liste}. It cannot be undone.`,
+      confirmLabel: "Close",
+    })
+    if (!ok) return false
+  }
+  closeThread(id)
+  return true
+}
+
 function markCancelled(turnId: string): void {
   cancelled.add(turnId)
 }
@@ -1967,7 +2000,7 @@ export function AgentPanel(): JSX.Element {
                 type="button"
                 title="Close this conversation"
                 className="shrink-0 rounded p-0.5 opacity-0 hover:bg-white/[0.1] group-hover:opacity-100"
-                onClick={() => closeThread(t.id)}
+                onClick={() => void requestCloseThread(t.id)}
               >
                 <X className="h-3 w-3" />
               </button>

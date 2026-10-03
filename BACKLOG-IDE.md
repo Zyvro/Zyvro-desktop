@@ -255,3 +255,7 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.62 — la recherche survit au panneau qu'on quitte.** Saisie,
   remplacement, filtres et liste gardés par projet hors du panneau
   (`saisies`, `SearchView` remonté par projet), liste rafraîchie au retour.
+- **0.1.0-alpha.63 — fermer une conversation demande d'abord.** La croix passe
+  par `requestCloseThread` : confirmation qui nomme ce qui serait perdu
+  (`whatClosingLoses` : transcript, brouillon, file, images), aucune question
+  pour une session vide.
