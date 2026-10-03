@@ -61,7 +61,7 @@ type SessionStatus = {
    * lancer `claude` plutôt qu'un shell de connexion — et il reste ensuite pour
    * que l'onglet porte son nom plutôt que « Shell 3 ».
    */
-  harnais?: { nom: AgentKind; model: string | null }
+  harnais?: { nom: AgentKind; model: string | null; conversation?: string | null }
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -356,7 +356,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
         // de vue — fermer l'onglet le tue, son défilement est gardé — sauf
         // qu'il ne démarre pas sur une invite.
         window.zyvro.agent
-          .shell(harnais.nom, harnais.model, term.cols, term.rows)
+          .shell(harnais.nom, harnais.model, term.cols, term.rows, harnais.conversation ?? null)
           .then((session) => ({ ...session, reprise: false }))
       : persiste !== undefined
       ? // Une session persistante : on n'est que son client. Fermer cet onglet
@@ -701,7 +701,7 @@ export function TerminalPanel(): JSX.Element {
         key,
         ordre.sorte === "persistante"
           ? { persistent: ordre.label }
-          : { harnais: { nom: ordre.harnais, model: ordre.model } }
+          : { harnais: { nom: ordre.harnais, model: ordre.model, conversation: ordre.conversation } }
       )
       setGroups((actuels) => addGroup(actuels, key))
       setActiveKey(key)

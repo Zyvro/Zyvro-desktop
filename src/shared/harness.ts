@@ -11,7 +11,7 @@
 // disaient la même chose, et un troisième harnais à ajouter : c'est le moment
 // exact où elles se mettent à diverger.
 
-export type AgentKind = "claude" | "codex" | "qwen"
+export type AgentKind = "claude" | "codex" | "qwen" | "mimo"
 
 // Comment un harnais raconte son tour.
 //
@@ -66,6 +66,16 @@ export type Harness = {
    * à retrouver ailleurs.
    */
   gateway: boolean
+  /**
+   * Le fournisseur du moteur sur lequel ce harnais est branché à demeure.
+   *
+   * MiMo n'a pas de CLI à lui : Xiaomi documente codex pointé sur son API
+   * Responses. Le harnais `mimo` est donc codex — même binaire, même enveloppe
+   * — avec l'adresse et la clef réglées dans le panneau des fournisseurs, sous
+   * `mimo`. Il ne vise rien d'autre et ne tombe jamais sur le compte OpenAI de
+   * la personne : sans clef MiMo, il refuse de partir.
+   */
+  provider?: string
 }
 
 /**
@@ -106,6 +116,28 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     aimable: true,
     gateway: false,
   },
+  mimo: {
+    kind: "mimo",
+    bin: "codex",
+    install: "npm install -g @openai/codex",
+    envelope: "codex",
+    aimable: false,
+    gateway: false,
+    provider: "mimo",
+  },
+}
+
+// Xiaomi MiMo : le fournisseur du moteur, son modèle documenté et sa variante
+// à un million de jetons de contexte.
+export const MIMO_PROVIDER = "mimo"
+export const MIMO_DEFAULT_MODEL = "mimo-v2.6-pro"
+export const MIMO_MODELS = ["mimo-v2.6-pro", "mimo-v2.6-pro[1m]"]
+
+// speaksCodex : ce harnais est-il codex sous un autre nom ? Ce qui dépend du
+// binaire — la sous-commande `resume`, la question sur stdin, le bac à sable —
+// se demande ici plutôt qu'à `kind === "codex"`, qui oubliait MiMo.
+export function speaksCodex(kind: AgentKind | string): boolean {
+  return harness(kind).bin === "codex"
 }
 
 // L'ordre du sélecteur, et le seul endroit qui le décide.
@@ -188,11 +220,11 @@ export function interactiveCommand(kind: AgentKind, sessionId: string | null): s
   // autre caractère est refusé plutôt que cité — il part dans un shell.
   const id = sessionId && /^[A-Za-z0-9_-]+$/.test(sessionId) ? sessionId : null
   const bin = HARNESSES[kind].bin
-  const yolo = kind === "claude" || kind === "codex" ? SHELL_YOLO[kind].map(forShell) : []
+  const yolo = kind === "claude" ? SHELL_YOLO.claude.map(forShell) : speaksCodex(kind) ? SHELL_YOLO.codex.map(forShell) : []
   // `codex resume` prend ses options après la sous-commande, comme `--help`
   // les liste ; l'identifiant reste le dernier mot.
   const parts =
-    kind === "codex"
+    speaksCodex(kind)
       ? id
         ? [bin, "resume", ...yolo, id]
         : [bin, ...yolo]

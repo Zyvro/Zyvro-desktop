@@ -20,7 +20,7 @@ import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, Spent, WorkflowRef } from "../../preload"
-import { AGENT_KINDS } from "../../shared/harness"
+import { AGENT_KINDS, harness } from "../../shared/harness"
 import { droppedText, insertAt } from "../../shared/dropped"
 import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
@@ -432,7 +432,17 @@ function finishTurn(id: string): void {
 // openInTerminal : la commande que le principal compose — il est le seul à
 // connaître l'identifiant de session de la CLI — tapée dans le terminal, que
 // l'on ouvre s'il est replié. Le shell a déjà les outils MCP de ce projet.
-async function openInTerminal(kind: AgentKind, threadId: string): Promise<void> {
+//
+// Sauf pour un harnais branché sur un fournisseur — MiMo : sa clef ne peut pas
+// être tapée dans un shell qui la garderait dans son historique. Il s'ouvre
+// dans un onglet à lui, qui la reçoit par l'environnement, et reprend la même
+// conversation.
+async function openInTerminal(kind: AgentKind, threadId: string, model: string | null): Promise<void> {
+  if (harness(kind).provider) {
+    useWorkspace.getState().setPanel("terminal", true)
+    askHarness(kind, model, threadId)
+    return
+  }
   const commande = await window.zyvro.agent.interactiveCommand(kind, threadId)
   useWorkspace.getState().setPanel("terminal", true)
   handTo("terminal", `${commande}\n`)
@@ -1605,7 +1615,7 @@ export function AgentPanel(): JSX.Element {
             plein écran. Reprise là où le panneau l'a laissée. */}
         <button
           type="button"
-          onClick={() => void openInTerminal(kind, thread.id)}
+          onClick={() => void openInTerminal(kind, thread.id, thread.model)}
           title={started ? `Continue this session in the terminal (${kind})` : `Open ${kind} in the terminal`}
           className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >

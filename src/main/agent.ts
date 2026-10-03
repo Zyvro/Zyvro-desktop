@@ -12,7 +12,7 @@ import type { WebContents } from "electron"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect } from "./mcp"
 import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
-import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO } from "../shared/harness"
+import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO, speaksCodex } from "../shared/harness"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
@@ -184,11 +184,12 @@ export function argsFor(
     "--skip-git-repo-check",
     // Le pendant côté codex, dans son vocabulaire à lui : un bac à sable.
     ...codexPermission(ctx.permission ?? DEFAULT_PERMISSION),
-    ...(aim && gateway ? codexAimArgs(gateway) : []),
+    ...(kind === "mimo" && aim ? mimoArgs(aim) : aim && gateway ? codexAimArgs(gateway) : []),
     // Le modèle épinglé est aussi la route de la passerelle : « lmstudio/
     // qwen3-coder-next » nomme le serveur et le modèle, et codex le renvoie
     // tel quel dans son corps de requête. C'est par là qu'elle sait où aller.
-    ...(pinned ? ["--model", pinned] : []),
+    // MiMo, lui, n'a pas de passerelle : son modèle est celui de sa visée.
+    ...(kind === "mimo" && aim ? ["--model", aim.model] : pinned ? ["--model", pinned] : []),
     // -i takes one path per occurrence. Several paths after a single -i would
     // be swallowed as one argument by some shells and as the prompt by codex.
     ...images.flatMap((file) => ["-i", file]),
@@ -367,6 +368,42 @@ export function codexAimArgs(gateway: GatewayAim): string[] {
   ]
 }
 
+/**
+ * La variable par laquelle codex lit la clef MiMo. `env_key` plutôt que
+ * l'`experimental_bearer_token` de la documentation de Xiaomi : celui-ci
+ * mettrait la clef sur la ligne de commande, lisible dans `ps`.
+ */
+export const MIMO_KEY_VAR = "MIMO_API_KEY"
+
+/**
+ * mimoArgs : codex branché sur Xiaomi MiMo, tel que Xiaomi le documente —
+ * https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration —
+ * mais par `-c`, sans toucher `~/.codex/config.toml` : lancer codex à la main
+ * continue de parler au compte de la personne.
+ *
+ * L'adresse vient du panneau des fournisseurs : celle du paiement à l'usage par
+ * défaut, celle du Token Plan si on l'y a mise. `wire_api = "responses"` est ce
+ * que MiMo sert, donc pas de passerelle.
+ */
+export function mimoArgs(aim: Aim): string[] {
+  return [
+    "-c",
+    `model_providers.mimo={name="mimo",base_url="${aim.url}",wire_api="responses",env_key="${MIMO_KEY_VAR}"}`,
+    "-c",
+    "model_provider=mimo",
+    "-c",
+    'model_reasoning_effort="high"',
+    "-c",
+    "model_supports_reasoning_summaries=true",
+    "-c",
+    'model_reasoning_summary="none"',
+    "-c",
+    "model_context_window=1048576",
+    "-c",
+    'web_search="disabled"',
+  ]
+}
+
 // aimArgs pointe Qwen Code sur un serveur que ce projet connaît déjà.
 //
 // Le modèle et l'adresse sortent du même choix — « lmstudio/qwen3-coder-next »
@@ -424,21 +461,27 @@ export function shellArgsFor(
   kind: AgentKind,
   model: string | null,
   aim: Aim | null = null,
-  gateway: GatewayAim | null = null
+  gateway: GatewayAim | null = null,
+  // La session de la CLI à reprendre, quand le shell continue une conversation
+  // du panneau. Vérifiée par l'appelant : elle part sur la ligne de commande.
+  resume: string | null = null
 ): string[] {
   const pinned = model?.trim() ? model.trim() : null
   if (kind === "claude") {
     // La route de la passerelle EST le nom du modèle, comme pour un tour du
     // panneau : claude le renvoie tel quel dans son corps de requête.
-    return [...SHELL_YOLO.claude, ...(pinned ? ["--model", pinned] : [])]
+    return [...SHELL_YOLO.claude, ...(pinned ? ["--model", pinned] : []), ...(resume ? ["--resume", resume] : [])]
   }
   if (kind === "qwen") {
-    return aim ? aimArgs(aim) : pinned ? ["-m", pinned] : []
+    return [...(aim ? aimArgs(aim) : pinned ? ["-m", pinned] : []), ...(resume ? ["--resume", resume] : [])]
   }
+  // codex, et MiMo qui est codex : `codex resume [OPTIONS] [SESSION_ID]`.
   return [
+    ...(resume ? ["resume"] : []),
     ...SHELL_YOLO.codex,
-    ...(aim && gateway ? codexAimArgs(gateway) : []),
-    ...(pinned ? ["--model", pinned] : []),
+    ...(kind === "mimo" && aim ? mimoArgs(aim) : aim && gateway ? codexAimArgs(gateway) : []),
+    ...(kind === "mimo" && aim ? ["--model", aim.model] : pinned ? ["--model", pinned] : []),
+    ...(resume ? [resume] : []),
   ]
 }
 
@@ -866,6 +909,8 @@ export class AgentRunner {
       Object.assign(env, claudeAimEnv(this.gateway.origin, this.gateway.token))
     }
     if (passerelle && this.gateway) env[GATEWAY_KEY_VAR] = this.gateway.token
+    // MiMo : sa clef, par l'environnement, sous le nom que `mimoArgs` déclare.
+    if (kind === "mimo" && aim) env[MIMO_KEY_VAR] = aim.key
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -918,10 +963,10 @@ export class AgentRunner {
       }
     }
 
-    if (kind === "codex") args.push("-")
+    if (speaksCodex(kind)) args.push("-")
 
     const withImages = promptWith(kind, prompt, images)
-    const text = kind === "codex" ? `${preamble(ctx)}\n\n---\n\n${withImages}` : withImages
+    const text = speaksCodex(kind) ? `${preamble(ctx)}\n\n---\n\n${withImages}` : withImages
 
     // launch rather than spawn: it resolves the real file, which on Windows
     // carries an extension and may be a .cmd that Node refuses to start

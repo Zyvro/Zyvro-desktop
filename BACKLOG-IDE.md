@@ -188,3 +188,7 @@ Petits correctifs repérés en passant :
   marge, la Timeline et le diff d'un commit suivent le dépôt du fichier
   (`gitOwnerOf`). Les deux boutons du terminal lancent claude et codex avec
   `SHELL_YOLO`.
+- **0.1.0-alpha.45 — Xiaomi MiMo.** Le moteur a un fournisseur `mimo` (adresse
+  et clef, texte seulement, liste documentée quand `/models` ne répond pas) ;
+  le panneau d'agent un quatrième harnais, `mimo`, qui est codex branché sur
+  l'API Responses de MiMo par `-c` (`mimoArgs`), la clef dans `MIMO_API_KEY`.

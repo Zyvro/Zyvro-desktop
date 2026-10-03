@@ -442,8 +442,11 @@ const api = {
       kind: AgentKind,
       model: string | null,
       cols: number,
-      rows: number
-    ): Promise<{ id: string; pty: boolean; banner?: string }> => invoke("agent:shell", kind, model, cols, rows),
+      rows: number,
+      // La conversation du panneau à reprendre dans ce shell, s'il y en a une.
+      conversationId: string | null = null
+    ): Promise<{ id: string; pty: boolean; banner?: string }> =>
+      invoke("agent:shell", kind, model, cols, rows, conversationId),
     // Ce qu'une puce affiche d'elle-même. Une adresse `data:`, ou rien quand le
     // fichier n'est plus là.
     thumbnail: (conversationId: string, id: string): Promise<string | null> =>

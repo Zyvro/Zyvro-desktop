@@ -4,10 +4,10 @@ import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
-import { harness, interactiveCommand, isAgentKind } from "../shared/harness"
+import { harness, interactiveCommand, isAgentKind, MIMO_MODELS, MIMO_PROVIDER } from "../shared/harness"
 import { isAbsolutePath } from "../shared/external"
 import { cleanSynthesis, isSynthesisMode, synthesisPrompt } from "../shared/synthesize"
-import { aimFor, aimableModels } from "./aim"
+import { aimFor, aimableModels, mimoAim } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
@@ -911,7 +911,12 @@ export function registerIpc(onRecents?: () => void): void {
       // qu'on peut demander au moteur quels serveurs ce projet a allumés — et
       // null quand il n'y a rien à viser, ce qui laisse le harnais sur son
       // propre compte plutôt que d'échouer.
-      const aim = harness(kind).aimable ? await aimFor(pinned, ws.daemon.current) : null
+      const aim =
+        kind === "mimo"
+          ? await mimoAim(pinned, ws.daemon.current)
+          : harness(kind).aimable
+            ? await aimFor(pinned, ws.daemon.current)
+            : null
 
       // codex ne sait poster que sur l'API Responses : il passe par la
       // passerelle de cette fenêtre, qui traduit vers le Chat Completions que
@@ -922,7 +927,7 @@ export function registerIpc(onRecents?: () => void): void {
       // La route est le modèle épinglé lui-même, « lmstudio/qwen3-coder-next » :
       // codex le renvoie mot pour mot dans sa requête, et c'est par là que la
       // passerelle sait à quel serveur parler.
-      if (aim && pinned) await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
+      if (aim && pinned && kind !== "mimo") await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
 
       return ws.agent.send(
         event.sender,
@@ -1068,6 +1073,14 @@ export function registerIpc(onRecents?: () => void): void {
   })
 
   ipcMain.handle("agent:models", async (event, kind: AgentKind) => {
+    // MiMo : ses modèles à lui, demandés au moteur qui connaît la clef, et la
+    // liste documentée quand il ne répond pas.
+    if (kind === "mimo") {
+      const { ws } = requireWorkspace(event)
+      const vises = await aimableModels(ws.daemon.current)
+      const siens = vises.models.filter((m) => m.startsWith(`${MIMO_PROVIDER}/`)).map((m) => m.slice(MIMO_PROVIDER.length + 1))
+      return { models: siens.length > 0 ? siens : [...MIMO_MODELS], trouble: vises.trouble.filter((t) => t.provider === MIMO_PROVIDER) }
+    }
     // Un harnais visable ne choisit pas parmi SES modèles : il choisit parmi
     // ceux des serveurs que ce projet a allumés. C'est la liste que la personne
     // a déjà réglée dans le panneau des fournisseurs, demandée au moteur plutôt
@@ -1109,7 +1122,7 @@ export function registerIpc(onRecents?: () => void): void {
    * même démon, la même visée. Ce qu'il n'a pas, c'est la permission décidée
    * d'avance — dans une interface interactive, c'est la CLI qui demande.
    */
-  ipcMain.handle("agent:shell", async (event, kind: string, model: string | null, cols: number, rows: number) => {
+  ipcMain.handle("agent:shell", async (event, kind: string, model: string | null, cols: number, rows: number, conversationId?: string | null) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)
     // Le harnais vient de la fenêtre : c'est du texte jusqu'à preuve du
@@ -1124,16 +1137,22 @@ export function registerIpc(onRecents?: () => void): void {
     }
 
     const pinned = typeof model === "string" && model.trim() ? model.trim() : null
-    const aim = await aimFor(pinned, ws.daemon.current)
+    const aim = kind === "mimo" ? await mimoAim(pinned, ws.daemon.current) : await aimFor(pinned, ws.daemon.current)
+    // La conversation du panneau à reprendre, quand le shell la continue. Son
+    // identifiant de session part sur la ligne de commande : lettres, chiffres
+    // et tirets, ou rien.
+    const session = conversationId ? ws.agent.sessionFor(kind, String(conversationId)) : null
+    const resume = session && /^[A-Za-z0-9_-]+$/.test(session) ? session : null
     // La passerelle n'est allumée que si ce harnais en a besoin ET qu'il vise
     // quelque chose — exactement comme pour un tour du panneau, et c'est la
     // même passerelle : elle route sur le nom du modèle, donc deux shells visant
     // deux fournisseurs ne peuvent pas se marcher dessus.
-    if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
+    if (aim && pinned && kind !== "mimo") await ws.agent.openGateway(kind, aim, pinned)
     const passerelle = ws.agent.gatewayAim()
 
     const env: Record<string, string> = {}
     if (aim && kind === "qwen") Object.assign(env, agentModule.aimEnv(aim))
+    if (aim && kind === "mimo") env[agentModule.MIMO_KEY_VAR] = aim.key
     if (aim && passerelle && table.gateway) {
       env[agentModule.GATEWAY_KEY_VAR] = passerelle.token
       if (kind === "claude") Object.assign(env, agentModule.claudeAimEnv(passerelle.origin, passerelle.token))
@@ -1144,7 +1163,7 @@ export function registerIpc(onRecents?: () => void): void {
     // configuration. C'est ce que `GatewayAim` ajoute à la poignée.
     const vise =
       aim && passerelle ? { baseUrl: passerelle.baseUrl, keyVar: agentModule.GATEWAY_KEY_VAR } : null
-    const args = agentModule.shellArgsFor(kind, pinned, aim, vise)
+    const args = agentModule.shellArgsFor(kind, pinned, aim, vise, resume)
 
     // Sous Windows, `claude` est `claude.cmd` : un script pour l'interpréteur
     // de commandes, que rien ne lance directement. `cli.ts` le signale, et ici

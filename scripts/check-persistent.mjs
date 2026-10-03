@@ -131,11 +131,17 @@ const AUTRE = "/tmp/zyvro-autre-projet"
     )
 
     mod.kill(name)
-    check(
-      "**tuer la retire pour de bon**",
-      !mod.list(PROJET).some((s) => s.name === name),
-      "une session oubliée tournerait des semaines"
-    )
+    // `screen -ls` ment pendant une seconde, dans ce sens-là aussi : `-X quit`
+    // rend la main avant que la socket ne disparaisse, et une lecture
+    // immédiate la voyait encore — sur le runner macOS de la CI, une fois sur
+    // quelques-unes. Ce qui compte est qu'elle parte, pas qu'elle parte avant
+    // la ligne suivante.
+    let encore = mod.list(PROJET).some((s) => s.name === name)
+    for (let i = 0; encore && i < 30; i++) {
+      await new Promise((r) => setTimeout(r, 100))
+      encore = mod.list(PROJET).some((s) => s.name === name)
+    }
+    check("**tuer la retire pour de bon**", !encore, "une session oubliée tournerait des semaines")
     check("et tuer ce qui n'existe plus ne lève pas", (() => { mod.kill(name); return true })())
   }
 }

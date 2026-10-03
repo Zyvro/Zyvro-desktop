@@ -49,6 +49,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.45
+
+**Xiaomi MiMo, as a provider and as an agent.** Providers has a new entry,
+*Xiaomi MiMo*: paste a MiMo API key (`sk-…`), or a Token Plan key (`tp-…` /
+`ttp-…`) together with the Token Plan address,
+`https://token-plan-cn.xiaomimimo.com/v1`. Text nodes and the Brain can then
+run on `mimo-v2.6-pro`, and the agent menus offer `mimo/mimo-v2.6-pro` to
+claude, codex and qwen.
+
+The agent panel also has a fourth harness, **mimo**. MiMo has no command line
+tool of its own: Xiaomi documents Codex pointed at its API, and that is what
+this is — the `codex` already on your machine, aimed at MiMo for that session
+only, with `~/.codex/config.toml` left untouched. The key reaches codex through
+its environment, never its command line. Without a MiMo key the harness says so
+and does not fall back to your OpenAI account. Both terminal buttons open it in
+full-auto mode, like the other harnesses, and pick the conversation back up.
+
 ## New in alpha.44
 
 **Several repositories in one project.** A project handed to agents is often a

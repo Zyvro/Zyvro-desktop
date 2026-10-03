@@ -3,6 +3,7 @@ import { Check, ChevronDown, Eye, FolderCheck, HandCoins, Zap } from "lucide-rea
 import { cn } from "@/lib/utils"
 import type { AgentKind } from "../../preload"
 import { PERMISSIONS, type Permission } from "../../shared/permission"
+import { speaksCodex } from "../../shared/harness"
 
 // Ce que l'agent a le droit de faire, choisi à côté de la question qu'on lui
 // pose.
@@ -108,7 +109,7 @@ export function PermissionPicker({
                   {level.label}
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">{level.hint}</span>
-                {kind === "codex" && level.codex && (
+                {speaksCodex(kind) && level.codex && (
                   <span className="mt-0.5 block text-[11px] leading-relaxed text-amber-300/80">{level.codex}</span>
                 )}
               </span>

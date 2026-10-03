@@ -72,7 +72,16 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 
 // ---- une seule liste -----------------------------------------------------
 {
-  check("**trois harnais**", mod.AGENT_KINDS.join(",") === "claude,codex,qwen", mod.AGENT_KINDS.join(","))
+  check("**quatre harnais**", mod.AGENT_KINDS.join(",") === "claude,codex,qwen,mimo", mod.AGENT_KINDS.join(","))
+  // MiMo n'a pas de binaire à lui : c'est codex, branché à demeure sur le
+  // fournisseur `mimo`. Une table qui lui donnerait `bin: "mimo"` chercherait
+  // un programme qui n'existe pas.
+  const mimo = mod.harness("mimo")
+  check(
+    "**MiMo est codex sur le fournisseur mimo**",
+    mimo.bin === "codex" && mimo.envelope === "codex" && mimo.provider === "mimo" && !mimo.gateway && !mimo.aimable,
+    JSON.stringify(mimo)
+  )
 
   // Le type est déclaré une fois. Un fichier qui le redéclare est une liste de
   // plus, et c'est exactement ce qu'il y avait ici.
@@ -558,8 +567,9 @@ await appServer?.stop?.()
   check("sans session encore : le harnais, en YOLO", ic("claude", null) === `claude ${CLAUDE_YOLO}`, ic("claude", null))
   check("et codex aussi", ic("codex", null) === `codex ${CODEX_YOLO}`, ic("codex", null))
   check("**un identifiant qui n'en est pas un ne part pas dans le shell**", ic("claude", "x; rm -rf ~") === `claude ${CLAUDE_YOLO}`)
+  check("**MiMo tapé dans un shell est codex, en YOLO**", ic("mimo", null) === `codex ${CODEX_YOLO}`, ic("mimo", null))
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
-  check("le panneau a le bouton", /openInTerminal\(kind, thread\.id\)/.test(panneau))
+  check("le panneau a le bouton", /openInTerminal\(kind, thread\.id, thread\.model\)/.test(panneau))
 }
 
 console.log(

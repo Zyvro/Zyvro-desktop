@@ -29,7 +29,7 @@ import type { AgentKind } from "../../shared/harness"
  */
 export type Demande =
   | { sorte: "persistante"; label: string }
-  | { sorte: "harnais"; harnais: AgentKind; model: string | null }
+  | { sorte: "harnais"; harnais: AgentKind; model: string | null; conversation: string | null }
 
 let demande: Demande | null = null
 let jeton = 0
@@ -40,9 +40,12 @@ export function askOpen(label: string): void {
   poser({ sorte: "persistante", label })
 }
 
-/** Ouvrir ce harnais dans son interface à lui, avec ce modèle. */
-export function askHarness(harnais: AgentKind, model: string | null): void {
-  poser({ sorte: "harnais", harnais, model })
+/**
+ * Ouvrir ce harnais dans son interface à lui, avec ce modèle — et, quand on la
+ * nomme, sur la conversation du panneau qu'il doit reprendre.
+ */
+export function askHarness(harnais: AgentKind, model: string | null, conversation: string | null = null): void {
+  poser({ sorte: "harnais", harnais, model, conversation })
 }
 
 function poser(valeur: Demande): void {

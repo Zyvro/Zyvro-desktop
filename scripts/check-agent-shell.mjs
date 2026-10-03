@@ -38,7 +38,7 @@ mkdirSync(dir, { recursive: true })
 const from = (rel) => path.join(ROOT, rel).replace(/\\/g, "/")
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export { shellArgsFor, argsFor, claudeAimEnv, aimEnv, GATEWAY_KEY_VAR, SHELL_YOLO } from "${from("src/main/agent")}"\n` +
+  `export { shellArgsFor, argsFor, claudeAimEnv, aimEnv, GATEWAY_KEY_VAR, SHELL_YOLO, MIMO_KEY_VAR, mimoArgs } from "${from("src/main/agent")}"\n` +
     `export { AGENT_KINDS, harness } from "${from("src/shared/harness")}"\n`
 )
 await build({
@@ -143,9 +143,11 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
 {
   for (const kind of mod.AGENT_KINDS) {
     const ligne = mod.shellArgsFor(kind, "custom/m", secret, vise).join(" ")
+    // MiMo déclare son adresse dans `-c model_providers.mimo=…` : c'est une
+    // adresse publique, pas un secret. La clef, elle, ne doit jamais y être.
     check(
       `**la clef de ${kind} n'est pas dans \`ps\`**`,
-      !ligne.includes(secret.key) && !ligne.includes(secret.url),
+      !ligne.includes(secret.key) && (kind === "mimo" || !ligne.includes(secret.url)),
       ligne
     )
   }
@@ -157,6 +159,26 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
     "sans ça il ne reste que la ligne de commande, qui est publique"
   )
   check("et il vient en dernier, donc il gagne", /\.\.\.extra, \.\.\.command\?\.env/.test(term))
+}
+
+// ---- MiMo : codex branché sur Xiaomi ------------------------------------
+{
+  const mimo = { provider: "mimo", url: "https://api.xiaomimimo.com/v1", key: "tp-tres-secrete", model: "mimo-v2.6-pro" }
+  const shell = mod.shellArgsFor("mimo", null, mimo, null).join(" ")
+  check("**MiMo part en YOLO, comme codex**", shell.startsWith(mod.SHELL_YOLO.codex.join(" ")), shell)
+  check(
+    "**et sur le fournisseur mimo, en API Responses**",
+    shell.includes('base_url="https://api.xiaomimimo.com/v1"') && shell.includes('wire_api="responses"') && shell.includes("model_provider=mimo"),
+    shell
+  )
+  check("**sa clef passe par l'environnement, pas par la ligne**", !shell.includes(mimo.key) && shell.includes(`env_key="${mod.MIMO_KEY_VAR}"`), shell)
+  check("le modèle est celui de la visée", shell.endsWith("--model mimo-v2.6-pro"), shell)
+  const reprise = mod.shellArgsFor("mimo", null, mimo, null, "abc-123")
+  check("**une conversation reprise passe par `codex resume`, identifiant en dernier**", reprise[0] === "resume" && reprise.at(-1) === "abc-123", reprise.join(" "))
+  const ctx = { projectDir: "/tmp/projet", workflows: [], permission: "project" }
+  const tour = mod.argsFor("mimo", ctx, null, null, [], mimo, null).join(" ")
+  check("**un tour du panneau est un `codex exec` sur MiMo**", tour.startsWith("exec") && tour.includes("model_provider=mimo") && !tour.includes(mimo.key), tour)
+  check("et il ne passe pas par la passerelle", !tour.includes("model_provider=zyvro"), tour)
 }
 
 // ---- ce que la fenêtre a le droit de demander ----------------------------
