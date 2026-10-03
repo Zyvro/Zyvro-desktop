@@ -21,7 +21,7 @@ import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
 import { api } from "@/lib/api"
 import type { AgentKind, Spent, WorkflowRef } from "../../preload"
-import { AGENT_KINDS, harness } from "../../shared/harness"
+import { harness } from "../../shared/harness"
 import { droppedText, insertAt } from "../../shared/dropped"
 import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
@@ -29,6 +29,7 @@ import { permission as agentPermission, setPermission, subscribePermission } fro
 import { askHarness } from "~/state/persistent"
 import { installHarness, NODE_DOWNLOAD_URL, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HARNESS_TINT, renderCode, Working } from "~/lib/chatColors"
+import { HarnessPicker } from "~/panels/HarnessPicker"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { ContextCompact } from "~/panels/ContextCompact"
@@ -1844,29 +1845,9 @@ export function AgentPanel(): JSX.Element {
             <div className="space-y-2 rounded-lg border border-white/[0.06] bg-white/[0.03] p-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] uppercase tracking-wide">Harness</span>
-                <div className="flex shrink-0 items-center gap-0.5 rounded-md border border-white/[0.06] bg-white/[0.04] p-0.5">
-                  {AGENT_KINDS.map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setKind(thread.id, option)}
-                      title={
-                        present(option)
-                          ? `Run this session with ${option}`
-                          : `Run this session with ${option} — not installed yet; choose it to install it`
-                      }
-                      className={cn(
-                        "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-colors",
-                        kind === option
-                          ? "bg-white/[0.08] text-foreground"
-                          : "text-muted-foreground hover:text-foreground",
-                        !present(option) && "opacity-50"
-                      )}
-                    >
-                      {option}
-                    </button>
-                  ))}
-                </div>
+                {/* Un menu, logo et nom : quatre mots côte à côte se lisaient un
+                    par un ; une marque se reconnaît. */}
+                <HarnessPicker kind={kind} onChange={(option) => setKind(thread.id, option)} installed={present} />
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] uppercase tracking-wide">Model</span>

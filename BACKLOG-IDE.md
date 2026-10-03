@@ -220,3 +220,7 @@ Petits correctifs repérés en passant :
   `monaco.editor.tokenize` rendus par React, `renderCode` du Markdown partagé),
   indicateur animé `Working` tant que l'agent produit. Un projet neuf part d'un
   chat vide, `restore` et `reattach` vérifient le projet, `running(projectDir)`.
+- **0.1.0-alpha.53 — les images en grand, et le harnais en menu.** Une vignette
+  du chat s'ouvre en grand (`ImageViewer` dans `Thumb`), avec Show in folder
+  (l'original lu par un outil Read), Open et Download (`agent:image-reveal`,
+  `-open`, `-save`). Le choix du harnais devient `HarnessPicker`, logo et nom.

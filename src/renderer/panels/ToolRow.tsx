@@ -169,7 +169,15 @@ export function ToolRow({ call, conversationId }: { call: ToolCall; conversation
       {shown.length > 0 && (
         <div className="ml-[18px] mt-1 flex flex-wrap gap-1.5 border-l border-white/[0.08] pl-2">
           {shown.map((image) => (
-            <Thumb key={image.id} conversationId={conversationId} image={image} size="h-24 w-24" />
+            <Thumb
+              key={image.id}
+              conversationId={conversationId}
+              image={image}
+              size="h-24 w-24"
+              // Une image LUE par un outil a un original dans le projet : c'est
+              // lui que « Show in folder » montre.
+              source={call.shape === "read" && call.detail ? call.detail : undefined}
+            />
           ))}
         </div>
       )}

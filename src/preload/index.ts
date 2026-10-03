@@ -454,6 +454,15 @@ const api = {
     // fichier n'est plus là.
     thumbnail: (conversationId: string, id: string): Promise<string | null> =>
       invoke("agent:thumbnail", conversationId, id),
+    /** Montrer l'image dans son dossier — l'original lu par un outil quand il existe. */
+    imageReveal: (conversationId: string, id: string, source?: string | null): Promise<"original" | "copy"> =>
+      invoke("agent:image-reveal", conversationId, id, source ?? null),
+    /** L'ouvrir dans l'application par défaut de la machine. */
+    imageOpen: (conversationId: string, id: string, source?: string | null): Promise<boolean> =>
+      invoke("agent:image-open", conversationId, id, source ?? null),
+    /** « Enregistrer sous » ; rend le chemin écrit, ou null si l'on a annulé. */
+    imageSave: (conversationId: string, id: string, name: string, source?: string | null): Promise<string | null> =>
+      invoke("agent:image-save", conversationId, id, name, source ?? null),
     // Les commandes en barre oblique que ce harnais annonce. Elles viennent de
     // lui et de ses greffons, jamais d'une liste écrite ici.
     commands: (kind: AgentKind): Promise<string[]> => invoke("agent:commands", kind),

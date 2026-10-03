@@ -1218,6 +1218,67 @@ export function registerIpc(onRecents?: () => void): void {
     attachments.thumbnail(String(conversationId), String(id))
   )
 
+  // ---- une image du chat, en grand : où elle est, l'ouvrir, la garder ----
+  //
+  // Demandé par Jeremy : cliquer une image qu'un outil a lue pour la voir en
+  // grand, ouvrir le dossier où elle est, la télécharger. Le rendu ne connaît
+  // que l'identifiant d'une image, jamais son chemin ; c'est ici qu'on le
+  // retrouve.
+  //
+  // `source` est le fichier qu'un outil Read a lu, tel que la ligne de l'outil
+  // le nomme : « montrer dans le dossier » montre alors l'original, dans le
+  // projet, plutôt que la copie que l'application a rangée. Il vient de la
+  // fenêtre, donc il n'est suivi que s'il désigne un fichier image qui existe.
+  const imageFile = async (event: Electron.IpcMainInvokeEvent, conversationId: string, id: string, source?: string | null) => {
+    if (typeof source === "string" && source.trim()) {
+      const { ws } = requireWorkspace(event)
+      const raw = source.trim()
+      const candidate = path.isAbsolute(raw) ? raw : ws.root ? path.resolve(ws.root, raw) : ""
+      const stat = candidate ? await fs.stat(candidate).catch(() => null) : null
+      if (stat?.isFile() && /\.(png|jpe?g|gif|webp|bmp|svg|ico|tiff?|avif|heic)$/i.test(candidate)) {
+        return { file: candidate, original: true }
+      }
+    }
+    const [stored] = attachments.pathsFor(String(conversationId), [String(id)])
+    return stored ? { file: stored, original: false } : null
+  }
+
+  ipcMain.handle("agent:image-reveal", async (event, conversationId: string, id: string, source?: string | null) => {
+    const found = await imageFile(event, conversationId, id, source)
+    if (!found) throw new Error("This image is no longer on disk.")
+    shell.showItemInFolder(found.file)
+    return found.original ? "original" : "copy"
+  })
+
+  ipcMain.handle("agent:image-open", async (event, conversationId: string, id: string, source?: string | null) => {
+    const found = await imageFile(event, conversationId, id, source)
+    if (!found) throw new Error("This image is no longer on disk.")
+    // L'application par défaut de la machine : Aperçu sur un Mac.
+    const failed = await shell.openPath(found.file)
+    if (failed) throw new Error(failed)
+    return true
+  })
+
+  // Enregistrer sous : une vraie boîte de dialogue, proposée dans les
+  // téléchargements sous le nom de l'image. Rien n'est écrit ailleurs que là
+  // où la personne a choisi.
+  ipcMain.handle("agent:image-save", async (event, conversationId: string, id: string, name: string, source?: string | null) => {
+    const { win } = requireWorkspace(event)
+    const found = await imageFile(event, conversationId, id, source)
+    if (!found) throw new Error("This image is no longer on disk.")
+    const ext = path.extname(found.file)
+    const base = (typeof name === "string" && name.trim() ? path.basename(name.trim()) : path.basename(found.file)).replace(/[\\/:*?"<>|]/g, "_")
+    const suggested = path.extname(base) ? base : `${base}${ext}`
+    const chosen = await dialog.showSaveDialog(win, {
+      title: "Save image",
+      defaultPath: path.join(app.getPath("downloads"), suggested),
+      buttonLabel: "Save",
+    })
+    if (chosen.canceled || !chosen.filePath) return null
+    await fs.copyFile(found.file, chosen.filePath)
+    return chosen.filePath
+  })
+
   ipcMain.handle("agent:detach", async (_event, conversationId: string, id: string) =>
     attachments.forget(String(conversationId), String(id))
   )

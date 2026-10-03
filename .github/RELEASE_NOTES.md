@@ -49,6 +49,18 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.53
+
+**Images in the chat open full size.** Click any image in the agent panel — one
+a tool read, one you attached, or one waiting to be sent — and it opens at full
+size over the window. Below it: **Show in folder** (for an image a Read tool
+opened, that is the original file in your project), **Open** in your default
+image app, and **Download**, a real Save As dialog that starts in Downloads.
+
+**Choosing a harness is a menu.** The four words *claude codex qwen mimo* are
+now one menu with each harness's logo and real name — Claude Code, Codex, Qwen
+Code, MiMo Code — who makes it, and a note when it is not installed yet.
+
 ## New in alpha.52
 
 **The agent chat in colour.** Each harness has its own colour — Claude orange,

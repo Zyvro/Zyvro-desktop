@@ -90,7 +90,17 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   check("**personne ne redéclare la liste des harnais**", redeclared.length === 0, redeclared.join(", "))
 
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
-  check("et le sélecteur la prend telle quelle", panel.includes("AGENT_KINDS.map("))
+  // Le sélecteur est un menu à logos (HarnessPicker) ; la liste qu'il montre
+  // reste la table, prise telle quelle.
+  const picker = readFileSync(path.join(ROOT, "src/renderer/panels/HarnessPicker.tsx"), "utf8")
+  check(
+    "et le sélecteur la prend telle quelle",
+    picker.includes("AGENT_KINDS.map(") && panel.includes("<HarnessPicker kind={kind}")
+  )
+  check(
+    "**chaque harnais a son logo et son nom dans le menu**",
+    /Record<AgentKind, HarnessInfo>/.test(picker) && ["claude", "codex", "qwen", "mimo"].every((k) => picker.includes(`case "${k}":`))
+  )
 
   // Le choix vit dans le corps d'une session neuve, pas dans la barre du haut :
   // c'est le moment où il se décide, et la barre déborde à trois boutons de
@@ -98,7 +108,7 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   const entete = panel.slice(panel.indexOf('className="flex h-9 shrink-0'), panel.indexOf("ref={scrollRef}"))
   check(
     "**et le choix du harnais n'est pas dans la barre du haut**",
-    !entete.includes("AGENT_KINDS.map("),
+    !entete.includes("AGENT_KINDS.map(") && !entete.includes("<HarnessPicker"),
     "l'en-tête porte encore les boutons de harnais"
   )
   check(
