@@ -129,12 +129,14 @@ function saveSettings(): void {
 
 export type CaptureSettingsView = CaptureSettings & {
   shortcutErrors: { image: string | null; video: string | null }
+  /** L'icône existe bien dans la barre de menus ou la zone de notification. */
+  trayActive: boolean
   /** En développement, l'app lancée à la connexion serait Electron nu : on ne le propose pas. */
   loginAvailable: boolean
 }
 
 function view(): CaptureSettingsView {
-  return { ...settings, shortcutErrors, loginAvailable: app.isPackaged }
+  return { ...settings, shortcutErrors, loginAvailable: app.isPackaged, trayActive: tray !== null && !tray.isDestroyed() }
 }
 
 // Démarrer avec la session, en arrière-plan. Jamais en développement : ce
@@ -899,6 +901,18 @@ function registerIpc(): void {
 
   // Les réglages, depuis l'onglet Settings d'une fenêtre de Studio.
   ipcMain.handle("capture:settings", () => view())
+  // Lancer une capture depuis les réglages de Studio, sans passer par l'icône.
+  //
+  // Sous Windows 11, une icône nouvelle de la zone de notification est rangée
+  // d'office derrière « ^ » : la capture avait l'air de ne pas exister. Ce
+  // bouton marche quoi qu'il en soit de l'icône, et dit tout de suite si c'est
+  // la capture elle-même qui ne va pas.
+  ipcMain.handle("capture:start", (_event, kind: unknown) => {
+    if (busy !== "idle") return false
+    if (kind === "video") void recordVideo()
+    else void captureImage()
+    return true
+  })
   ipcMain.handle("capture:update-settings", (_event, patch: unknown) => {
     const before = settings
     settings = sanitizeCapture({ ...settings, ...(patch && typeof patch === "object" ? patch : {}) })

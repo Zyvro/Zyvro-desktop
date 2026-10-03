@@ -50,7 +50,9 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   // sur le projet coûte trois programmes.
   check(
     "**on ne jette les shells que pour un AUTRE projet**",
-    panel.includes("if (projectDir !== null && projectDir !== boundProject) {"),
+    // Le repère est un état React (`lie`) depuis que le StrictMode du
+    // développement perdait la bascule faite dans une variable de module.
+    panel.includes("if (projectDir !== null && projectDir !== lie) {"),
     "un projet momentanément inconnu ferait le même effet qu'un projet fermé"
   )
 
@@ -60,7 +62,7 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   const bloc = panel.slice(panel.indexOf("if (projectDir !== null"), panel.indexOf("if (projectDir !== null") + 900)
   check(
     "**et un `null` ne s'enregistre pas comme projet courant**",
-    !/setBoundProject\(null\)/.test(panel) && !/boundProject = null/.test(panel) && bloc.includes("boundProject = projectDir"),
+    !/setLie\(null\)/.test(panel) && !/boundProject = null/.test(panel) && bloc.includes("setLie(projectDir)"),
     "le retour du même projet serait pris pour un changement"
   )
 

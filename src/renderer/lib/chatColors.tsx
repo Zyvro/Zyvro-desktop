@@ -1,8 +1,10 @@
-import { useMemo, type ReactNode } from "react"
+import { useMemo, useSyncExternalStore, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Sparkle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AgentKind } from "../../shared/harness"
+import type { CustomIndicator, WorkingIndicatorId } from "../../shared/chatThemes"
+import { getSettings, subscribeSettings } from "~/state/settings"
 
 // La couleur du chat d'agent.
 //
@@ -68,15 +70,17 @@ function monacoLanguage(fence: string): string {
 // Les mêmes teintes que le thème `zyvro-dark` de l'éditeur, pour qu'un extrait
 // dans le chat ressemble au fichier qu'il cite.
 function tokenClass(type: string): string {
-  if (type.startsWith("comment")) return "text-[#6b6b7b] italic"
-  if (type.startsWith("keyword") || type.startsWith("storage")) return "text-[#a78bfa]"
-  if (type.startsWith("string") || type.startsWith("attribute.value")) return "text-[#5eead4]"
-  if (type.startsWith("number") || type.startsWith("constant")) return "text-[#fbbf24]"
-  if (type.startsWith("type") || type.startsWith("tag") || type.startsWith("metatag")) return "text-[#7dd3fc]"
-  if (type.startsWith("attribute.name") || type.startsWith("key")) return "text-[#fdba74]"
-  if (type.startsWith("regexp")) return "text-[#fb7185]"
-  if (type.startsWith("variable") || type.startsWith("predefined")) return "text-[#f9a8d4]"
-  if (type.startsWith("delimiter") || type.startsWith("operator")) return "text-[#9ca3af]"
+  // Les couleurs viennent du thème du chat (shared/chatThemes) : ce ne sont
+  // que des variables ici.
+  if (type.startsWith("comment")) return "text-[color:var(--zy-syn-comment)] italic"
+  if (type.startsWith("keyword") || type.startsWith("storage")) return "text-[color:var(--zy-syn-keyword)]"
+  if (type.startsWith("string") || type.startsWith("attribute.value")) return "text-[color:var(--zy-syn-string)]"
+  if (type.startsWith("number") || type.startsWith("constant")) return "text-[color:var(--zy-syn-number)]"
+  if (type.startsWith("type") || type.startsWith("tag") || type.startsWith("metatag")) return "text-[color:var(--zy-syn-type)]"
+  if (type.startsWith("attribute.name") || type.startsWith("key")) return "text-[color:var(--zy-syn-attr)]"
+  if (type.startsWith("regexp")) return "text-[color:var(--zy-syn-regexp)]"
+  if (type.startsWith("variable") || type.startsWith("predefined")) return "text-[color:var(--zy-syn-variable)]"
+  if (type.startsWith("delimiter") || type.startsWith("operator")) return "text-[color:var(--zy-syn-delim)]"
   return ""
 }
 
@@ -116,9 +120,9 @@ function DiffLines({ code }: { code: string }) {
 /** La teinte d'une ligne de diff : ajout, retrait, en-tête de bloc. */
 export function diffLineClass(line: string): string {
   if (line.startsWith("+++") || line.startsWith("---")) return "text-foreground/60 font-semibold"
-  if (line.startsWith("+")) return "text-emerald-300 bg-emerald-400/[0.08]"
-  if (line.startsWith("-")) return "text-red-300 bg-red-400/[0.08]"
-  if (line.startsWith("@@")) return "text-sky-300"
+  if (line.startsWith("+")) return "text-[color:var(--zy-diff-add)] bg-[color:var(--zy-diff-add-bg)]"
+  if (line.startsWith("-")) return "text-[color:var(--zy-diff-del)] bg-[color:var(--zy-diff-del-bg)]"
+  if (line.startsWith("@@")) return "text-[color:var(--zy-diff-hunk)]"
   return ""
 }
 
@@ -193,9 +197,12 @@ export function looksLikeDiff(text: string): boolean {
  */
 export function Working({ verb, kind }: { verb: string; kind: AgentKind }) {
   const tint = HARNESS_TINT[kind] ?? HARNESS_TINT.claude
+  // Le style choisi dans les réglages — étoile, glyphes, spinner, orbe, ou
+  // l'image qu'on a téléversée.
+  const reglages = useSyncExternalStore(subscribeSettings, getSettings)
   return (
     <div className="zy-working mt-1 flex items-center gap-1.5 text-[11px]" role="status" aria-live="polite">
-      <Sparkle className={cn("h-3 w-3 shrink-0 zy-working-star", tint.text)} />
+      <WorkingGlyph variant={reglages.workingIndicator} custom={reglages.customIndicator} tint={tint.text} />
       <span className="zy-shimmer font-medium">{verb}</span>
       <span className={cn("zy-dots", tint.text)} aria-hidden>
         <span />
@@ -204,4 +211,65 @@ export function Working({ verb, kind }: { verb: string; kind: AgentKind }) {
       </span>
     </div>
   )
+}
+
+const CLAUDE_FRAMES = ["✻", "✶", "✳", "✢", "·"]
+const BRAILLE_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+
+/**
+ * WorkingGlyph : la partie qui bouge, seule. Partagée avec les réglages, qui
+ * montrent chaque style en mouvement plutôt qu'un nom à deviner.
+ *
+ * Les glyphes qui défilent sont des CSS, pas un minuteur : chaque image est un
+ * <span> superposé qui n'est visible qu'une fraction du cycle (zy-frames-N).
+ */
+export function WorkingGlyph({
+  variant,
+  custom,
+  tint,
+}: {
+  variant: WorkingIndicatorId
+  custom: CustomIndicator | null
+  tint: string
+}): JSX.Element | null {
+  switch (variant) {
+    case "claude":
+    case "braille": {
+      const frames = variant === "claude" ? CLAUDE_FRAMES : BRAILLE_FRAMES
+      return (
+        <span className={cn("zy-frames font-mono text-[12px] leading-none", `zy-frames-${frames.length}`, tint)} aria-hidden>
+          {frames.map((frame, index) => (
+            <span key={index}>{frame}</span>
+          ))}
+        </span>
+      )
+    }
+    case "dots":
+      return null
+    case "orb":
+      return <span className={cn("zy-orb", tint)} aria-hidden />
+    case "bars":
+      return (
+        <span className={cn("zy-bars", tint)} aria-hidden>
+          <span />
+          <span />
+          <span />
+          <span />
+        </span>
+      )
+    case "custom":
+      if (custom) {
+        return (
+          <img
+            src={custom.dataUrl}
+            alt=""
+            aria-hidden
+            className={cn("h-3.5 w-3.5 shrink-0 object-contain", custom.animation !== "none" && `zy-custom-${custom.animation}`)}
+          />
+        )
+      }
+      return <Sparkle className={cn("h-3 w-3 shrink-0 zy-working-star", tint)} />
+    default:
+      return <Sparkle className={cn("h-3 w-3 shrink-0 zy-working-star", tint)} />
+  }
 }

@@ -58,14 +58,15 @@ const ICONS: Record<ToolShape, typeof Wrench> = {
 
 // Une couleur par sorte de travail, comme Claude Code et Codex en donnent une :
 // on repère d'un coup d'œil où il a écrit, où il a lancé une commande.
+// Les couleurs elles-mêmes sont celles du thème du chat, en variables.
 const TINTS: Record<ToolShape, string> = {
-  read: "text-sky-300",
-  edit: "text-amber-300",
-  terminal: "text-emerald-300",
-  search: "text-violet-300",
-  web: "text-cyan-300",
-  plan: "text-pink-300",
-  agent: "text-indigo-300",
+  read: "text-[color:var(--zy-tool-read)]",
+  edit: "text-[color:var(--zy-tool-edit)]",
+  terminal: "text-[color:var(--zy-tool-terminal)]",
+  search: "text-[color:var(--zy-tool-search)]",
+  web: "text-[color:var(--zy-tool-web)]",
+  plan: "text-[color:var(--zy-tool-plan)]",
+  agent: "text-[color:var(--zy-tool-agent)]",
   zyvro: "text-primary",
   other: "text-muted-foreground",
 }
@@ -187,7 +188,7 @@ export function ToolRow({ call, conversationId }: { call: ToolCall; conversation
           {call.detail && (
             <pre className="zy-scroll max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-foreground/75">
               {/* Une commande se lit comme dans un terminal : l'invite en vert. */}
-              {call.shape === "terminal" ? <span className="select-none text-emerald-400">$ </span> : null}
+              {call.shape === "terminal" ? <span className="select-none text-[color:var(--zy-tool-terminal)]">$ </span> : null}
               {call.detail}
             </pre>
           )}

@@ -49,6 +49,51 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.55
+
+**Your prompt is never lost, and your past prompts come back.** What you type in
+the agent panel is kept per session, outside the panel: closing the panel,
+switching between AI and Dev, changing session or project, even restarting the
+app no longer throws it away — and each session keeps its own. Press **↑** in an
+empty prompt to bring back what you sent before, **↓** to come back down to
+what you were writing.
+
+**Themes for the agent chat, and your own working indicator.** Settings ›
+Agent chat has six themes — Zyvro, Claude, Codex, Ocean, Dracula, Mono — each
+shown as a live preview, and six styles for what turns while the agent writes
+(sparkle, Claude-style glyphs, braille spinner, dots, orb, equalizer), plus
+**your own image**: upload a PNG, GIF, WebP or SVG and pick how it moves.
+
+**Settings in a file.** All settings are also saved as JSON in
+`settings.json` in Zyvro's folder — Settings › Configuration file shows where,
+and has **Export…**, **Import…**, **Show in folder** and **Reset all**. Edits
+made to the file by hand are picked up the next time Zyvro starts.
+
+**Providers moved, Settings has its button.** Providers now sits at the bottom
+of the activity bar, and the button below it opens Settings.
+
+**Windows: sending to an agent works.** On Windows, pressing Enter or Send could
+do nothing at all. Two causes are fixed: with no project open the message was
+silently dropped (the agent now works in the home folder, as intended), and
+agents installed with npm (`claude.cmd`, `codex.cmd`, `qwen.cmd`) were started
+through cmd.exe, which cut the agent's multi-line instructions at the first
+line break. They now start directly, with no console window flashing.
+
+**Screen capture from Settings.** Settings › Screen capture has **Capture area**
+and **Record area** buttons and says whether the capture icon is there — on
+Windows 11 a new notification-area icon starts hidden behind **^** next to the
+clock.
+
+**Persistent shells across projects.** With several projects in one window,
+opening a persistent shell in each could mix their tabs in development and
+attach the same shell twice; a closed project could bring back dead tabs when
+reopened; and opening a session already open attached a second client. All
+three are fixed.
+
+**Context and /compact.** The context meter follows the model that actually
+ran, and `/compact` replaces the thread with the harness's summary, as in its
+own interface.
+
 ## New in alpha.54
 
 **Screen capture from the menu bar.** A Zyvro icon now sits in the macOS menu

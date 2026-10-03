@@ -565,6 +565,8 @@ const api = {
     update: (patch: Partial<CaptureSettings>): Promise<CaptureSettingsView> =>
       invoke("capture:update-settings", patch),
     chooseFolder: (): Promise<CaptureSettingsView> => invoke("capture:choose-folder"),
+    /** Lancer une capture (image) ou un enregistrement (vidéo), sans l'icône. */
+    start: (kind: "image" | "video"): Promise<boolean> => invoke("capture:start", kind),
   },
   account: {
     current: (): Promise<Account | null> => invoke("account:current"),
@@ -607,6 +609,16 @@ const api = {
     ): Promise<{ preview: string; bytes: number }> => invoke("shots:capture", rect, label),
     save: (): Promise<string> => invoke("shots:save"),
     share: (): Promise<string> => invoke("shots:share"),
+  },
+
+  // Les réglages dans un fichier : `<dossier de l'app>/settings.json`, et
+  // Export / Import par de vraies boîtes de dialogue.
+  settingsFile: {
+    read: (): Promise<{ path: string; settings: unknown | null }> => invoke("settings:file-read"),
+    write: (settings: unknown): Promise<string> => invoke("settings:file-write", settings),
+    reveal: (): Promise<string> => invoke("settings:reveal"),
+    exportTo: (settings: unknown): Promise<string | null> => invoke("settings:export", settings),
+    importFrom: (): Promise<{ path: string; settings: unknown } | null> => invoke("settings:import"),
   },
 
   git: {

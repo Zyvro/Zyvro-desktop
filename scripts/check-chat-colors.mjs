@@ -47,7 +47,11 @@ check("un en-tête de fichier aussi", mod.looksLikeDiff("--- a/x.ts\n+++ b/x.ts\
 check("des lignes +/- sans en-tête, quand elles dominent", mod.looksLikeDiff("+ ajouté\n- retiré\n même"))
 check("**une sortie ordinaire n'en est pas un**", !mod.looksLikeDiff("  ok    tout passe\n  ok    encore"))
 check("une liste à tirets non plus", !mod.looksLikeDiff("voici :\nun\ndeux\ntrois\n- un seul tiret\nfin\nencore\nplus"))
-check("**ajout en vert, retrait en rouge**", /emerald/.test(mod.diffLineClass("+x")) && /red/.test(mod.diffLineClass("-x")) && /sky/.test(mod.diffLineClass("@@ -1 +1 @@")))
+// Les couleurs elles-mêmes viennent du thème choisi (shared/chatThemes).
+check(
+  "**ajout, retrait et en-tête prennent chacun leur couleur du thème**",
+  /--zy-diff-add\)/.test(mod.diffLineClass("+x")) && /--zy-diff-del\)/.test(mod.diffLineClass("-x")) && /--zy-diff-hunk\)/.test(mod.diffLineClass("@@ -1 +1 @@"))
+)
 
 // ---- chaque harnais a sa teinte ----
 for (const kind of mod.AGENT_KINDS) {

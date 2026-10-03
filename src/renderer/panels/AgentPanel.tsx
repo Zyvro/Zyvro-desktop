@@ -27,6 +27,15 @@ import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { askHarness } from "~/state/persistent"
+import {
+  draftFor,
+  inHistory,
+  leaveHistory,
+  rememberPrompt,
+  setDraftFor,
+  stepHistory,
+  subscribeDrafts,
+} from "~/state/composer"
 import { installHarness, NODE_DOWNLOAD_URL, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HARNESS_TINT, renderCode, Working } from "~/lib/chatColors"
 import { HarnessPicker } from "~/panels/HarnessPicker"
@@ -515,10 +524,19 @@ async function openInTerminal(kind: AgentKind, threadId: string, model: string |
 
 async function dispatch(threadId: string, text: string, images: Attached[]): Promise<void> {
   const thread = threadById(threadId)
-  const projectDir = useWorkspace.getState().project?.project ?? null
-  if (!thread || projectDir === null) return
+  if (!thread) return
 
   const messageId = beginTurn(threadId, text, images)
+
+  // Où l'agent travaille : le projet ouvert, ou le dossier d'accueil sans
+  // projet. C'était `project` ici, et un envoi sans projet ouvert repartait en
+  // silence — Entrée, « Send », et rien du tout, ni message ni erreur. Le
+  // principal sait travailler sur le dossier d'accueil ; seul un moteur pas
+  // encore prêt empêche l'envoi, et cela se dit.
+  if (useWorkspace.getState().root === null) {
+    failTurn(threadId, messageId, "The local engine is still starting. Try again in a moment.")
+    return
+  }
 
   // La liste des workflows est du contexte, pas une condition : si le démon
   // local ne répond pas, l'agent tourne quand même — il ne connaîtra
@@ -1371,7 +1389,14 @@ export function AgentPanel(): JSX.Element {
   // Lu une fois ici plutôt que dans chaque bulle : le réglage est le même pour
   // toute la fenêtre, et cent messages n'ont pas à s'abonner cent fois.
   const showSpent = useSyncExternalStore(subscribeUsage, usageShown, () => true)
-  const [draft, setDraft] = useState("")
+  // Le brouillon de la session affichée, hors du composant (state/composer) :
+  // fermer le panneau, changer de mode, de session ou de projet ne le perd plus,
+  // et chaque session garde le sien.
+  const draft = useSyncExternalStore(subscribeDrafts, () => draftFor(thread.id), () => "")
+  const setDraft = (next: string | ((actuel: string) => string)): void => {
+    const id = thread.id
+    setDraftFor(id, typeof next === "function" ? next(draftFor(id)) : next)
+  }
   // Où est le curseur : une commande ne se complète que tant qu'on est dedans,
   // pas quand on est revenu écrire au milieu d'une phrase qui commence par une
   // barre oblique.
@@ -1405,7 +1430,9 @@ export function AgentPanel(): JSX.Element {
     // An image on its own is a message: "what is wrong with this?" is often the
     // whole question, and refusing it because the box is empty would be
     // pedantry.
-    if ((text === "" && thread.images.length === 0) || project === null) return
+    // Pas de condition de projet : sans projet, l'agent travaille sur le
+    // dossier d'accueil (voir `dispatch`).
+    if (text === "" && thread.images.length === 0) return
     const threadId = thread.id
     const images = thread.images
 
@@ -1417,7 +1444,9 @@ export function AgentPanel(): JSX.Element {
 
     // La boîte se vide dans les deux cas : ce qu'on vient d'écrire est parti
     // quelque part, en vol ou en file, et le laisser à l'écran ferait croire
-    // qu'il n'est pas parti.
+    // qu'il n'est pas parti. Et il rejoint l'historique, rappelable par ↑.
+    rememberPrompt(prompt)
+    leaveHistory(threadId)
     setDraft("")
     const node = composer.current
     if (node) node.style.height = ""
@@ -1584,6 +1613,32 @@ export function AgentPanel(): JSX.Element {
         event.preventDefault()
         completer(proposees[surligne])
         return
+      }
+    }
+    // ↑ et ↓ : l'historique des prompts, comme dans un terminal. Seulement
+    // depuis une boîte vide (ou quand on y navigue déjà), le curseur sur la
+    // première ligne pour remonter, sur la dernière pour redescendre : dans un
+    // texte de plusieurs lignes, les flèches restent celles du texte.
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+      const node = event.currentTarget
+      const avant = node.value.slice(0, node.selectionStart ?? 0)
+      const apres = node.value.slice(node.selectionEnd ?? node.value.length)
+      const navigue = inHistory(thread.id)
+      const permis =
+        event.key === "ArrowUp" ? (draft === "" || navigue) && !avant.includes("\n") : navigue && !apres.includes("\n")
+      if (permis) {
+        const texte = stepHistory(thread.id, event.key === "ArrowUp" ? -1 : 1, draft)
+        if (texte !== null) {
+          event.preventDefault()
+          setDraftFor(thread.id, texte)
+          requestAnimationFrame(() => {
+            const champ = composer.current
+            if (!champ) return
+            champ.setSelectionRange(texte.length, texte.length)
+            grow(champ)
+          })
+          return
+        }
       }
     }
     if (event.key !== "Enter" || event.shiftKey) return
@@ -2123,8 +2178,10 @@ export function AgentPanel(): JSX.Element {
             rows={1}
             value={draft}
             disabled={disabled}
-            placeholder={disabled ? "Open a project first" : `Ask ${kind}…`}
+            placeholder={disabled ? "Starting the local engine…" : `Ask ${kind}… (↑ for earlier prompts)`}
             onChange={(event) => {
+              // Taper fait sortir de l'historique : le texte est de nouveau le sien.
+              leaveHistory(thread.id)
               setDraft(event.target.value)
               setCaret(event.target.selectionStart ?? event.target.value.length)
               setChoisi(0)
@@ -2231,8 +2288,8 @@ function Bubble({
   if (message.role === "user") {
     const images = message.images ?? []
     return (
-      <div className="rounded-md border border-white/[0.06] border-l-2 border-l-primary/70 bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
-        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary/90">You</div>
+      <div className="rounded-md border border-white/[0.06] border-l-2 border-l-[color:var(--zy-chat-user)] bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--zy-chat-user)]">You</div>
         {textOf(message) ? (
           <div className="whitespace-pre-wrap break-words">{textOf(message)}</div>
         ) : null}

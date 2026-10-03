@@ -6,7 +6,7 @@ import {
   type SpawnOptions,
 } from "node:child_process"
 import type { Readable, Writable } from "node:stream"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
@@ -357,7 +357,76 @@ export function launch(
         ` then sign in and reopen this panel.`
     )
   }
-  return spawn(found.file, args, { ...options, shell: found.needsShell })
+  const how = direct(found)
+  return spawn(how.file, [...how.prefix, ...args], {
+    ...options,
+    shell: how.shell,
+    // Pas de fenêtre de console qui clignote à chaque tour d'agent.
+    windowsHide: true,
+  })
+}
+
+// ---------- les scripts .cmd de npm ----------
+//
+// Sous Windows, `claude`, `codex` et `qwen` installés par npm sont des scripts
+// `.cmd` : quelques lignes de batch qui lancent `node <script.js> %*`. Les
+// lancer par l'interpréteur de commandes (`shell: true`) cassait le panneau
+// d'agent : Node ne met alors AUCUN argument entre guillemets, et cmd.exe
+// s'arrête au premier retour à la ligne. Le préambule d'un tour
+// (`--append-system-prompt`) en a plusieurs : la CLI recevait des arguments
+// tronqués, le reste partait comme d'autres commandes, et le tour ne donnait
+// rien — « on tape Entrée et il ne se passe rien ».
+//
+// La réponse est de ne pas passer par cmd.exe du tout : lire ce que le script
+// lance et le lancer soi-même — `node.exe <script.js>`, ou l'exécutable qu'il
+// nomme. Node passe alors les arguments à Windows correctement cités,
+// retours à la ligne compris. Un script qu'on ne sait pas lire garde l'ancien
+// chemin.
+
+export type Direct = { file: string; prefix: string[]; shell: boolean }
+
+/**
+ * shimTarget : ce qu'un script `.cmd` de npm (cmd-shim) lance vraiment.
+ *
+ * Les deux formes qu'on rencontre, l'actuelle et l'ancienne :
+ *
+ *   endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\node_modules\pkg\cli.js" %*
+ *   "%~dp0\node.exe"  "%~dp0\node_modules\pkg\cli.js" %*
+ *
+ * Pur, pour scripts/check-cli-path.mjs : on lui donne le texte et le dossier.
+ */
+export function shimTarget(text: string, dir: string): { script: string; viaNode: boolean } | null {
+  // La dernière cible citée avant `%*` : c'est elle qui reçoit les arguments.
+  const cibles = [...text.matchAll(/"(%~?dp0%?\\?[^"]+?)"\s+%\*/g)].map((m) => m[1])
+  const brut = cibles[cibles.length - 1]
+  if (!brut) return null
+  const relatif = brut.replace(/^%~?dp0%?\\?/, "")
+  if (!relatif || relatif.toLowerCase().endsWith("node.exe")) return null
+  const script = path.join(dir, ...relatif.split("\\"))
+  const viaNode = /\.(c|m)?js$/i.test(script)
+  if (!viaNode && !/\.exe$/i.test(script)) return null
+  return { script, viaNode }
+}
+
+/** Comment lancer ce qu'on a trouvé, sans cmd.exe quand c'est possible. */
+export function direct(found: Found): Direct {
+  if (!found.needsShell || !/\.cmd$/i.test(found.file)) return { file: found.file, prefix: [], shell: found.needsShell }
+  let text = ""
+  try {
+    text = readFileSync(found.file, "utf8")
+  } catch {
+    return { file: found.file, prefix: [], shell: true }
+  }
+  const dir = path.dirname(found.file)
+  const cible = shimTarget(text, dir)
+  if (!cible || !existsSync(cible.script)) return { file: found.file, prefix: [], shell: true }
+  if (!cible.viaNode) return { file: cible.script, prefix: [], shell: false }
+  // Le node.exe que npm a posé à côté du script, sinon celui du PATH — comme le
+  // fait le script lui-même.
+  const voisin = path.join(dir, "node.exe")
+  const node = existsSync(voisin) ? voisin : locate("node")?.file
+  if (!node || /\.(cmd|bat)$/i.test(node)) return { file: found.file, prefix: [], shell: true }
+  return { file: node, prefix: [cible.script], shell: false }
 }
 
 // launchPiped is launch for the callers that talk to the process. It exists for

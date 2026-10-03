@@ -1,4 +1,5 @@
 import { useState } from "react"
+import "~/lib/chatTheme"
 import { Boxes, FolderTree, GitBranch, Search, Settings2, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { sidebarView, useWorkspace, type Mode, type PanelKey } from "~/state/workspace"
@@ -54,6 +55,7 @@ function ActivityBar() {
   const setPanel = useWorkspace((s) => s.setPanel)
   const openProviders = useWorkspace((s) => s.openProviders)
   const openStore = useWorkspace((s) => s.openStore)
+  const openSettings = useWorkspace((s) => s.openSettings)
   const activeTabId = useWorkspace((s) => s.activeTabId)
 
   const items = [
@@ -81,11 +83,24 @@ function ActivityBar() {
       active: activeTabId === "store",
       onClick: openStore,
     },
+  ]
+
+  // En bas, ce qui règle l'application plutôt que ce qu'on y fait : les
+  // fournisseurs, puis les réglages — comme VS Code garde Comptes et Gérer au
+  // pied de sa barre. Le bouton du bas ouvrait Providers une seconde fois ; il
+  // ouvre maintenant Settings.
+  const bottom = [
     {
       icon: Boxes,
       label: "Providers",
       active: activeTabId === "providers",
       onClick: openProviders,
+    },
+    {
+      icon: Settings2,
+      label: "Settings",
+      active: activeTabId === "settings",
+      onClick: openSettings,
     },
   ]
 
@@ -105,13 +120,19 @@ function ActivityBar() {
         </button>
       ))}
       <div className="flex-1" />
-      <button
-        title="Providers and keys"
-        onClick={openProviders}
-        className="flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground hover:bg-white/[0.06]"
-      >
-        <Settings2 className="h-[18px] w-[18px]" />
-      </button>
+      {bottom.map(({ icon: Icon, label, active, onClick }) => (
+        <button
+          key={label}
+          title={label}
+          onClick={onClick}
+          className={cn(
+            "flex h-9 w-9 items-center justify-center rounded-lg",
+            active ? "bg-white/[0.09] text-foreground" : "text-muted-foreground hover:bg-white/[0.06]"
+          )}
+        >
+          <Icon className="h-[18px] w-[18px]" />
+        </button>
+      ))}
     </nav>
   )
 }

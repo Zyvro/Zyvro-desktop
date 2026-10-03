@@ -10,6 +10,15 @@
 // donner un éditeur en police 0 ou en tabulation 400. Pur, pour
 // `scripts/check-settings.mjs`.
 
+import {
+  CHAT_THEMES,
+  sanitizeCustomIndicator,
+  WORKING_INDICATORS,
+  type ChatThemeId,
+  type CustomIndicator,
+  type WorkingIndicatorId,
+} from "./chatThemes"
+
 export type AutoSave = "off" | "afterDelay" | "onFocusChange"
 
 export type EditorSettings = {
@@ -33,6 +42,12 @@ export type EditorSettings = {
   formatOnSave: boolean
   /** Demander à GitHub, au démarrage puis de temps en temps, s'il y a mieux. */
   checkForUpdates: boolean
+  /** La palette du chat d'agent (shared/chatThemes). */
+  chatTheme: ChatThemeId
+  /** Ce qui tourne au bout d'un message tant que l'agent produit. */
+  workingIndicator: WorkingIndicatorId
+  /** L'image téléversée pour l'indicateur « Your own », ou rien. */
+  customIndicator: CustomIndicator | null
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -52,6 +67,9 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   autoSaveDelay: 1000,
   formatOnSave: false,
   checkForUpdates: true,
+  chatTheme: "zyvro",
+  workingIndicator: "sparkle",
+  customIndicator: null,
 }
 
 function entre(value: unknown, min: number, max: number, defaut: number): number {
@@ -86,6 +104,13 @@ export function sanitizeSettings(raw: unknown): EditorSettings {
     autoSaveDelay: entre(r.autoSaveDelay, 200, 60_000, d.autoSaveDelay),
     formatOnSave: booleen(r.formatOnSave, d.formatOnSave),
     checkForUpdates: booleen(r.checkForUpdates, d.checkForUpdates),
+    chatTheme: parmi(r.chatTheme, CHAT_THEMES.map((t) => t.id), d.chatTheme),
+    // « Your own » sans image valide n'afficherait rien : on retombe sur le défaut.
+    workingIndicator: ((): WorkingIndicatorId => {
+      const choisi = parmi(r.workingIndicator, WORKING_INDICATORS.map((w) => w.id), d.workingIndicator)
+      return choisi === "custom" && !sanitizeCustomIndicator(r.customIndicator) ? d.workingIndicator : choisi
+    })(),
+    customIndicator: sanitizeCustomIndicator(r.customIndicator),
   }
 }
 

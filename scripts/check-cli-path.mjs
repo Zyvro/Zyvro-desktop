@@ -32,7 +32,7 @@ await build({
   absWorkingDir: ROOT, logLevel: "silent",
 })
 const harness = path.join(dir, "h.cjs")
-const { merge, locate } = createRequire(import.meta.url)(harness)
+const { merge, locate, shimTarget, direct } = createRequire(import.meta.url)(harness)
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -180,6 +180,62 @@ process.env.PATH = saved
     /app\.setPath\("userData", path\.join\(app\.getPath\("appData"\), "zyvro-desktop-dev"\)\)/.test(index),
     "partager celui de l'app installée faisait quitter `npm run dev` dès qu'elle était ouverte"
   )
+}
+
+// ---- les scripts .cmd de npm, sous Windows ----
+//
+// Lancer `claude.cmd` par cmd.exe cassait le panneau d'agent : sans guillemets,
+// le préambule sur plusieurs lignes était coupé au premier retour à la ligne,
+// et un tour ne donnait rien. On lit le script pour lancer node directement.
+{
+  // Le texte tel que cmd-shim l'écrit aujourd'hui, et tel qu'il l'écrivait.
+  const moderne = [
+    "@ECHO off",
+    "GOTO start",
+    ":find_dp0",
+    "SET dp0=%~dp0",
+    "EXIT /b",
+    ":start",
+    "SETLOCAL",
+    "CALL :find_dp0",
+    "",
+    'IF EXIST "%dp0%\\node.exe" (',
+    '  SET "_prog=%dp0%\\node.exe"',
+    ") ELSE (",
+    '  SET "_prog=node"',
+    "  SET PATHEXT=%PATHEXT:;.JS;=;%",
+    ")",
+    "",
+    'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+  ].join("\r\n")
+  const ancien = '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe"  "%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n) ELSE (\r\n  node  "%~dp0\\node_modules\\@openai\\codex\\bin\\codex.js" %*\r\n)'
+  const npmDir = path.join(dir, "npm")
+  const m = shimTarget(moderne, npmDir)
+  check(
+    "**un script cmd-shim d'aujourd'hui mène à son cli.js**",
+    m?.viaNode === true && m.script === path.join(npmDir, "node_modules", "@anthropic-ai", "claude-code", "cli.js"),
+    JSON.stringify(m)
+  )
+  const a = shimTarget(ancien, npmDir)
+  check("et l'ancienne forme aussi", a?.viaNode === true && a.script.endsWith(path.join("@openai", "codex", "bin", "codex.js")), JSON.stringify(a))
+  check("un script qui ne lance rien de connu n'est pas deviné", shimTarget("@echo off\r\necho bonjour", npmDir) === null)
+  const exe = shimTarget('"%dp0%\\node_modules\\x\\bin\\tool.exe" %*', npmDir)
+  check("un script qui lance un .exe le lance tel quel", exe?.viaNode === false && exe.script.endsWith(path.join("bin", "tool.exe")))
+
+  // Une maquette d'installation npm : le script, son cli.js, et le node.exe d'à côté.
+  mkdirSync(path.join(npmDir, "node_modules", "@anthropic-ai", "claude-code"), { recursive: true })
+  writeFileSync(path.join(npmDir, "claude.cmd"), moderne)
+  writeFileSync(path.join(npmDir, "node_modules", "@anthropic-ai", "claude-code", "cli.js"), "")
+  writeFileSync(path.join(npmDir, "node.exe"), "")
+  const d = direct({ file: path.join(npmDir, "claude.cmd"), needsShell: true })
+  check(
+    "**claude.cmd se lance par node, sans cmd.exe — les arguments sur plusieurs lignes passent**",
+    d.shell === false && d.file === path.join(npmDir, "node.exe") && d.prefix[0] === path.join(npmDir, "node_modules", "@anthropic-ai", "claude-code", "cli.js"),
+    JSON.stringify(d)
+  )
+  check("un exécutable ordinaire reste tel quel", direct({ file: "/bin/ls", needsShell: false }).shell === false)
+  const source = readFileSync(path.join(ROOT, "src/main/cli.ts"), "utf8")
+  check("**launch passe par là, et sans fenêtre de console**", /const how = direct\(found\)/.test(source) && /windowsHide: true/.test(source))
 }
 
 rmSync(dir, { recursive: true, force: true })

@@ -86,7 +86,14 @@ const listeners = new Map<string, Set<() => void>>()
 // (voir le teardown de `mountTerminal`).
 type TermLayout = { groups: Groups; activeKey: string; poids: Record<string, number> }
 const layoutsByProject = new Map<string, TermLayout>()
-let boundProject: string | null = null
+// Les dossiers qui ont été des projets ouverts dans cette fenêtre. Un dossier
+// qui en était un et qui ne l'est plus a été FERMÉ : ses shells sont partis
+// avec lui (Workspace.closeProject), sa disposition ne doit pas revenir.
+const projetsConnus = new Set<string>()
+// Les reprises en vol, par dossier : deux passages de rendu (StrictMode) ou un
+// basculement aller-retour rapide ne doivent pas adopter deux fois les mêmes
+// shells — un pty branché à deux onglets meurt avec le premier qu'on ferme.
+const reprisesEnVol = new Set<string>()
 
 // getSnapshot must return a cached value: building `{...}` here would hand
 // React a new object on every call and re-render forever.
@@ -510,12 +517,33 @@ export function TerminalPanel(): JSX.Element {
   // globaux sinon. Il sert aussi de nom sous lequel le défilement est gardé,
   // donc les shells de la maison se retrouvent comme ceux d'un projet.
   const projectDir = useWorkspace((state) => state.root)
+  const ouverts = useWorkspace((state) => state.projects)
+  // Le dossier dont la disposition est à l'écran. Un état, et plus une variable
+  // de module : en développement, React rend deux fois et jette le premier
+  // passage. Le repère de module était marqué « fait » par le passage jeté, la
+  // disposition ne basculait jamais, et les shells de deux projets se
+  // retrouvaient dans les mêmes onglets — le même pty attaché deux fois.
+  const [lie, setLie] = useState<string | null>(null)
+  const groupsRef = useRef<Groups>([])
 
   // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
   // Ceux du projet ACTIF seulement : les autres restent dans
   // `layoutsByProject`, leurs composants montés mais cachés.
   const [groups, setGroups] = useState<Groups>([])
   const sessions = groups.flat()
+  groupsRef.current = groups
+
+  // Les projets fermés : on les reconnaît à ce qu'ils étaient ouverts et ne le
+  // sont plus. Leur disposition rangée est jetée — ses shells sont morts avec
+  // le projet — et leurs statuts oubliés après le rendu.
+  for (const p of ouverts) projetsConnus.add(p.project)
+  const estFerme = (dir: string): boolean => projetsConnus.has(dir) && !ouverts.some((p) => p.project === dir)
+  for (const [dir, layout] of [...layoutsByProject]) {
+    if (!estFerme(dir)) continue
+    layoutsByProject.delete(dir)
+    const keys = layout.groups.flat()
+    window.queueMicrotask(() => keys.forEach(forgetStatus))
+  }
   if (groups !== groupesVus) {
     groupesVus = groups
     window.queueMicrotask(envoyerDisposition)
@@ -591,7 +619,7 @@ export function TerminalPanel(): JSX.Element {
   // Ne rien faire sur `null` est sans danger : les shells vivent dans le
   // processus principal, leur cwd n'a pas bougé, et si le même projet revient
   // ce sont encore les bons. On ne retient pas non plus le `null` dans
-  // `boundProject`, sinon le retour du chemin passerait pour un changement de
+  // `lie`, sinon le retour du chemin passerait pour un changement de
   // projet et les remplacerait quand même.
   //
   // Depuis le multi-projet, un changement de projet n'est plus « jeter et
@@ -599,16 +627,23 @@ export function TerminalPanel(): JSX.Element {
   // tournent toujours ; leurs onglets reviennent tels quels au basculement
   // suivant. `reprendre` ne sert qu'à la première arrivée sur un projet (ou
   // après un rechargement du rendu, quand les clés de session ont disparu).
-  if (projectDir !== null && projectDir !== boundProject) {
-    const sortant = boundProject
+  if (projectDir !== null && projectDir !== lie) {
+    const sortant = lie
     // Ranger la disposition du sortant — pas ses statuts : les ptys vivent, et
     // `patchStatus` les a déjà liés. Les oublier ici ferait un shell de plus à
-    // chaque retour.
+    // chaque retour. Sauf s'il vient d'être FERMÉ : ses shells sont partis
+    // avec lui, et ranger ses onglets les ferait revenir, morts, à la
+    // réouverture.
     if (sortant !== null) {
-      layoutsByProject.set(sortant, { groups, activeKey, poids })
+      if (estFerme(sortant)) {
+        const keys = groups.flat()
+        window.queueMicrotask(() => keys.forEach(forgetStatus))
+      } else {
+        layoutsByProject.set(sortant, { groups, activeKey, poids })
+      }
     }
     const range = projectDir !== null ? layoutsByProject.get(projectDir) : undefined
-    boundProject = projectDir
+    setLie(projectDir)
     if (range) {
       // Restaurer : les clés de session existent encore, leurs composants
       // sont montés (cachés), il n'y a qu'à les remontrer.
@@ -656,11 +691,21 @@ export function TerminalPanel(): JSX.Element {
   // liste latérale — l'ouvrir à la place de la personne contredirait ce qu'elle
   // y voit.
   const reprendre = async (dir: string): Promise<void> => {
-    const vivants = await window.zyvro.terminal.running().catch(() => [])
-    // Le projet a pu changer pendant l'aller-retour. Adopter les shells d'un
+    if (reprisesEnVol.has(dir)) return
+    reprisesEnVol.add(dir)
+    let vivants: Awaited<ReturnType<typeof window.zyvro.terminal.running>> = []
+    try {
+      vivants = await window.zyvro.terminal.running().catch(() => [])
+    } finally {
+      reprisesEnVol.delete(dir)
+    }
+    // Le dossier a pu changer pendant l'aller-retour. Adopter les shells d'un
     // dossier qu'on ne regarde plus donnerait des invites qui mentent sur
-    // l'endroit où l'on se trouve.
-    if ((useWorkspace.getState().project?.project ?? null) !== dir) return
+    // l'endroit où l'on se trouve. Le dossier de travail, pas le projet : sans
+    // projet, c'est celui d'accueil.
+    if (useWorkspace.getState().root !== dir) return
+    // Déjà là : une reprise précédente les a posés.
+    if (groupsRef.current.flat().some((key) => vivants.some((v) => v.id === readStatus(key).ptyId))) return
     // Des clés existent déjà pour ce projet (un basculement pendant l'attente,
     // un `poser` arrivé plus tôt) : ne pas les écraser par une seconde liste.
     if (layoutsByProject.has(dir) && layoutsByProject.get(dir)!.groups.flat().length > 0) return
@@ -706,6 +751,15 @@ export function TerminalPanel(): JSX.Element {
     window.queueMicrotask(() => {
       const ordre = takeOpen()
       if (ordre === null) return
+      // Une session persistante déjà ouverte ici : aller à son onglet plutôt
+      // que d'attacher un second client à la même session.
+      if (ordre.sorte === "persistante" && ordre.label) {
+        const deja = groupsRef.current.flat().find((k) => readStatus(k).persistent === ordre.label)
+        if (deja) {
+          activate(deja)
+          return
+        }
+      }
       const key = nextSessionKey()
       patchStatus(
         key,

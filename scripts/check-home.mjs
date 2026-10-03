@@ -139,6 +139,23 @@ const read = (k) => readFileSync(files[k], "utf8")
   }
 }
 
+// ---- et l'agent répond sans projet ----
+//
+// Signalé sous Windows : « on tape Entrée ou on clique Envoyer, il ne se passe
+// rien ». L'envoi repartait en silence quand aucun projet n'était ouvert —
+// alors que le principal sait travailler sur le dossier d'accueil.
+{
+  const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+  check(
+    "**envoyer ne demande pas de projet ouvert**",
+    !/projectDir === null\) return/.test(panel) && !/\|\| project === null\) return/.test(panel)
+  )
+  check(
+    "**et un moteur pas encore prêt se dit au lieu de se taire**",
+    /if \(useWorkspace\.getState\(\)\.root === null\) \{\s*failTurn\(/.test(panel)
+  )
+}
+
 console.log(
   failures === 0
     ? "\nSans projet ouvert : un moteur, des fournisseurs, un agent, des shells et des workflows — ceux de la maison."

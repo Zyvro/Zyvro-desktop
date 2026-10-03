@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { getSettings, resetSettings, subscribeSettings, updateSettings } from "~/state/settings"
 import { useWorkspace } from "~/state/workspace"
 import { DEFAULT_SETTINGS } from "../../shared/settings"
+import { AgentChatSection, ConfigFileSection } from "~/panels/SettingsChat"
 import type { CaptureSettings, CaptureSettingsView } from "../../preload"
 
 // Les réglages de l'éditeur (⌘,). Chaque changement s'applique tout de suite
@@ -112,6 +113,36 @@ function CaptureSection() {
         The Zyvro icon in the {mac ? "menu bar" : "notification area"} captures an area of the screen, or records up to
         a minute of it, and can publish it as a public link that lasts 24 hours.
       </p>
+      {/* Lancer une capture d'ici, et dire où est l'icône : sous Windows 11,
+          une icône nouvelle est rangée derrière « ^ », et la capture avait
+          l'air de ne pas exister. */}
+      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] p-3">
+        <span
+          className={cn("h-2 w-2 shrink-0 rounded-full", c.trayActive ? "bg-emerald-400" : "bg-red-400")}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 text-[12px] text-muted-foreground">
+          {c.trayActive
+            ? mac
+              ? "The capture icon is in the menu bar."
+              : "The capture icon is in the notification area. On Windows 11 it starts hidden: click ^ next to the clock, then drag the Zyvro icon onto the taskbar to keep it in view."
+            : "The capture icon could not be created on this system — use the buttons here or the shortcuts below."}
+        </span>
+        <button
+          type="button"
+          onClick={() => void window.zyvro.capture.start("image")}
+          className="rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1 text-[12px] hover:bg-white/[0.08]"
+        >
+          Capture area
+        </button>
+        <button
+          type="button"
+          onClick={() => void window.zyvro.capture.start("video")}
+          className="rounded-md border border-white/[0.1] bg-white/[0.04] px-2.5 py-1 text-[12px] hover:bg-white/[0.08]"
+        >
+          Record area
+        </button>
+      </div>
       <Ligne titre="Capture area" aide="Shortcut that works from any application.">
         <Raccourci valeur={c.shortcutImage} erreur={c.shortcutErrors.image} onChange={(shortcutImage) => save.mutate({ shortcutImage })} />
       </Ligne>
@@ -169,6 +200,8 @@ export function SettingsTab() {
             <span className="text-muted-foreground"> — the models your workflows and the agent run on</span>
           </span>
         </button>
+
+        <AgentChatSection />
 
         <h2 className="mt-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Editor</h2>
         <Ligne titre="Font size" aide={`In pixels. Default ${DEFAULT_SETTINGS.fontSize}.`}>
@@ -260,6 +293,8 @@ export function SettingsTab() {
         </Ligne>
 
         <CaptureSection />
+
+        <ConfigFileSection />
       </div>
     </div>
   )

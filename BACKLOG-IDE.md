@@ -224,3 +224,10 @@ Petits correctifs repérés en passant :
   du chat s'ouvre en grand (`ImageViewer` dans `Thumb`), avec Show in folder
   (l'original lu par un outil Read), Open et Download (`agent:image-reveal`,
   `-open`, `-save`). Le choix du harnais devient `HarnessPicker`, logo et nom.
+- **0.1.0-alpha.55 — le prompt ne se perd plus.** Brouillon par session hors du
+  composant (`state/composer`), historique ↑/↓ des prompts envoyés ; thèmes du
+  chat et indicateurs (`shared/chatThemes`), réglages dans `settings.json`
+  (export, import, édition à la main) ; Providers en bas et bouton Settings ;
+  Windows : envoi sans projet, scripts `.cmd` lancés sans cmd.exe ; capture
+  depuis Settings ; shells persistants multi-projets (StrictMode, projet fermé,
+  double attache).

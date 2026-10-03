@@ -42,6 +42,7 @@ import * as importing from "./importing"
 import * as sharing from "./sharing"
 import * as commitMessage from "./commitmessage"
 import * as mimoInstall from "./mimoinstall"
+import { readSettingsFile, settingsPath, writeSettingsFile } from "./settingsFile"
 import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
 import { studioWindows } from "./windows"
@@ -1220,6 +1221,52 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("agent:thumbnail", async (_event, conversationId: string, id: string) =>
     attachments.thumbnail(String(conversationId), String(id))
   )
+
+  // ---- les réglages, dans un fichier qu'on retrouve ----
+  //
+  // `<dossier de l'app>/settings.json`. Le rendu y écrit à chaque changement et
+  // le relit au démarrage ; Export et Import passent par de vraies boîtes de
+  // dialogue, rien n'est écrit ni lu ailleurs que là où la personne a choisi.
+  ipcMain.handle("settings:file-read", async () => ({ path: settingsPath(), settings: await readSettingsFile() }))
+  ipcMain.handle("settings:file-write", async (_event, settings: unknown) => {
+    await writeSettingsFile(settings)
+    return settingsPath()
+  })
+  ipcMain.handle("settings:reveal", async () => {
+    // Le fichier n'existe qu'après le premier changement : on montre le dossier
+    // sinon, plutôt que de ne rien faire.
+    const file = settingsPath()
+    const there = await fs.stat(file).catch(() => null)
+    if (there) shell.showItemInFolder(file)
+    else await shell.openPath(path.dirname(file))
+    return file
+  })
+  ipcMain.handle("settings:export", async (event, settings: unknown) => {
+    const { win } = requireWorkspace(event)
+    const chosen = await dialog.showSaveDialog(win, {
+      title: "Export settings",
+      defaultPath: path.join(app.getPath("downloads"), "zyvro-settings.json"),
+      buttonLabel: "Export",
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    })
+    if (chosen.canceled || !chosen.filePath) return null
+    await writeSettingsFile(settings, chosen.filePath)
+    return chosen.filePath
+  })
+  ipcMain.handle("settings:import", async (event) => {
+    const { win } = requireWorkspace(event)
+    const chosen = await dialog.showOpenDialog(win, {
+      title: "Import settings",
+      properties: ["openFile"],
+      filters: [{ name: "JSON", extensions: ["json"] }],
+    })
+    if (chosen.canceled || chosen.filePaths.length === 0) return null
+    const settings = await readSettingsFile(chosen.filePaths[0])
+    if (settings === null || typeof settings !== "object") {
+      throw new Error("That file is not a settings file Zyvro can read.")
+    }
+    return { path: chosen.filePaths[0], settings }
+  })
 
   // ---- une image du chat, en grand : où elle est, l'ouvrir, la garder ----
   //

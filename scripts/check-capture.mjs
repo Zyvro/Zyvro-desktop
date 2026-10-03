@@ -249,6 +249,23 @@ function gifSeconds(bytes) {
   check("trop lourd : pas de GIF, et on le sait", heavy.finish(5_000) === null && heavy.tooLarge)
 }
 
+// ---- la lancer sans l'icône ----
+//
+// Sous Windows 11, une icône nouvelle de la zone de notification est rangée
+// derrière « ^ » : la capture avait l'air de ne pas exister. Les réglages la
+// lancent eux-mêmes et disent si l'icône est là — toujours d'un geste de la
+// personne, depuis la fenêtre de Studio.
+{
+  const capture = read("src/main/capture.ts")
+  check("**les réglages peuvent lancer une capture**", /ipcMain\.handle\("capture:start"/.test(capture) && /void captureImage\(\)/.test(capture))
+  check("et savent si l'icône existe", /trayActive: tray !== null && !tray\.isDestroyed\(\)/.test(capture))
+  const reglages = read("src/renderer/panels/SettingsTab.tsx")
+  check(
+    "**Settings montre les boutons, et où chercher l'icône sous Windows**",
+    /window\.zyvro\.capture\.start\("image"\)/.test(reglages) && /click \^ next to the clock/.test(reglages)
+  )
+}
+
 if (failures) {
   console.log(`\n${failures} échec(s)`)
   process.exit(1)

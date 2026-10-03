@@ -239,27 +239,27 @@ button,
  * classe `zy-agent-md` que seul le panneau d'agent pose, pour que le site reste
  * comme il est. */
 .zy-agent-md :not(pre) > code {
-  color: #f0abfc;
-  background: rgba(217, 70, 239, 0.12);
+  color: var(--zy-chat-code, #f0abfc);
+  background: var(--zy-chat-code-bg, rgba(217, 70, 239, 0.12));
 }
 .zy-agent-md h1,
 .zy-agent-md h2,
 .zy-agent-md h3 {
-  color: #c4b5fd;
+  color: var(--zy-chat-heading, #c4b5fd);
 }
 .zy-agent-md h4,
 .zy-agent-md h5,
 .zy-agent-md h6 {
-  color: #a5b4fc;
+  color: var(--zy-chat-heading-minor, #a5b4fc);
 }
 .zy-agent-md strong {
-  color: #fde68a;
+  color: var(--zy-chat-strong, #fde68a);
 }
 .zy-agent-md li > span[aria-hidden] {
-  color: #a78bfa;
+  color: var(--zy-chat-bullet, #a78bfa);
 }
 .zy-agent-md blockquote {
-  border-left-color: rgba(167, 139, 250, 0.5);
+  border-left-color: var(--zy-chat-quote, rgba(167, 139, 250, 0.5));
 }
 
 /* ---------- « il travaille » ----------
@@ -298,7 +298,7 @@ button,
     90deg,
     rgba(255, 255, 255, 0.45) 0%,
     rgba(255, 255, 255, 0.45) 35%,
-    #ffffff 50%,
+    var(--zy-working, #ffffff) 50%,
     rgba(255, 255, 255, 0.45) 65%,
     rgba(255, 255, 255, 0.45) 100%
   );
@@ -366,5 +366,150 @@ button,
   .zy-shimmer {
     color: rgba(255, 255, 255, 0.75);
     background: none;
+  }
+}
+
+/* ---------- les styles de l'indicateur (réglages › Agent chat) ----------
+ *
+ * Des images qui défilent sans minuteur : chaque glyphe est superposé aux
+ * autres et n'est visible qu'une fraction du cycle — le cinquième pour cinq
+ * glyphes, le dixième pour dix. */
+.zy-frames {
+  position: relative;
+  display: inline-block;
+  width: 1ch;
+  height: 1em;
+}
+.zy-frames > span {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+@keyframes zy-frame-5 {
+  0%,
+  19.99% {
+    opacity: 1;
+  }
+  20%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes zy-frame-10 {
+  0%,
+  9.99% {
+    opacity: 1;
+  }
+  10%,
+  100% {
+    opacity: 0;
+  }
+}
+.zy-frames-5 > span {
+  animation: zy-frame-5 0.9s infinite;
+}
+.zy-frames-10 > span {
+  animation: zy-frame-10 0.8s infinite;
+}
+.zy-frames-5 > span:nth-child(2) { animation-delay: 0.18s; }
+.zy-frames-5 > span:nth-child(3) { animation-delay: 0.36s; }
+.zy-frames-5 > span:nth-child(4) { animation-delay: 0.54s; }
+.zy-frames-5 > span:nth-child(5) { animation-delay: 0.72s; }
+.zy-frames-10 > span:nth-child(2) { animation-delay: 0.08s; }
+.zy-frames-10 > span:nth-child(3) { animation-delay: 0.16s; }
+.zy-frames-10 > span:nth-child(4) { animation-delay: 0.24s; }
+.zy-frames-10 > span:nth-child(5) { animation-delay: 0.32s; }
+.zy-frames-10 > span:nth-child(6) { animation-delay: 0.4s; }
+.zy-frames-10 > span:nth-child(7) { animation-delay: 0.48s; }
+.zy-frames-10 > span:nth-child(8) { animation-delay: 0.56s; }
+.zy-frames-10 > span:nth-child(9) { animation-delay: 0.64s; }
+.zy-frames-10 > span:nth-child(10) { animation-delay: 0.72s; }
+
+/* Un orbe qui respire. */
+@keyframes zy-orb {
+  0%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+.zy-orb {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 9999px;
+  background: radial-gradient(circle at 35% 35%, #ffffff 0%, currentColor 45%, transparent 75%);
+  box-shadow: 0 0 8px currentColor;
+  animation: zy-orb 1.4s ease-in-out infinite;
+}
+
+/* Un égaliseur : quatre barres qui montent et descendent. */
+@keyframes zy-bar {
+  0%,
+  100% {
+    transform: scaleY(0.3);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.zy-bars {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 11px;
+}
+.zy-bars > span {
+  width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+  transform-origin: bottom;
+  animation: zy-bar 0.9s ease-in-out infinite;
+}
+.zy-bars > span:nth-child(2) { animation-delay: 0.15s; }
+.zy-bars > span:nth-child(3) { animation-delay: 0.3s; }
+.zy-bars > span:nth-child(4) { animation-delay: 0.45s; }
+
+/* L'image qu'on a téléversée, avec l'animation choisie. */
+@keyframes zy-custom-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes zy-custom-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+.zy-custom-spin {
+  animation: zy-custom-spin 1.2s linear infinite;
+}
+.zy-custom-pulse {
+  animation: zy-pulse 1.2s ease-in-out infinite;
+}
+.zy-custom-bounce {
+  animation: zy-custom-bounce 0.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zy-frames > span,
+  .zy-orb,
+  .zy-bars > span,
+  .zy-custom-spin,
+  .zy-custom-pulse,
+  .zy-custom-bounce {
+    animation: none;
+  }
+  .zy-frames > span:first-child {
+    opacity: 1;
   }
 }
