@@ -16,7 +16,7 @@
 //
 //     node scripts/check-search-history.mjs
 import { build } from "esbuild"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { createRequire } from "node:module"
 
@@ -104,6 +104,21 @@ check("chacun le sien", mod.history(A)[0] === "spacieux" && mod.history(B)[0] ==
   const E = "/tmp/projet-e"
   store.set(`zyvro.search.history:${E}`, JSON.stringify(["bon", 42, null, "aussi bon"]))
   check("et ce qui n'est pas une chaîne est jeté", JSON.stringify(mod.history(E)) === '["bon","aussi bon"]', JSON.stringify(mod.history(E)))
+}
+
+// Le panneau qu'on quitte garde sa recherche : passer à l'explorateur le
+// démontait, et la recherche, le remplacement, les filtres partaient avec.
+{
+  const panel = readFileSync(path.join(ROOT, "src/renderer/panels/SearchPanel.tsx"), "utf8")
+  check(
+    "**la recherche survit au panneau qu'on ferme**",
+    /const garde = projectDir \? saisies\.get\(projectDir\) : undefined/.test(panel) &&
+      /useState\(garde\?\.query \?\? ""\)/.test(panel) &&
+      /useState\(garde\?\.replacement \?\? ""\)/.test(panel) &&
+      /saisies\.set\(projectDir, \{ query, replacement, mode, showReplace, showFilters, include, exclude, scope, result \}\)/.test(panel)
+  )
+  check("**chaque projet garde la sienne**", /<SearchView key=\{projectDir \?\? ""\} \/>/.test(panel))
+  check("et la liste reprise est rafraîchie", /if \(garde && garde\.query\.trim\(\) !== ""\)[\s\S]{0,200}void ask\(/.test(panel))
 }
 
 console.log(

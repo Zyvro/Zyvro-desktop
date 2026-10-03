@@ -252,3 +252,6 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.61 — le message de commit ne se perd plus.** Gardé hors du
   panneau Git, un par dépôt (`commitDraftKey`, magasin des brouillons de
   `state/composer`), et la boîte se remonte en changeant de dépôt.
+- **0.1.0-alpha.62 — la recherche survit au panneau qu'on quitte.** Saisie,
+  remplacement, filtres et liste gardés par projet hors du panneau
+  (`saisies`, `SearchView` remonté par projet), liste rafraîchie au retour.

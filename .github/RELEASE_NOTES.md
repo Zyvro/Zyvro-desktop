@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.62
+
+**The search panel keeps your search.** Switching to the file tree or to Git
+closed the search panel, and the search text, the replacement, the filters and
+the results went with it. Coming back now shows the panel as you left it, with
+the results refreshed, and each project keeps its own search.
+
 ## New in alpha.61
 
 **The commit message is kept.** The message box of the Git panel lost what was

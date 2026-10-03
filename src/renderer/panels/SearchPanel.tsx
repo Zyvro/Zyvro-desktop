@@ -34,24 +34,60 @@ type Mode = { matchCase: boolean; wholeWord: boolean; regex: boolean }
 // est une liste qui a toujours une frappe de retard.
 type Ask = { query: string; mode: Mode; include: string; exclude: string; scope: string }
 
+// Ce qu'on cherchait, par projet, gardé hors du panneau.
+//
+// Le panneau se démonte dès qu'on passe à l'explorateur ou au Git : la
+// recherche, le remplacement, les filtres et la liste partaient avec, et il
+// fallait tout retaper en revenant. Comme dans VS Code, on retrouve maintenant
+// le panneau tel qu'on l'a laissé — et chaque projet le sien.
+type Saisie = {
+  query: string
+  replacement: string
+  mode: Mode
+  showReplace: boolean
+  showFilters: boolean
+  include: string
+  exclude: string
+  scope: string
+  result: SearchResult | null
+}
+const saisies = new Map<string, Saisie>()
+
+/** Pour les vérifications : ce que le panneau a gardé pour ce projet. */
+export function searchSaved(projectDir: string): Saisie | undefined {
+  return saisies.get(projectDir)
+}
+
+// Une instance par projet : en changer remonte le panneau sur la saisie de
+// l'autre, au lieu de chercher dans celui-ci ce qu'on tapait dans le premier.
 export function SearchPanel() {
+  const projectDir = useWorkspace((s) => s.project?.project ?? null)
+  return <SearchView key={projectDir ?? ""} />
+}
+
+function SearchView() {
   const project = useWorkspace((s) => s.project)
   const projectDir = project?.project ?? null
   const openFile = useWorkspace((s) => s.openFile)
+  const garde = projectDir ? saisies.get(projectDir) : undefined
 
-  const [query, setQuery] = useState("")
-  const [replacement, setReplacement] = useState("")
-  const [mode, setMode] = useState<Mode>({ matchCase: false, wholeWord: false, regex: false })
-  const [showReplace, setShowReplace] = useState(false)
-  const [showFilters, setShowFilters] = useState(false)
-  const [include, setInclude] = useState("")
-  const [exclude, setExclude] = useState("")
+  const [query, setQuery] = useState(garde?.query ?? "")
+  const [replacement, setReplacement] = useState(garde?.replacement ?? "")
+  const [mode, setMode] = useState<Mode>(garde?.mode ?? { matchCase: false, wholeWord: false, regex: false })
+  const [showReplace, setShowReplace] = useState(garde?.showReplace ?? false)
+  const [showFilters, setShowFilters] = useState(garde?.showFilters ?? false)
+  const [include, setInclude] = useState(garde?.include ?? "")
+  const [exclude, setExclude] = useState(garde?.exclude ?? "")
   // Où chercher. Vide = le projet. Rempli par « Find in folder… » dans l'arbre,
   // et effaçable ici — une portée qu'on ne peut pas retirer est un panneau qui
   // ment sur ce qu'il n'a pas trouvé.
-  const [scope, setScope] = useState("")
+  const [scope, setScope] = useState(garde?.scope ?? "")
 
-  const [result, setResult] = useState<SearchResult | null>(null)
+  const [result, setResult] = useState<SearchResult | null>(garde?.result ?? null)
+  // Rangé à chaque rendu : c'est ce que le prochain montage reprendra.
+  if (projectDir) {
+    saisies.set(projectDir, { query, replacement, mode, showReplace, showFilters, include, exclude, scope, result })
+  }
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [note, setNote] = useState("")
@@ -115,6 +151,18 @@ export function SearchPanel() {
     },
     []
   )
+
+  // La liste reprise est celle d'avant : les fichiers ont pu changer depuis.
+  // Elle reste à l'écran le temps que la même recherche la rafraîchisse.
+  const rafraichie = useRef(false)
+  if (!rafraichie.current) {
+    rafraichie.current = true
+    if (garde && garde.query.trim() !== "") {
+      window.queueMicrotask(() =>
+        void ask({ query: garde.query, mode: garde.mode, include: garde.include, exclude: garde.exclude, scope: garde.scope })
+      )
+    }
+  }
 
   // Un silence avant de chercher, et le silence repart à chaque frappe.
   const later = (next: Ask): void => {
