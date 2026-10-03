@@ -34,9 +34,11 @@ import {
   forgetDraft,
   holdsBlank,
   inHistory,
+  keepQueued,
   leaveHistory,
   releaseBlank,
   rememberPrompt,
+  restoreQueued,
   setDraftFor,
   stepHistory,
   subscribeDrafts,
@@ -278,7 +280,14 @@ function activeThread(): Thread {
   return threadById(state.activeId) ?? state.threads[0]
 }
 
-function mapThread(id: string, change: (thread: Thread) => Thread): void {
+function mapThread(id: string, applied: (thread: Thread) => Thread): void {
+  // Toute file d'attente passe par ici : son texte est gardé hors de la
+  // mémoire, pour qu'un redémarrage le rende au lieu de le jeter (restore).
+  const change = (thread: Thread): Thread => {
+    const next = applied(thread)
+    if (next.queued !== thread.queued) keepQueued(id, next.queued.map((q) => q.text))
+    return next
+  }
   let touched = false
   const threads = state.threads.map((thread) => {
     if (thread.id !== id) return thread
@@ -927,10 +936,11 @@ export async function restore(project: string | null = restoredFor): Promise<voi
     ranWith: c.ranWith ?? null,
     kind: c.kind,
     images: [],
-    // Une file en attente ne survit pas à la fermeture, et c'est voulu : ces
-    // messages n'ont jamais été envoyés. Les retrouver au prochain démarrage
-    // les ferait partir tout seuls, longtemps après, sur un projet peut-être
-    // rouvert pour autre chose — et chacun coûte un tour.
+    // Une file en attente ne repart pas après la fermeture, et c'est voulu :
+    // ces messages n'ont jamais été envoyés. Les relancer au prochain
+    // démarrage les ferait partir tout seuls, longtemps après, sur un projet
+    // peut-être rouvert pour autre chose — et chacun coûte un tour. Leur
+    // texte, lui, revient dans la boîte (restoreQueued, plus bas).
     queued: [],
     // La fenêtre telle que le dernier reçu l'a mesurée, pour qu'une conversation
     // rouverte demain sache où elle en est sans attendre un tour.
@@ -939,6 +949,7 @@ export async function restore(project: string | null = restoredFor): Promise<voi
     // sans ça, le premier tour réécrirait un transcript identique.
     saved: "",
   }))
+  for (const thread of threads) restoreQueued(thread.id)
   commit({ threads, activeId: threads[0].id, asks: state.asks })
   if (project) relus.add(project)
   await reattach(project)

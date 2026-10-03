@@ -127,6 +127,54 @@ check(
 )
 delete globalThis.window
 
+// La file d'attente : son texte survit à un redémarrage, sans repartir seul.
+c = charger()
+c.setDraftFor("file", "ce que j'écrivais")
+c.keepQueued("file", ["premier en file", "second en file"])
+c.flushDrafts()
+c = charger()
+check("**le texte en file survit au redémarrage**", JSON.parse(stockage.get("zyvro.agentQueued")).file?.length === 2)
+check(
+  "**et revient dans la boîte de sa session, après le brouillon**",
+  c.restoreQueued("file") && c.draftFor("file") === "ce que j'écrivais\n\npremier en file\n\nsecond en file"
+)
+check("une seule fois", !c.restoreQueued("file") && !("file" in JSON.parse(stockage.get("zyvro.agentQueued"))))
+c.keepQueued("partie", ["envoyé ensuite"])
+c.keepQueued("partie", [])
+check("une file vidée (message parti) n'est plus gardée", !c.restoreQueued("partie") && c.draftFor("partie") === "")
+c.keepQueued("fermee", ["en file"])
+c.forgetDraft("fermee")
+check("une session fermée emporte aussi sa file", !c.restoreQueued("fermee"))
+
+// Deux fenêtres, un seul stockage : chacune réécrivait tout ce qu'elle avait
+// lu au lancement, et la dernière à enregistrer effaçait l'autre.
+const ecoutes = []
+globalThis.window = { addEventListener: (type, fn) => type === "storage" && ecoutes.push(fn) }
+const fenA = charger()
+const fenB = charger()
+const versB = ecoutes.slice(-1)
+fenA.setDraftFor("dans-A", "écrit dans A")
+fenB.setDraftFor("dans-B", "écrit dans B")
+fenA.flushDrafts()
+fenB.flushDrafts()
+const ranges = JSON.parse(stockage.get("zyvro.agentDrafts"))
+check("**deux fenêtres ne s'effacent plus leurs brouillons**", ranges["dans-A"] === "écrit dans A" && ranges["dans-B"] === "écrit dans B")
+fenA.rememberPrompt("envoyé depuis A")
+fenB.rememberPrompt("envoyé depuis B")
+const prompts = JSON.parse(stockage.get("zyvro.promptHistory"))
+check("**ni leurs prompts**", prompts.includes("envoyé depuis A") && prompts.includes("envoyé depuis B"))
+fenB.setDraftFor("en-cours-B", "B tape encore")
+fenA.setDraftFor("dans-A", "A a continué")
+fenA.setDraftFor("en-cours-B", "A ne doit pas écraser")
+fenA.flushDrafts()
+for (const fn of versB) fn({ key: "zyvro.agentDrafts" })
+check("**ce qu'une fenêtre écrit apparaît dans l'autre**", fenB.draftFor("dans-A") === "A a continué")
+check("sauf ce que l'autre est en train de modifier", fenB.draftFor("en-cours-B") === "B tape encore")
+for (const fn of versB) fn({ key: "zyvro.promptHistory" })
+check("et ↑ dans l'une rappelle ce qu'on a envoyé dans l'autre", fenB.stepHistory("nav-b", -1, "") === "envoyé depuis B" && fenB.promptHistory().includes("envoyé depuis A"))
+fenB.flushDrafts()
+delete globalThis.window
+
 const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
 check(
   "**le panneau tient son brouillon hors du composant, par session**",
@@ -144,6 +192,11 @@ check(
 )
 check("Échap y annule la navigation", /event\.key === "Escape" && inHistory\(thread\.id\)/.test(panel))
 check("chaque envoi rejoint l'historique", /rememberPrompt\(prompt\)/.test(panel))
+check(
+  "**toute file passe par mapThread, qui en garde le texte**",
+  /if \(next\.queued !== thread\.queued\) keepQueued\(id, next\.queued\.map\(\(q\) => q\.text\)\)/.test(panel)
+)
+check("**la relecture rend la file à la boîte**", /for \(const thread of threads\) restoreQueued\(thread\.id\)/.test(panel))
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 
 console.log(failures === 0 ? "\nCe qu'on écrit reste, et ce qu'on a envoyé revient avec ↑." : `\n${failures} échec(s)`)

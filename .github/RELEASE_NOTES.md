@@ -49,6 +49,20 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.59
+
+**Queued messages are not lost on restart.** A message sent while the agent is
+still working waits in a queue. Closing or reloading the window threw that
+queue away, text included. The queue still does not send itself on the next
+launch, but its text now comes back into the session's prompt box, as Stop
+already did.
+
+**Several windows no longer erase each other's prompts.** Every window rewrote
+all the drafts it had read at launch, so the last one to save erased the
+drafts typed in the others; the prompt history was overwritten the same way.
+Each window now writes only its own drafts, rereads the history before adding
+to it, and picks up what the other windows write.
+
 ## New in alpha.58
 
 **The last words typed before closing are kept.** The prompt is saved a quarter

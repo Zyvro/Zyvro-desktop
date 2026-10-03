@@ -56,10 +56,11 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   )
   check("et un fil neuf en a une vide", /blankThread[\s\S]{0,600}?queued: \[\]/.test(panel))
   // Elle ne se relit pas au démarrage : ces messages n'ont jamais été envoyés.
+  // (Leur texte revient dans la boîte — check-composer.)
   const restaure = panel.slice(panel.indexOf("export async function restore("))
   check(
-    "**et elle ne survit pas à la fermeture**",
-    /queued: \[\]/.test(restaure.slice(0, 2500)),
+    "**et elle ne repart pas seule après la fermeture**",
+    /queued: \[\]/.test(restaure.slice(0, restaure.indexOf("commit({ threads"))),
     "des messages jamais envoyés repartiraient tout seuls au démarrage suivant"
   )
 }

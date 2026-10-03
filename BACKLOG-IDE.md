@@ -241,3 +241,8 @@ Petits correctifs repérés en passant :
   brouillon (`forgetDraft`).
 - **0.1.0-alpha.58 — les derniers mots tapés survivent à la fermeture.** Le
   brouillon en attente de sauvegarde (250 ms) est écrit sur `pagehide`.
+- **0.1.0-alpha.59 — la file d'attente et les autres fenêtres ne perdent plus
+  rien.** Le texte en file est gardé (`keepQueued`, branché dans `mapThread`)
+  et rendu à la boîte au démarrage (`restoreQueued`), sans repartir seul ;
+  brouillons et historique fusionnés entre fenêtres (`ecrireBrouillons`,
+  `historiqueStocke`, écouteur `storage` — correctif d'une autre session).
