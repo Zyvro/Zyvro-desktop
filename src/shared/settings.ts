@@ -18,10 +18,13 @@ import {
   type CustomIndicator,
   type WorkingIndicatorId,
 } from "./chatThemes"
+import { AGENT_KINDS, isAgentKind } from "./harness"
+import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "./skills"
 
 export type AutoSave = "off" | "afterDelay" | "onFocusChange"
 
 export type EditorSettings = {
+  agent: AgentSettings
   fontSize: number
   tabSize: number
   insertSpaces: boolean
@@ -51,6 +54,7 @@ export type EditorSettings = {
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
+  agent: DEFAULT_AGENT_SETTINGS,
   fontSize: 13,
   tabSize: 2,
   insertSpaces: true,
@@ -90,6 +94,7 @@ export function sanitizeSettings(raw: unknown): EditorSettings {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>
   const d = DEFAULT_SETTINGS
   return {
+    agent: sanitizeAgentSettings(r.agent),
     fontSize: entre(r.fontSize, 8, 32, d.fontSize),
     tabSize: entre(r.tabSize, 1, 8, d.tabSize),
     insertSpaces: booleen(r.insertSpaces, d.insertSpaces),
@@ -111,6 +116,25 @@ export function sanitizeSettings(raw: unknown): EditorSettings {
       return choisi === "custom" && !sanitizeCustomIndicator(r.customIndicator) ? d.workingIndicator : choisi
     })(),
     customIndicator: sanitizeCustomIndicator(r.customIndicator),
+  }
+}
+
+export function sanitizeAgentSettings(raw: unknown): AgentSettings {
+  const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>
+  const models = (r.defaultModels && typeof r.defaultModels === "object" ? r.defaultModels : {}) as Record<string, unknown>
+  const ids = (value: unknown): string[] => Array.isArray(value)
+    ? [...new Set(value.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 160))].slice(0, 2000)
+    : []
+  return {
+    defaultKind: isAgentKind(r.defaultKind) ? r.defaultKind : DEFAULT_AGENT_SETTINGS.defaultKind,
+    defaultModels: Object.fromEntries(AGENT_KINDS.flatMap((kind) => {
+      const model = models[kind]
+      return model === null || (typeof model === "string" && model.trim().length <= 256)
+        ? [[kind, typeof model === "string" ? model.trim() || null : null]] : []
+    })),
+    advancedSkills: booleen(r.advancedSkills, DEFAULT_AGENT_SETTINGS.advancedSkills),
+    disabledSkills: ids(r.disabledSkills),
+    enabledPacks: ids(r.enabledPacks),
   }
 }
 

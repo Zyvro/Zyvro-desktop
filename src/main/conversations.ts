@@ -83,6 +83,7 @@ export type StoredMessage = {
 }
 
 export type Conversation = {
+  advancedSkills?: boolean
   id: string
   kind: AgentKind
   title: string

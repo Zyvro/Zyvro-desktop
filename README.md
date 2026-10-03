@@ -80,6 +80,44 @@ ask. The CLI's own file and shell tools keep whatever policy the user already
 configured, and `--strict-mcp-config` keeps the user's other MCP servers out of
 the panel.
 
+## Settings and advanced skills
+
+Settings (`⌘,` / `Ctrl+,`) are grouped into General, Editor, Agents,
+Permissions, Skills & packs, Appearance and Capture. Agent defaults select the
+agent and its model for new chats; existing conversations retain their choices.
+Permissions, prompt rewriting and usage display use the same preferences as the
+chat toolbar. Existing settings files continue to load.
+
+The **Skills** button enables automatic skill selection for a conversation. It
+starts off in new chats. When enabled, Zyvro reads a fresh catalog before each
+normal prompt and supplies names, descriptions and file paths. The agent chooses
+relevant skills and reads their `SKILL.md` on demand. Native slash commands pass
+through unchanged. The conversation remembers its Skills toggle.
+
+The catalog scans the selected agent's project and user skill folders
+(`.claude/skills`, `.codex/skills`, `.qwen/skills` or `.mimo/skills`), shared
+`.agents/skills` folders, and packs downloaded by Studio. `CODEX_HOME` is honored.
+This is a local file catalog, not an inventory of every plugin registered inside
+every CLI. Skills and packs can be enabled individually in Settings; disabling
+them affects Zyvro's automatic selection, not the CLI's independent discovery
+or instructions already present in a conversation.
+
+**Download gstack** and **Download pack** accept public GitHub repository URLs
+(`https://github.com/owner/repository`). Git must be installed. Repositories are
+cloned into the app's `skill-packs` directory, with the downloaded commit recorded.
+Downloads are staged before appearing in the catalog and start inactive. Repeating
+a download keeps the existing version; this first version does not auto-update
+packs. Downloading does not execute setup scripts or call a model.
+
+Some packs need more than Markdown. In particular, downloading gstack does not
+build its browser tools or certify compatibility with a host. **Ask agent to
+prepare this pack** puts an installation request into the chat composer to review
+and send. **Ask agent for a pack** likewise starts a draft for a specific need.
+Both use the ordinary agent permissions when the user sends the request.
+
+Run `npm run check:skills` to verify discovery, opt-in pack activation, prompt
+routing and downloads using local fixtures; it makes no network or model calls.
+
 ## Reading and writing the project's files
 
 Two node types exist only here, because they need a project folder on the

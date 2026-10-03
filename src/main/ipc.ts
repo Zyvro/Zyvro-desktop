@@ -48,6 +48,9 @@ import { readSettingsFile, settingsPath, writeSettingsFile } from "./settingsFil
 import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
 import { studioWindows } from "./windows"
+import { discoverSkills, downloadPack } from "./skills"
+import { sanitizeAgentSettings } from "../shared/settings"
+import { skillEnabled } from "../shared/skills"
 
 // One Workspace per window, holding every project folder the person opened in
 // that window. Each project keeps its own daemon, file watcher and git repo
@@ -1092,6 +1095,19 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  ipcMain.handle("agent:skills", async (event, kind: AgentKind) => {
+    const { ws } = requireWorkspace(event)
+    if (!isAgentKind(kind)) throw new Error("Unknown agent")
+    return discoverSkills(kind, requireRoot(ws), path.join(app.getPath("userData"), "skill-packs"))
+  })
+
+  ipcMain.handle("agent:download-pack", async (event, repository: string) => {
+    requireWorkspace(event)
+    const git = locate("git")
+    if (!git || git.needsShell) throw new Error("Install Git before downloading a skill pack.")
+    return downloadPack(String(repository), path.join(app.getPath("userData"), "skill-packs"), git.file)
+  })
+
   ipcMain.handle(
     "agent:send",
     async (
@@ -1105,6 +1121,11 @@ export function registerIpc(onRecents?: () => void): void {
     ) => {
       const { ws } = requireWorkspace(event)
       const root = requireRoot(ws)
+      const agentSettings = sanitizeAgentSettings(ctx?.agentSettings)
+      const advancedSkills = ctx?.advancedSkills === true && agentSettings.advancedSkills
+      const catalog = advancedSkills
+        ? await discoverSkills(isAgentKind(kind) ? kind : "claude", root, path.join(app.getPath("userData"), "skill-packs"))
+        : null
       const pinned = typeof model === "string" && model.trim() ? model.trim() : null
       // Où ce harnais ira chercher son modèle. Résolu ici parce que c'est ici
       // qu'on peut demander au moteur quels serveurs ce projet a allumés — et
@@ -1133,6 +1154,8 @@ export function registerIpc(onRecents?: () => void): void {
         String(prompt),
         {
           projectDir: root,
+          advancedSkills,
+          skills: catalog?.skills.filter((skill) => skillEnabled(skill, agentSettings)) ?? [],
           workflows: Array.isArray(ctx?.workflows) ? ctx.workflows : [],
           daemonOrigin: ws.daemon.current?.origin,
           daemonToken: ws.daemon.current?.token,

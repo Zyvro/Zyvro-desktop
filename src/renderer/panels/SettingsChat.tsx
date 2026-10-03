@@ -254,8 +254,9 @@ export function ConfigFileSection() {
     <>
       <h2 className={titre}>Configuration file</h2>
       <p className="mt-1 text-[12px] text-muted-foreground">
-        These settings are also kept as JSON in a file you can open, back up or edit by hand — Zyvro reads it again when
-        it starts. Export one to move your setup to another machine; import it there.
+        Editor, appearance and agent defaults are kept in this JSON file. Export it to back up these preferences.
+        Permissions, prompt rewriting, usage display and capture settings are stored separately on this computer.
+        Skill packs themselves are not included in the export.
       </p>
       <p className="zy-selectable mt-2 truncate rounded-md bg-white/[0.04] px-2 py-1 font-mono text-[11px] text-foreground/80" title={fichier.data?.path}>
         {fichier.data?.path ?? "…"}
@@ -278,11 +279,11 @@ export function ConfigFileSection() {
           className={cn(bouton, "border-transparent bg-transparent text-muted-foreground hover:text-foreground")}
           onClick={() => {
             resetSettings()
-            setDit("Every setting is back to its default.")
+            setDit("Editor, appearance and agent defaults have been reset.")
           }}
         >
           <RotateCcw className="h-3.5 w-3.5" />
-          Reset all
+          Reset these preferences
         </button>
         {(echec || dit) && (
           <span className={cn("ml-1 truncate text-[11px]", echec ? "text-red-300" : "text-muted-foreground")}>

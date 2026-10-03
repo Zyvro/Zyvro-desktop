@@ -330,11 +330,24 @@ function nearTray(width: number, height: number): Rect {
 
 // Sans la permission « Enregistrement de l'écran », macOS ne refuse pas : il
 // rend une image où il n'y a que le fond d'écran. Rien ne dirait pourquoi, d'où
-// la question posée avant.
+// la question posée quand la capture revient vide.
+//
+// `getMediaAccessStatus("screen")` n'est PAS un garde : il renvoie `denied`
+// même après que la personne a accordé la permission — après un rebuild, en
+// développement (le binaire n'est pas le même que celui installé), ou quand le
+// cache TCC est en retard. C'est un bug connu d'Electron. La seule preuve
+// fiable est la capture elle-même : sans permission, `screencapture` écrit un
+// fichier vide et `desktopCapturer` une miniature vide.
+//
+// On ne refuse donc que `restricted` (MDM — rien à faire), et le reste se
+// juge sur le résultat.
 async function screenAllowed(): Promise<boolean> {
   if (!isMac) return true
-  const status = systemPreferences.getMediaAccessStatus("screen")
-  if (status === "granted" || status === "not-determined") return true
+  return systemPreferences.getMediaAccessStatus("screen") !== "restricted"
+}
+
+// À montrer quand la capture revient vide : la permission manque vraiment.
+async function explainScreenPermission(): Promise<void> {
   const { response } = await dialog.showMessageBox({
     type: "warning",
     message: "Zyvro Studio needs permission to record the screen",
@@ -347,7 +360,6 @@ async function screenAllowed(): Promise<boolean> {
   if (response === 0) {
     void shell.openExternal("x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")
   }
-  return false
 }
 
 // ---- choisir une zone --------------------------------------------------------
@@ -428,7 +440,11 @@ async function captureImage(): Promise<void> {
     last.kept = keepCopy([["png", png]])
     showResult()
   } catch (err) {
-    void failed("The capture did not work.", err)
+    if (err instanceof Error && err.message === "screen-permission") {
+      await explainScreenPermission()
+    } else {
+      void failed("The capture did not work.", err)
+    }
   } finally {
     busy = "idle"
     buildTrayMenu()
@@ -436,17 +452,32 @@ async function captureImage(): Promise<void> {
 }
 
 // La sélection du système. Annulée, elle n'écrit pas de fichier.
+//
+// Le code de sortie dit quoi faire du résultat vide : Échap rend un fichier
+// absent (personne n'a rien demandé), une permission manquante rend un fichier
+// vide ou un fond d'écran tout seul. On ne montre la question que dans le
+// second cas — demander la permission à quelqu'un qui vient d'appuyer sur Échap
+// est un dialogue qui répond à une question qu'il n'a pas posée.
 async function nativeAreaCapture(): Promise<Buffer | null> {
   const file = path.join(os.tmpdir(), `zyvro-capture-${randomBytes(6).toString("hex")}.png`)
-  await new Promise<void>((resolve) => {
+  const code = await new Promise<number>((resolve) => {
     const child = spawn("/usr/sbin/screencapture", ["-i", "-x", file], { stdio: "ignore" })
-    child.once("exit", () => resolve())
-    child.once("error", () => resolve())
+    child.once("exit", (c) => resolve(c ?? 1))
+    child.once("error", () => resolve(1))
   })
   try {
     const png = await fs.promises.readFile(file)
-    return png.length > 0 ? png : null
-  } catch {
+    if (png.length > 0) return png
+    // Fichier vide après une sélection confirmée : la permission manque.
+    if (code === 0) throw new Error("screen-permission")
+    return null
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // Pas de fichier : annulation, ou permission refusée dès le départ.
+      if (code === 0) throw new Error("screen-permission")
+      return null
+    }
+    if (err instanceof Error && err.message === "screen-permission") throw err
     return null
   } finally {
     void fs.promises.rm(file, { force: true })
@@ -468,7 +499,7 @@ async function overlayAreaCapture(): Promise<Buffer | null> {
     },
   })
   const source = sourceFor(sources, display)
-  if (!source || source.thumbnail.isEmpty()) throw new Error("this screen could not be read")
+  if (!source || source.thumbnail.isEmpty()) throw new Error("screen-permission")
   const image = source.thumbnail
   return image.crop(pixelRect(rect, display.bounds, image.getSize())).toPNG()
 }
@@ -504,7 +535,7 @@ async function recordVideo(): Promise<void> {
   try {
     const sources = await desktopCapturer.getSources({ types: ["screen"], thumbnailSize: { width: 0, height: 0 } })
     const source = sourceFor(sources, display)
-    if (!source) throw new Error("this screen could not be found")
+    if (!source) throw new Error("screen-permission")
 
     const recording = session.fromPartition(RECORDER_PARTITION)
     recording.setDisplayMediaRequestHandler((_request, callback) => callback({ video: source }))
@@ -562,7 +593,11 @@ async function recordVideo(): Promise<void> {
     last.kept = keepCopy(gif ? [["webm", webm], ["gif", gif]] : [["webm", webm]])
     showResult()
   } catch (err) {
-    void failed("The recording did not work.", err)
+    if (err instanceof Error && err.message === "screen-permission") {
+      await explainScreenPermission()
+    } else {
+      void failed("The recording did not work.", err)
+    }
   } finally {
     tearDownRecording()
     busy = "idle"

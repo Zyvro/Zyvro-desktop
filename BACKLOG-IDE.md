@@ -268,3 +268,8 @@ Petits correctifs repérés en passant :
   son, repli « Open with Default App » ; bouton de lecture au survol de la
   réponse (`SpeakButton`, `lib/speech` : texte sans Markdown ni code, langue
   devinée, phrases courtes).
+- **0.1.0-alpha.66 — skills avancés, réglages par thème, capture macOS.**
+  Travail d'un agent Codex : catalogue de skills relu avant chaque prompt
+  (`main/skills.ts`, `shared/skills.ts`, bouton `SkillsButton`), packs GitHub
+  téléchargés inactifs, pages Settings (`SettingsAgents`, `SettingsSkills`) ;
+  permission d'enregistrement d'écran jugée sur la capture (`main/capture.ts`).

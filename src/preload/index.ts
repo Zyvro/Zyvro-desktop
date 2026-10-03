@@ -24,6 +24,7 @@ export type FileRead =
   | { path: string; image: { mime: string; uri: string } }
   | { path: string; binary: true }
 import type { AgentKind, ModelChoices } from "../shared/harness"
+import type { AgentSettings, SkillCatalog, SkillPack } from "../shared/skills"
 export type { AgentKind }
 
 // Les formes de la recherche traversent le pont : elles sont redites ici parce
@@ -403,6 +404,8 @@ const api = {
   },
 
   agent: {
+    skills: (kind: AgentKind): Promise<SkillCatalog> => invoke("agent:skills", kind),
+    downloadPack: (repository: string): Promise<SkillPack> => invoke("agent:download-pack", repository),
     send: (
       kind: AgentKind,
       prompt: string,
@@ -410,9 +413,11 @@ const api = {
       conversationId: string,
       model: string | null,
       images: string[],
-      permission: Permission
+      permission: Permission,
+      advancedSkills = false,
+      agentSettings?: AgentSettings
     ): Promise<string> =>
-      invoke("agent:send", kind, prompt, { workflows, permission }, conversationId, model, images),
+      invoke("agent:send", kind, prompt, { workflows, permission, advancedSkills, agentSettings }, conversationId, model, images),
     // Une demande de permission venue de la CLI, et la réponse de la personne.
     onPermission: (
       cb: (payload: { id: string; tool: string; input: Record<string, unknown> }) => void

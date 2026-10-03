@@ -1,12 +1,13 @@
 import { useSyncExternalStore, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { KeyRound } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getSettings, resetSettings, subscribeSettings, updateSettings } from "~/state/settings"
-import { useWorkspace } from "~/state/workspace"
+import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
 import { DEFAULT_SETTINGS } from "../../shared/settings"
 import { AgentChatSection, ConfigFileSection } from "~/panels/SettingsChat"
 import type { CaptureSettings, CaptureSettingsView } from "../../preload"
+import { SettingsAgents } from "./SettingsAgents"
+import { SettingsSkills } from "./SettingsSkills"
+import { SETTINGS_PAGES, useSettingsPage } from "~/state/settingsPage"
 
 // Les réglages de l'éditeur (⌘,). Chaque changement s'applique tout de suite
 // aux éditeurs ouverts ; il n'y a pas de bouton « Appliquer », comme dans VS
@@ -176,33 +177,28 @@ function CaptureSection() {
 
 export function SettingsTab() {
   const r = useSyncExternalStore(subscribeSettings, getSettings, getSettings)
-  const openProviders = useWorkspace((s) => s.openProviders)
+  const page = useSettingsPage((s) => s.page)
+  const select = useSettingsPage((s) => s.select)
+  const current = SETTINGS_PAGES.find((p) => p.id === page)!
   return (
-    <div className="zy-scroll h-full overflow-y-auto">
-      <div className="mx-auto max-w-3xl px-8 py-8">
-        <div className="flex items-baseline justify-between">
-          <h1 className="text-xl font-semibold">Settings</h1>
-          <button className="text-[12px] text-muted-foreground hover:text-foreground" onClick={resetSettings}>
-            Reset to defaults
-          </button>
-        </div>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Kept on this computer and applied to open editors as you change them.
-        </p>
-
-        <button
-          className="panel mt-6 flex w-full items-center gap-3 p-4 text-left hover:bg-white/[0.03]"
-          onClick={openProviders}
-        >
-          <KeyRound className="h-4 w-4 shrink-0 text-violet-300" />
-          <span className="text-[13px]">
-            <span className="font-medium text-foreground">Providers and API keys</span>
-            <span className="text-muted-foreground"> — the models your workflows and the agent run on</span>
-          </span>
-        </button>
-
-        <AgentChatSection />
-
+    <div className="flex h-full min-h-0 flex-col sm:flex-row">
+      <nav aria-label="Settings categories" className="zy-scroll flex shrink-0 gap-1 overflow-auto border-b border-white/[0.08] p-3 sm:w-48 sm:flex-col sm:border-b-0 sm:border-r">
+        <p className="hidden px-3 pb-4 pt-3 text-base font-semibold sm:block">Settings</p>
+        {SETTINGS_PAGES.map((entry) => <button key={entry.id} type="button" aria-current={page === entry.id ? "page" : undefined} onClick={() => select(entry.id)} className={cn("shrink-0 rounded-lg px-3 py-2.5 text-left text-[13px] transition-colors", page === entry.id ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground")}>
+          {entry.label}
+        </button>)}
+      </nav>
+      <div key={page} className="zy-scroll min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-3xl px-5 py-7 sm:px-8">
+          <h1 className="text-xl font-semibold">{current.label}</h1>
+          <p className="mb-5 mt-1 text-sm text-muted-foreground">{current.hint}</p>
+          {page === "general" && <>
+            <Ligne titre="Check for updates" aide="Ask GitHub for a newer release at startup and every few hours. Nothing is downloaded without asking.">
+              <Case valeur={r.checkForUpdates} onChange={(checkForUpdates) => updateSettings({ checkForUpdates })} />
+            </Ligne>
+            <ConfigFileSection />
+          </>}
+          {page === "editor" && <>
         <h2 className="mt-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Editor</h2>
         <Ligne titre="Font size" aide={`In pixels. Default ${DEFAULT_SETTINGS.fontSize}.`}>
           <Nombre valeur={r.fontSize} min={8} max={32} onChange={(fontSize) => updateSettings({ fontSize })} />
@@ -287,14 +283,14 @@ export function SettingsTab() {
           <Case valeur={r.formatOnSave} onChange={(formatOnSave) => updateSettings({ formatOnSave })} />
         </Ligne>
 
-        <h2 className="mt-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Application</h2>
-        <Ligne titre="Check for updates" aide="Ask GitHub for a newer release at startup and every few hours. Nothing is downloaded without asking.">
-          <Case valeur={r.checkForUpdates} onChange={(checkForUpdates) => updateSettings({ checkForUpdates })} />
-        </Ligne>
 
-        <CaptureSection />
-
-        <ConfigFileSection />
+          </>}
+          {page === "agents" && <SettingsAgents />}
+          {page === "permissions" && <SettingsAgents permissionsOnly />}
+          {page === "skills" && <SettingsSkills />}
+          {page === "appearance" && <AgentChatSection />}
+          {page === "capture" && <CaptureSection />}
+        </div>
       </div>
     </div>
   )

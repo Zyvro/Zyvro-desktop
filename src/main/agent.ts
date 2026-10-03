@@ -14,6 +14,7 @@ import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, ty
 import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
 import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO, speaksCodex } from "../shared/harness"
+import { promptWithSkills, type AgentSettings, type SkillEntry } from "../shared/skills"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
@@ -41,6 +42,9 @@ export type AgentContext = {
   daemonToken?: string
   /** Ce que l'agent a le droit de faire. Par défaut : écrire dans le projet. */
   permission?: Permission
+  advancedSkills?: boolean
+  agentSettings?: AgentSettings
+  skills?: SkillEntry[]
 }
 
 // preamble tells the CLI what this project's workflows are. Without it the
@@ -1085,7 +1089,10 @@ export class AgentRunner {
 
     if (speaksCodex(kind)) args.push("-")
 
-    const withImages = promptWith(kind, prompt, images)
+    const userText = promptWith(kind, prompt, images)
+    // Keep native slash commands intact. The catalog travels over stdin, not
+    // argv: a large installation must not exceed the OS argument limit.
+    const withImages = promptWithSkills(userText, ctx.skills, ctx.advancedSkills)
     // Ni codex ni MiMo Code n'ont de drapeau de prompt système : le préambule
     // ouvre la question.
     const text = harness(kind).envelope !== "claude" ? `${preamble(ctx)}\n\n---\n\n${withImages}` : withImages

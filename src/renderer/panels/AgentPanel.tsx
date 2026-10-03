@@ -55,6 +55,8 @@ import { speakingId, speechAvailable, subscribeSpeech, toggleSpeech } from "~/li
 import { HarnessPicker } from "~/panels/HarnessPicker"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
+import { SkillsButton } from "~/panels/SkillsButton"
+import { getSettings, subscribeSettings } from "~/state/settings"
 import { ContextCompact } from "~/panels/ContextCompact"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { SynthesisPicker } from "~/panels/SynthesisPicker"
@@ -139,6 +141,7 @@ export function addText(parts: Part[], text: string): Part[] {
 // pair would have made every tab look busy whenever any of them was, and Stop
 // would have killed whichever turn happened to be last.
 type Thread = {
+  advancedSkills: boolean
   /**
    * The thread's own id, which is what the CLI's session is filed under.
    *
@@ -228,8 +231,9 @@ function newConversationId(): string {
   return `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 }
 
-function blankThread(model: string | null = null, kind: AgentKind = "claude"): Thread {
+function blankThread(model: string | null = getSettings().agent.defaultModels[getSettings().agent.defaultKind] ?? null, kind: AgentKind = getSettings().agent.defaultKind): Thread {
   return {
+    advancedSkills: false,
     id: newConversationId(),
     title: "New chat",
     messages: [],
@@ -587,7 +591,9 @@ async function dispatch(threadId: string, text: string, images: Attached[]): Pro
       threadId,
       thread.model,
       images.map((i) => i.id),
-      agentPermission()
+      agentPermission(),
+      thread.advancedSkills,
+      getSettings().agent
     )
     bindTurn(threadId, messageId, turnId)
   } catch (error: unknown) {
@@ -834,12 +840,13 @@ function persist(threadId: string): void {
     }))
   if (messages.length === 0) return
 
-  const stamp = JSON.stringify(messages)
+  const stamp = JSON.stringify({ messages, advancedSkills: thread.advancedSkills })
   if (stamp === thread.saved) return
   mapThread(threadId, (t) => ({ ...t, saved: stamp }))
 
   void window.zyvro.agent.remember({
     id: thread.id,
+    advancedSkills: thread.advancedSkills,
     kind: thread.kind,
     title: thread.title,
     goal: thread.goal,
@@ -917,6 +924,7 @@ export async function restore(project: string | null = restoredFor): Promise<voi
 
   const threads: Thread[] = usable.map((c) => ({
     id: c.id,
+    advancedSkills: c.advancedSkills === true,
     title: c.title || "New chat",
     messages: c.messages.map((m) => ({
       id: nextMessageId(),
@@ -1250,13 +1258,10 @@ function answerAsk(id: string, allow: boolean): void {
 // A new tab is a new conversation id, which is what makes it a new session: its
 // first turn finds nothing to resume and the CLI starts fresh.
 //
-// The model pin carries over from the tab you were on, because somebody who
-// deliberately moved to a slower model does not want the next question silently
-// back on the fast one. What the CLI last ran does not carry over — that is a
-// fact about a conversation, not about the person.
+// New chats use the defaults configured in Settings. Existing chats keep
+// their own agent and model, and skill routing always starts off.
 function openThread(): void {
-  const current = activeThread()
-  const thread = blankThread(current?.model ?? null, current?.kind ?? "claude")
+  const thread = blankThread()
   commit({ threads: [...state.threads, thread], activeId: thread.id, asks: state.asks })
 }
 
@@ -1442,6 +1447,7 @@ function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.El
 }
 
 export function AgentPanel(): JSX.Element {
+  const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const project = useWorkspace((workspace) => workspace.project)
   // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
   const setPanel = useWorkspace((workspace) => workspace.setPanel)
@@ -2316,7 +2322,7 @@ export function AgentPanel(): JSX.Element {
             className="block max-h-40 min-h-[22px] w-full resize-none bg-transparent text-xs leading-relaxed text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
           />
 
-          <div className="mt-1.5 flex items-center gap-1">
+          <div className="mt-1.5 flex flex-wrap items-center gap-1">
             {/* Ce que l'agent a le droit de faire, sous la question qu'on lui
                 pose : c'est là qu'on hésite, et un réglage rangé dans une page
                 de préférences est un réglage qu'on découvre en lisant
@@ -2333,6 +2339,16 @@ export function AgentPanel(): JSX.Element {
               canRewrite={draft.trim() !== ""}
               onRewriteNow={() => void reecrireMaintenant()}
             />
+            {settings.agent.advancedSkills && <SkillsButton
+              kind={kind}
+              active={thread.advancedSkills}
+              settings={settings.agent}
+              disabled={disabled || thread.busy || thread.queued.length > 0}
+              onChange={(advancedSkills) => {
+                mapThread(thread.id, (t) => ({ ...t, advancedSkills }))
+                persist(thread.id)
+              }}
+            />}
             {/* Recycler le contexte avant une longue tâche : le pourcentage dit
                 où en est la fenêtre du modèle, un clic lance `/compact` sur le
                 harnais pour retomber bas et ne pas tomber sur une compaction

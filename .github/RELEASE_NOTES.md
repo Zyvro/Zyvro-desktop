@@ -49,6 +49,25 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.66
+
+**Advanced skills.** A **Skills** button in the agent panel lets the agent pick
+relevant skills by itself in a conversation. Before each prompt, Zyvro reads a
+fresh catalog of the skills found in the agent's project and user folders, in
+shared `.agents/skills` folders and in downloaded packs, and the agent reads a
+skill only when it needs it. Settings has a new **Skills & packs** page to turn
+skills and packs on or off, and to download a pack from a public GitHub
+repository. Downloaded packs start inactive and run nothing when downloaded.
+
+**Settings are grouped by topic.** General, Editor, Agents, Permissions, Skills
+& packs, Appearance and Capture. The Agents page sets the default agent and
+model for new chats.
+
+**Screen capture on macOS asks for permission only when it is really missing.**
+macOS can report the permission as refused even after it was granted, so the
+app now judges by the capture itself, and pressing Escape no longer shows the
+permission dialog.
+
 ## New in alpha.65
 
 **Videos and sounds open in a player.** Opening an .mp4, .mov, .webm, .mp3,

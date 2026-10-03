@@ -266,6 +266,34 @@ function gifSeconds(bytes) {
   )
 }
 
+// ---- la permission écran de macOS ------------------------------------------
+//
+// `getMediaAccessStatus("screen")` renvoie `denied` même après que la personne
+// a accordé la permission — rebuild, développement, cache TCC. C'est un bug
+// connu d'Electron. Bloquer dessus montrait le dialogue « Turn on Zyvro Studio
+// in System Settings » à chaque clic sur Capture Area, permission déjà prise.
+//
+// La seule preuve fiable est la capture elle-même : sans permission, le
+// fichier revient vide. On ne montre la question que dans ce cas.
+{
+  const capture = read("src/main/capture.ts")
+  check(
+    "**`getMediaAccessStatus` ne bloque plus quand il dit `denied`**",
+    !/status === "granted".*status === "not-determined"/.test(capture) && /!== "restricted"/.test(capture),
+    "le dialogue de permission revient à chaque clic même après autorisation"
+  )
+  check(
+    "**et la question ne se pose que si la capture revient vide**",
+    capture.includes("screen-permission") && capture.includes("explainScreenPermission"),
+    "aucun chemin ne montre le dialogue quand la permission manque vraiment"
+  )
+  check(
+    "Échap ne déclenche pas la question",
+    /if \(code === 0\) throw new Error\("screen-permission"\)/.test(capture),
+    "annuler une sélection demanderait la permission"
+  )
+}
+
 if (failures) {
   console.log(`\n${failures} échec(s)`)
   process.exit(1)
