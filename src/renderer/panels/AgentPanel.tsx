@@ -207,7 +207,31 @@ type Thread = {
 }
 
 /** Un message en attente. Il porte ses images : elles ont été choisies avec lui. */
-type Queued = { id: string; text: string; images: { id: string; name: string }[] }
+type Queued = {
+  id: string
+  text: string
+  images: { id: string; name: string }[]
+  /** Envoyé dans le tour en cours (Claude, Codex), pas encore pris par l'agent. */
+  steering?: boolean
+}
+
+/**
+ * Ce message peut-il être glissé dans le tour en cours, plutôt qu'attendre sa
+ * fin ? Claude et Codex savent le lire en plein tour ; les autres attendent.
+ * Pas avec des images (elles passent par la question du tour), pas une
+ * commande `/` (elle est faite pour ouvrir un tour), et pas devant un message
+ * qui attendait déjà — l'ordre de la file reste celui de l'envoi.
+ */
+export function canSteer(
+  thread: { kind: AgentKind; turnId: string | null; queued: Queued[] },
+  text: string,
+  images: unknown[]
+): boolean {
+  if (thread.turnId === null) return false
+  if (thread.kind !== "claude" && thread.kind !== "codex") return false
+  if (images.length > 0 || text.trim() === "" || text.trimStart().startsWith("/")) return false
+  return thread.queued.every((q) => q.steering === true)
+}
 
 // Une demande de permission en attente : ce que la CLI veut faire, et les deux
 // boutons qui décident. Elle vit au niveau du panneau et non d'une conversation
@@ -502,6 +526,34 @@ function ensureAttached(): void {
   })
 
   window.zyvro.agent.onDone(({ id }) => finishTurn(id))
+
+  // Un message glissé vient d'être pris par l'agent : il quitte la file et
+  // prend sa place dans le fil, là où l'agent l'a lu. Ce que l'agent dit
+  // ensuite part dans une nouvelle réponse, sous lui — le même tour continue.
+  window.zyvro.agent.onSteered(({ id, text }) => steered(id, text))
+}
+
+export function steered(turnId: string, text: string): void {
+  const bound = turnToMessage.get(turnId)
+  if (!bound) return
+  const thread = threadById(bound.threadId)
+  if (!thread) return
+  const pris = thread.queued.find((q) => q.steering === true)
+  const user: ChatMessage = { id: nextMessageId(), role: "user", parts: [{ kind: "text", text: pris?.text ?? text }], images: [], streaming: false }
+  const suite: ChatMessage = { id: nextMessageId(), role: "assistant", parts: [], streaming: true }
+  mapThread(bound.threadId, (t) => ({
+    ...t,
+    queued: pris ? t.queued.filter((q) => q.id !== pris.id) : t.queued,
+    messages: [
+      // La réponse en cours s'arrête là ; vide, elle n'a rien à montrer.
+      ...t.messages.flatMap((m) =>
+        m.id !== bound.messageId ? [m] : m.parts.length === 0 && !m.error ? [] : [{ ...m, streaming: false }]
+      ),
+      user,
+      suite,
+    ],
+  }))
+  turnToMessage.set(turnId, { threadId: bound.threadId, messageId: suite.id })
 }
 
 function orphanFor(id: string): Orphan {
@@ -1571,11 +1623,29 @@ export function AgentPanel(): JSX.Element {
     // et on l'y retrouvait, ou pas, selon qu'on avait regardé. Or c'est le
     // moment où l'on a le plus d'idées — l'agent travaille, on lit sa réponse,
     // on pense à la suite. Elle part maintenant toute seule au tour suivant.
+    //
+    // Avec Claude et Codex, il fait mieux qu'attendre : il est glissé dans le
+    // tour en cours, que l'agent lit au prochain point d'arrêt — entre deux
+    // outils — comme dans leur propre terminal. Il reste affiché dans la file
+    // jusqu'à ce que l'agent le prenne (agent:steered), puis prend sa place dans
+    // le fil. Refusé (tour fini entre-temps, harnais trop ancien), il redevient
+    // un message en attente ordinaire.
     if (thread.busy) {
+      const qid = nextMessageId()
+      const glisse = canSteer(thread, text, images)
       mapThread(threadId, (t) => ({
         ...t,
-        queued: [...t.queued, { id: nextMessageId(), text, images }],
+        queued: [...t.queued, { id: qid, text, images, ...(glisse ? { steering: true } : {}) }],
       }))
+      if (glisse && thread.turnId) {
+        void window.zyvro.agent
+          .steer(thread.turnId, text)
+          .catch(() => false)
+          .then((ok) => {
+            if (ok) return
+            mapThread(threadId, (t) => ({ ...t, queued: t.queued.map((q) => (q.id === qid ? { ...q, steering: false } : q)) }))
+          })
+      }
       return
     }
 
@@ -2245,9 +2315,15 @@ export function AgentPanel(): JSX.Element {
                 <span className="min-w-0 flex-1 truncate" title={q.text}>
                   {q.text || `${q.images.length} image${q.images.length === 1 ? "" : "s"}`}
                 </span>
+                {q.steering && (
+                  <span className="shrink-0 text-[10px] text-primary/80" data-steering>
+                    sending into this turn…
+                  </span>
+                )}
                 {q.images.length > 0 && q.text !== "" && (
                   <Paperclip className="mt-[1px] h-3 w-3 shrink-0 text-muted-foreground/70" />
                 )}
+                {!q.steering && (
                 <button
                   type="button"
                   title="Remove from the queue"
@@ -2258,11 +2334,14 @@ export function AgentPanel(): JSX.Element {
                 >
                   <X className="h-3 w-3" />
                 </button>
+                )}
               </div>
             ))}
             <p className="px-0.5 text-[10px] text-muted-foreground/70">
-              {thread.queued.length === 1 ? "Sent on its own" : "Sent one at a time"} when this turn ends. Stop puts
-              {thread.queued.length === 1 ? " it" : " them"} back in the box.
+              {thread.queued.every((q) => q.steering)
+                ? "The agent reads it at its next step, without waiting for the end of the turn."
+                : `${thread.queued.length === 1 ? "Sent on its own" : "Sent one at a time"} when this turn ends.`}{" "}
+              Stop puts {thread.queued.length === 1 ? "it" : "them"} back in the box.
             </p>
           </div>
         )}

@@ -49,6 +49,33 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.68
+
+**Talk to Claude and Codex while they work.** A message sent while Claude or
+Codex is working no longer waits for the end of the turn. It goes into the
+running turn, as in their own terminals: the agent reads it at its next step,
+usually right after the tool it is running, and changes course. The queue
+shows "sending into this turn…" until the agent takes it; the message then
+appears in the conversation where the agent read it, and the answer continues
+below it.
+
+Limits, measured on the real tools:
+
+- The agent reads the message at its next step, not in the middle of a
+  command. Commands it already started together, in the same step, finish
+  first.
+- If the agent has nothing left to run, the message is answered right after
+  its current answer, in the same turn. Nothing is lost.
+- Messages with images, and `/` commands, still wait for the end of the turn,
+  as before. So do messages to Qwen and MiMo.
+- If the turn ends before the message can go in, it simply stays in the queue
+  and is sent next, as before.
+
+Codex now runs through its app server (`codex app-server`) instead of
+`codex exec`, because that is what lets a message reach a running turn: with
+`codex exec`, a queued message is taken at the end of the turn and never
+answered. Installations without the app server keep using `codex exec`.
+
 ## New in alpha.67
 
 **Advanced skills.** A **Skills** button in the agent panel lets the agent pick

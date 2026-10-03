@@ -1574,6 +1574,13 @@ export function registerIpc(onRecents?: () => void): void {
     return true
   })
 
+  // Glisser un message dans un tour en cours (Claude, Codex). Faux quand ce
+  // n'est pas possible : la fenêtre le garde pour le tour suivant.
+  ipcMain.handle("agent:steer", async (event, id: string, text: string) => {
+    const { ws } = requireWorkspace(event)
+    return ws.agent.steer(String(id), String(text ?? ""))
+  })
+
   ipcMain.handle("agent:cancel", async (event, id: string) => {
     const { ws } = requireWorkspace(event)
     ws.agent.cancel(id)

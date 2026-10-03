@@ -1,4 +1,5 @@
-import { type ChildProcess } from "node:child_process"
+import { type ChildProcess, spawnSync } from "node:child_process"
+import { codexInput, codexServerPolicy, CodexServerTurn } from "./codexserver"
 import { installed as cliInstalled, launchPiped } from "./cli"
 import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
@@ -124,6 +125,13 @@ export function argsFor(
       "-p",
       "--output-format",
       "stream-json",
+      // L'entrée aussi en flux, et laissée ouverte pendant le tour : un message
+      // écrit en plein tour y est lu au prochain point d'arrêt (steer).
+      // `--replay-user-messages` le renvoie sur la sortie quand il est pris —
+      // c'est l'accusé de réception que la fenêtre attend.
+      "--input-format",
+      "stream-json",
+      "--replay-user-messages",
       "--verbose",
       // Ce que l'agent a le droit de faire, dit à claude.
       //
@@ -854,6 +862,61 @@ type Turn = {
   // there is usually a tool call. Concatenating them verbatim runs the last
   // sentence of one into the first word of the next.
   sentText: boolean
+  /**
+   * Glisser un message dans ce tour pendant qu'il tourne. Absent pour les
+   * harnais qui ne savent pas (qwen, MiMo) : leurs messages attendent la fin
+   * du tour, dans la file de la fenêtre.
+   */
+  steer?: (text: string) => Promise<boolean>
+  /** Claude : les messages écrits pas encore repris, et les reprises vues. */
+  live?: { pending: number; replays: number; closer: ReturnType<typeof setTimeout> | null }
+}
+
+/** Une question à Claude en `--input-format stream-json` : une ligne JSON. */
+export function claudeUserLine(text: string): string {
+  return `${JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } })}\n`
+}
+
+/** Le texte d'une question renvoyée par `--replay-user-messages`. */
+export function replayText(event: Record<string, unknown>): string {
+  const message = event.message as { content?: unknown } | undefined
+  const content = message?.content
+  if (typeof content === "string") return content
+  if (!Array.isArray(content)) return ""
+  return content
+    .map((b) => (b && typeof b === "object" && (b as { type?: string }).type === "text" ? String((b as { text?: unknown }).text ?? "") : ""))
+    .join("")
+}
+
+/** Les paires `-c clé=valeur` d'une ligne de commande, dans l'ordre. */
+export function configPairs(args: string[]): string[] {
+  const out: string[] = []
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] === "-c") {
+      out.push("-c", args[i + 1])
+      i++
+    }
+  }
+  return out
+}
+
+// Le serveur d'application de codex est-il là ? Demandé une fois par binaire :
+// une version qui ne l'a pas garde `codex exec`, sans glissement en plein tour.
+// `ZYVRO_CODEX_EXEC=1` force exec, pour comparer ou contourner.
+const serveurs = new Map<string, boolean>()
+export function codexServerReady(bin: string): boolean {
+  if (process.env.ZYVRO_CODEX_EXEC === "1") return false
+  const connu = serveurs.get(bin)
+  if (connu !== undefined) return connu
+  let ok = false
+  try {
+    const r = spawnSync(bin, ["app-server", "--help"], { timeout: 10_000, windowsHide: true, encoding: "utf8", shell: process.platform === "win32" && /\.(cmd|bat)$/i.test(bin) })
+    ok = r.status === 0 && /generate-json-schema|app server/i.test(`${r.stdout}${r.stderr}`)
+  } catch {
+    ok = false
+  }
+  serveurs.set(bin, ok)
+  return ok
 }
 
 export class AgentRunner {
@@ -1103,11 +1166,69 @@ export class AgentRunner {
     // La commande d'installation vient de la table des harnais, qui la porte
     // déjà : l'écrire une seconde fois dans le message d'erreur serait la
     // deuxième liste qui a tort le jour où le paquet change de nom.
-    const child = launchPiped(bin, args, { cwd: ctx.projectDir, env }, harness(kind).install)
-    this.turns.set(id, { id, conversationId, projectDir: ctx.projectDir, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false })
+    //
+    // Codex passe par son serveur d'application quand il l'a : c'est lui qui
+    // sait recevoir un message en plein tour (main/codexserver.ts). Les mêmes
+    // réglages `-c` que pour exec — MCP, passerelle, bac à sable —, la
+    // question en entrée JSON-RPC plutôt que sur stdin.
+    const serveur = kind === "codex" && codexServerReady(bin)
+    const child = launchPiped(bin, serveur ? ["app-server", ...configPairs(args)] : args, { cwd: ctx.projectDir, env }, harness(kind).install)
+    const turn: Turn = { id, conversationId, projectDir: ctx.projectDir, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false }
+    this.turns.set(id, turn)
 
-    child.stdin.write(text)
-    child.stdin.end()
+    // Ce que la sortie du processus devient : des événements au format du
+    // harnais, sauf pour le serveur de codex, qui parle JSON-RPC et que son
+    // pilote traduit.
+    let onLine = (line: string): void => {
+      this.remember(id, line)
+      this.emitEvent(target, id, kind, line)
+    }
+    let serverTurn: CodexServerTurn | null = null
+    if (serveur) {
+      const pilote = new CodexServerTurn(
+        (line) => {
+          if (!child.stdin.writableEnded) child.stdin.write(`${line}\n`)
+        },
+        (event) => {
+          if (target.isDestroyed()) return
+          const line = JSON.stringify(event)
+          this.remember(id, line)
+          this.emitEvent(target, id, kind, line)
+        },
+        () => {
+          if (!child.stdin.writableEnded) child.stdin.end()
+          // Il sort de lui-même quand son entrée se ferme ; sinon, on l'aide.
+          setTimeout(() => {
+            if (child.exitCode === null && child.signalCode === null) child.kill()
+          }, 5000).unref()
+        }
+      )
+      serverTurn = pilote
+      onLine = (line) => pilote.onLine(line)
+      turn.steer = (message) => pilote.steer(message)
+      const pinned = model?.trim() ? model.trim() : null
+      void pilote.start({
+        cwd: ctx.projectDir,
+        model: pinned,
+        ...codexServerPolicy(ctx.permission ?? DEFAULT_PERMISSION),
+        resume: resume ?? null,
+        input: codexInput(text, images),
+      })
+    } else if (kind === "claude") {
+      // L'entrée reste ouverte : c'est par là qu'un message glissé arrive. Elle
+      // se ferme au résultat, quand plus rien n'attend (voir emitEvent).
+      child.stdin.write(claudeUserLine(text))
+      turn.live = { pending: 0, replays: 0, closer: null }
+      turn.steer = async (message) => {
+        if (child.stdin.writableEnded || !this.turns.has(id)) return false
+        child.stdin.write(claudeUserLine(message))
+        turn.live!.pending++
+        return true
+      }
+    } else {
+      child.stdin.write(text)
+      child.stdin.end()
+    }
 
     let buffer = ""
     child.stdout.setEncoding("utf8")
@@ -1117,10 +1238,7 @@ export class AgentRunner {
       while (index >= 0) {
         const line = buffer.slice(0, index).trim()
         buffer = buffer.slice(index + 1)
-        if (line) {
-          this.remember(id, line)
-          this.emitEvent(target, id, kind, line)
-        }
+        if (line) onLine(line)
         index = buffer.indexOf("\n")
       }
     })
@@ -1145,10 +1263,12 @@ export class AgentRunner {
 
     child.on("exit", (code) => {
       this.turns.delete(id)
+      serverTurn?.closed()
+      if (turn.live?.closer) clearTimeout(turn.live.closer)
       disposeConfig?.()
       disposeConfig = null
       if (target.isDestroyed()) return
-      if (buffer.trim()) this.emitEvent(target, id, kind, buffer.trim())
+      if (buffer.trim()) onLine(buffer.trim())
       if (code !== 0) {
         target.send("agent:error", { id, message: stderr.trim() || `${bin} exited with code ${code}` })
         return
@@ -1292,10 +1412,13 @@ export class AgentRunner {
   replay(id: string, target: WebContents): void {
     const turn = this.turns.get(id)
     if (!turn || target.isDestroyed()) return
-    for (const line of turn.lines) this.emitEvent(target, id, turn.kind, line)
+    // Un compteur à lui : rejouer redit les accusés à la fenêtre, à leur
+    // place, sans toucher à l'état du tour qui tourne encore.
+    const rejeu = { replays: 0 }
+    for (const line of turn.lines) this.emitEvent(target, id, turn.kind, line, rejeu)
   }
 
-  private emitEvent(target: WebContents, id: string, kind: AgentKind, line: string): void {
+  private emitEvent(target: WebContents, id: string, kind: AgentKind, line: string, rejeu: { replays: number } | null = null): void {
     if (target.isDestroyed()) return
     let parsed: Record<string, unknown> | null = null
     try {
@@ -1442,6 +1565,27 @@ export class AgentRunner {
       // remember whose turn it is from the model's point of view: the tool
       // answered, and the answer is the user's half of the exchange.
       if (type === "user") {
+        // Une question renvoyée par `--replay-user-messages` : la première est
+        // celle du tour ; les suivantes ont été glissées en plein tour et
+        // viennent d'être prises. La fenêtre les place là, dans le fil.
+        if (parsed.isReplay === true) {
+          // La réponse qui suit ouvre un nouveau message : pas de séparateur
+          // de paragraphe devant son premier mot.
+          if (rejeu) {
+            if (++rejeu.replays > 1) {
+              if (turn) turn.sentText = false
+              target.send("agent:steered", { id, text: replayText(parsed) })
+            }
+          } else if (turn?.live) {
+            turn.live.replays++
+            if (turn.live.replays > 1) {
+              turn.live.pending = Math.max(0, turn.live.pending - 1)
+              turn.sentText = false
+              target.send("agent:steered", { id, text: replayText(parsed) })
+            }
+          }
+          return
+        }
         const message = parsed.message as { content?: unknown[] } | undefined
         for (const block of message?.content ?? []) {
           const b = block as { type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }
@@ -1458,8 +1602,32 @@ export class AgentRunner {
         if (parsed.is_error && typeof result === "string") {
           target.send("agent:error", { id, message: result })
         }
+        // L'entrée de Claude reste ouverte tant qu'un message glissé n'a pas
+        // été repris : arrivé trop tard pour ce tour-ci, il en ouvre un second
+        // dans le même processus. Sinon, on ferme, et le processus sort.
+        //
+        // Mesuré : un message déjà écrit est traité même après la fermeture,
+        // et `queued_turn_count` vaut 0 alors qu'un message attend — c'est
+        // donc le compte des accusés qui décide, le compteur ne fait
+        // qu'ajouter. Trente secondes au plus pour un accusé qui ne viendrait
+        // pas.
+        if (turn?.live && !rejeu) {
+          const live = turn.live
+          const attendus = typeof parsed.queued_turn_count === "number" ? parsed.queued_turn_count : 0
+          if (live.closer) clearTimeout(live.closer)
+          live.closer = null
+          if (live.pending > 0 || attendus > 0) {
+            if (attendus === 0) {
+              live.closer = setTimeout(() => {
+                if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
+              }, 30_000)
+            }
+            return
+          }
+          if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
+        }
         // Le tour est fini : c'est maintenant qu'on tient ce qu'il a demandé.
-        if (turn) this.honorWake(turn)
+        if (turn && !rejeu) this.honorWake(turn)
         return
       }
       return
@@ -1524,6 +1692,17 @@ export class AgentRunner {
       if (spent) target.send("agent:usage", { id, ...spent })
       return
     }
+    // Le serveur d'application (main/codexserver.ts) : un message glissé vient
+    // d'être pris, ou le tour a échoué.
+    if (parsed.type === "zyvro.steered") {
+      if (turn) turn.sentText = false
+      target.send("agent:steered", { id, text: typeof parsed.text === "string" ? parsed.text : "" })
+      return
+    }
+    if (parsed.type === "zyvro.failed") {
+      target.send("agent:error", { id, message: typeof parsed.message === "string" ? parsed.message : "Codex reported an error." })
+      return
+    }
     if (parsed.type === "item.started" && codexItem?.type === "command_execution") {
       started(codexItem.id ?? "codex", "Bash", { command: codexItem.command })
       return
@@ -1544,6 +1723,20 @@ export class AgentRunner {
       return
     }
     if (typeof parsed.last_agent_message === "string") send(parsed.last_agent_message)
+  }
+
+  /**
+   * steer glisse un message dans un tour en cours. Faux quand ce tour ne le
+   * permet pas ou plus : la fenêtre le garde alors pour le tour suivant.
+   */
+  async steer(id: string, text: string): Promise<boolean> {
+    const turn = this.turns.get(id)
+    if (!turn?.steer || text.trim() === "") return false
+    try {
+      return await turn.steer(text)
+    } catch {
+      return false
+    }
   }
 
   cancel(id: string): void {

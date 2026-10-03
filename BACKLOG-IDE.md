@@ -277,3 +277,10 @@ Petits correctifs repérés en passant :
   `check-skills` : son faux Git était un script `#!`, que Windows ne lance pas.
   `downloadPack` accepte `[exécutable, ...arguments]`, et la vérification passe
   `[node, script]`. Les notes d'alpha.66, jamais publiée, sont celles-ci.
+- **0.1.0-alpha.68 — parler à Claude et Codex pendant qu'ils travaillent.**
+  Claude : entrée `--input-format stream-json` laissée ouverte, accusé par
+  `--replay-user-messages` (`isReplay`). Codex : `codex app-server` et
+  `turn/steer` (`main/codexserver.ts`, traduit en flux exec), repli sur exec
+  sans serveur. Fenêtre : `canSteer`, accusé `agent:steered` qui place le
+  message dans le fil ; refusé, il reste dans la file. Limites mesurées dans
+  `scripts/check-steer.mjs`.

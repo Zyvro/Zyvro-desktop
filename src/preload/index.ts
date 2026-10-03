@@ -496,6 +496,8 @@ const api = {
       invoke("agent:remember", conversation),
     forget: (id: string): Promise<void> => invoke("agent:forget", id),
     cancel: (id: string): Promise<boolean> => invoke("agent:cancel", id),
+    /** Glisser un message dans le tour `id` pendant qu'il tourne. */
+    steer: (id: string, text: string): Promise<boolean> => invoke("agent:steer", id, text),
     onText: (cb: (p: { id: string; text: string }) => void): Unsubscribe => on("agent:text", cb),
     onTool: (
       cb: (p: {
@@ -542,6 +544,8 @@ const api = {
     onUsage: (cb: (p: { id: string } & Spent) => void): Unsubscribe => on("agent:usage", cb),
     onError: (cb: (p: { id: string; message: string }) => void): Unsubscribe => on("agent:error", cb),
     onDone: (cb: (p: { id: string }) => void): Unsubscribe => on("agent:done", cb),
+    /** Un message glissé dans le tour `id` vient d'être pris par l'agent. */
+    onSteered: (cb: (p: { id: string; text: string }) => void): Unsubscribe => on("agent:steered", cb),
   },
 
   engine: {

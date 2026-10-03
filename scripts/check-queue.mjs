@@ -87,7 +87,7 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   // Les images suivent le message qu'elles accompagnaient, pas le suivant.
   check(
     "**les images partent avec le message qu'elles accompagnaient**",
-    /queued: \[\.\.\.t\.queued, \{ id: nextMessageId\(\), text, images \}\]/.test(corps),
+    /queued: \[\.\.\.t\.queued, \{ id: qid, text, images[,} ]/.test(corps) && /const qid = nextMessageId\(\)/.test(corps),
     "une image se retrouverait collée au message d'après"
   )
 }
@@ -183,7 +183,7 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   // finiraient par diverger, et la différence ne se verrait qu'une fois.
   check(
     "**ce qui est rejoué repasse par le même analyseur**",
-    /for \(const line of turn\.lines\) this\.emitEvent\(target, id, turn\.kind, line\)/.test(main),
+    /for \(const line of turn\.lines\) this\.emitEvent\(target, id, turn\.kind, line, rejeu\)/.test(main),
     "une reprise montrerait autre chose qu'un tour normal"
   )
   check(
