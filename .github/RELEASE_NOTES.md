@@ -49,6 +49,18 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.46
+
+**Install a missing agent from the app.** When the harness a session uses is
+not on your machine — claude, codex, qwen, or mimo, which runs on codex — the
+agent panel says so above the message box, before you send anything, with an
+**Install** button. It opens a terminal tab that runs `npm install -g` for
+that tool, so you see what npm does and can answer it if it asks for anything;
+the notice goes away by itself once the install finishes, and the model list
+fills in without a restart. Missing harnesses are dimmed in the harness picker,
+and the `claude` and `codex` items in the status bar install it when clicked.
+Without npm, the button takes you to the Node.js download instead.
+
 ## New in alpha.45
 
 **Xiaomi MiMo, as a provider and as an agent.** Providers has a new entry,

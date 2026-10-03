@@ -6,7 +6,7 @@ import { Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { addGroup, groupOf, placeIn, removeKey, resizePair, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
 import { splitToken, subscribeSplit } from "~/state/terminalSplit"
 import { cn } from "@/lib/utils"
-import type { AgentKind } from "../../shared/harness"
+import { type AgentKind, harness } from "../../shared/harness"
 import { droppedText } from "../../shared/dropped"
 import { estEffacement, findPathLinks, toProjectPath, type PathLink } from "../../shared/termlinks"
 import { revealAt } from "~/state/reveal"
@@ -62,6 +62,8 @@ type SessionStatus = {
    * que l'onglet porte son nom plutôt que « Shell 3 ».
    */
   harnais?: { nom: AgentKind; model: string | null; conversation?: string | null }
+  /** Le harnais que ce shell installe : `npm install -g`, dans son onglet. */
+  installation?: AgentKind
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -73,6 +75,7 @@ const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation
 function nomOnglet(key: string, index: number): string {
   const statut = readStatus(key)
   if (statut.persistent !== undefined) return statut.persistent
+  if (statut.installation) return `install ${harness(statut.installation).bin}`
   const harnais = statut.harnais
   if (harnais) return harnais.model ? `${harnais.nom} · ${harnais.model}` : harnais.nom
   return `Shell ${index + 1}`
@@ -349,8 +352,15 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const dejaLa = readStatus(key).ptyId
   const persiste = readStatus(key).persistent
   const harnais = readStatus(key).harnais
+  const installation = readStatus(key).installation
   const ouvrir = dejaLa
     ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
+    : installation !== undefined
+      ? // npm qui installe un harnais : l'onglet se termine avec lui, et ce
+        // qu'il a dit reste à l'écran.
+        window.zyvro.agent
+          .installShell(installation, term.cols, term.rows)
+          .then((session) => ({ ...session, reprise: false }))
     : harnais !== undefined
       ? // Un harnais dans son interface à lui. Un shell ordinaire à tout point
         // de vue — fermer l'onglet le tue, son défilement est gardé — sauf
@@ -701,7 +711,9 @@ export function TerminalPanel(): JSX.Element {
         key,
         ordre.sorte === "persistante"
           ? { persistent: ordre.label }
-          : { harnais: { nom: ordre.harnais, model: ordre.model, conversation: ordre.conversation } }
+          : ordre.sorte === "installation"
+            ? { installation: ordre.harnais }
+            : { harnais: { nom: ordre.harnais, model: ordre.model, conversation: ordre.conversation } }
       )
       setGroups((actuels) => addGroup(actuels, key))
       setActiveKey(key)

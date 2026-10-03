@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowDown, ArrowUp, Check, CircleSlash, Cpu, GitBranch, Loader2, RefreshCw } from "lucide-react"
+import { ArrowDown, ArrowUp, Check, CircleSlash, Cpu, Download, GitBranch, Loader2, RefreshCw } from "lucide-react"
+import { installHarness } from "~/lib/harnessInstall"
 import { cn } from "@/lib/utils"
 import { CompletionToggle } from "~/panels/CompletionToggle"
 import { UsageToggle } from "~/panels/UsageToggle"
@@ -97,20 +98,28 @@ type LocalStatus = {
   cli: { claude: boolean; codex: boolean }
 }
 
-function CliPill({ name, ready }: { name: string; ready: boolean }) {
+function CliPill({ name, ready }: { name: "claude" | "codex"; ready: boolean }) {
+  if (!ready) {
+    // Absent : la pastille devient le bouton qui l'installe, dans un onglet du
+    // terminal où npm dit ce qu'il fait.
+    return (
+      <button
+        type="button"
+        onClick={() => installHarness(name)}
+        className="flex items-center gap-1 text-muted-foreground/70 transition-colors hover:text-foreground"
+        title={`${name} was not found on your PATH. Click to install it with npm, in a terminal tab.`}
+      >
+        <Download className="h-3 w-3" />
+        {name}
+      </button>
+    )
+  }
   return (
     <span
-      className={cn(
-        "flex items-center gap-1",
-        ready ? "text-emerald-300/90" : "text-muted-foreground/70"
-      )}
-      title={
-        ready
-          ? `${name} is installed; workflows can use your subscription through it.`
-          : `${name} was not found on your PATH.`
-      }
+      className="flex items-center gap-1 text-emerald-300/90"
+      title={`${name} is installed; workflows can use your subscription through it.`}
     >
-      {ready ? <Check className="h-3 w-3" /> : <CircleSlash className="h-3 w-3" />}
+      <Check className="h-3 w-3" />
       {name}
     </span>
   )

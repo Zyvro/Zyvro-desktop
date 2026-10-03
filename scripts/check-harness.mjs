@@ -572,6 +572,36 @@ await appServer?.stop?.()
   check("le panneau a le bouton", /openInTerminal\(kind, thread\.id, thread\.model\)/.test(panneau))
 }
 
+// ---- installer un harnais absent -----------------------------------------
+//
+// Un bouton qui lance `npm install -g` est un bouton qui installe quelque chose
+// sur la machine de quelqu'un. Ce qui casse en silence : un paquet qui ne
+// correspond plus à la commande affichée, une fenêtre qui pourrait nommer le
+// paquet elle-même, et une commande tapée dans le shell ouvert — qui peut être
+// un claude en pleine conversation.
+{
+  for (const kind of mod.AGENT_KINDS) {
+    const h = mod.harness(kind)
+    check(
+      `**le paquet de ${kind} est celui que la phrase d'installation nomme**`,
+      typeof h.npmPackage === "string" && h.npmPackage !== "" && h.install === `npm install -g ${h.npmPackage}`,
+      `${h.install} / ${h.npmPackage}`
+    )
+  }
+  const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
+  const bloc = ipc.slice(ipc.indexOf('ipcMain.handle("agent:install-shell"'), ipc.indexOf('ipcMain.handle("agent:models"'))
+  check("**le harnais à installer est vérifié**", /if \(!isAgentKind\(kind\)\)/.test(bloc))
+  check("**et c'est la table qui nomme le paquet, pas la fenêtre**", /\["install", "-g", harness\(kind\)\.npmPackage\]/.test(bloc), bloc.slice(0, 400))
+  check("sans npm, la phrase dit d'où le prendre", /npm was not found on this machine\. Install Node\.js/.test(bloc))
+  check("**l'installation a son onglet à elle**", /ws\.terminals\.create\(/.test(bloc) && /label: `install \$\{harness\(kind\)\.bin\}`/.test(bloc))
+  const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+  check("**le panneau le dit avant qu'on écrive, avec le bouton**", /\{!present\(kind\) && <InstallBanner kind=\{kind\}/.test(panneau) && /installHarness\(kind\)/.test(panneau))
+  const terminal = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
+  check("et le terminal l'ouvre par le principal, pas en tapant", /\.installShell\(installation, term\.cols, term\.rows\)/.test(terminal))
+  const barre = readFileSync(path.join(ROOT, "src/renderer/panels/StatusBar.tsx"), "utf8")
+  check("la pastille d'un CLI absent l'installe", /onClick=\{\(\) => installHarness\(name\)\}/.test(barre))
+}
+
 console.log(
   failures === 0
     ? "\nTrois harnais, une liste, et chacun reçoit les drapeaux qui le font répondre."

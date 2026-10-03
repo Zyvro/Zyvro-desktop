@@ -457,6 +457,11 @@ const api = {
     /** La ligne à taper pour ouvrir ce harnais dans le terminal, sur cette conversation. */
     /** Réécrire une demande avant de l'envoyer (auto-synthèse, shared/synthesize). */
     synthesize: (text: string, mode: string, kind: string): Promise<string> => invoke("agent:synthesize", text, mode, kind),
+    /** Les harnais présents sur cette machine, et npm pour installer les autres. */
+    installed: (): Promise<{ harnesses: Record<AgentKind, boolean>; npm: boolean }> => invoke("agent:installed"),
+    /** Un onglet du terminal qui lance `npm install -g` pour ce harnais. */
+    installShell: (kind: AgentKind, cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
+      invoke("agent:install-shell", kind, cols, rows),
     interactiveCommand: (kind: AgentKind, conversationId: string): Promise<string> =>
       invoke("agent:interactive-command", kind, conversationId),
     onCommands: (cb: (p: { kind: AgentKind; commands: string[] }) => void): Unsubscribe =>

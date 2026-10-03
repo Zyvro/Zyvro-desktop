@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
-import { harness, interactiveCommand, isAgentKind, MIMO_MODELS, MIMO_PROVIDER } from "../shared/harness"
+import { AGENT_KINDS, harness, interactiveCommand, isAgentKind, MIMO_MODELS, MIMO_PROVIDER } from "../shared/harness"
 import { isAbsolutePath } from "../shared/external"
 import { cleanSynthesis, isSynthesisMode, synthesisPrompt } from "../shared/synthesize"
 import { aimFor, aimableModels, mimoAim } from "./aim"
@@ -1070,6 +1070,45 @@ export function registerIpc(onRecents?: () => void): void {
     if (!agent) throw new Error("Rewriting needs the claude or codex CLI on this machine.")
     const cwd = ws.root ?? app.getPath("home")
     return cleanSynthesis(await commitMessage.askOnce(agent, synthesisPrompt(mode, demande), cwd))
+  })
+
+  // Ce qui est installé sur cette machine, harnais par harnais, et si npm y est
+  // pour installer le reste. Demandé à cli.ts, qui sait que `claude` s'appelle
+  // `claude.cmd` sous Windows.
+  ipcMain.handle("agent:installed", async () => {
+    const harnesses = Object.fromEntries(AGENT_KINDS.map((kind) => [kind, installed(harness(kind).bin)]))
+    return { harnesses, npm: installed("npm") }
+  })
+
+  /**
+   * Installer un harnais absent, dans un onglet du terminal.
+   *
+   * Un onglet à lui plutôt qu'une ligne tapée dans le shell ouvert : celui-ci
+   * peut être un claude en pleine conversation, qui recevrait la commande comme
+   * une question. Et un terminal plutôt qu'un processus muet : npm met du temps,
+   * peut demander un mot de passe, et échoue parfois — ce qu'il dit doit se lire.
+   *
+   * Le paquet vient de la table des harnais, jamais de la fenêtre.
+   */
+  ipcMain.handle("agent:install-shell", async (event, kind: string, cols: number, rows: number) => {
+    const { ws } = requireWorkspace(event)
+    if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
+    const npm = locate("npm")
+    if (!npm) {
+      throw new Error("npm was not found on this machine. Install Node.js from https://nodejs.org, then try again.")
+    }
+    const args = ["install", "-g", harness(kind).npmPackage]
+    const command = npm.needsShell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", npm.file, ...args] }
+      : { file: npm.file, args }
+    return ws.terminals.create(
+      event.sender,
+      ws.root ?? app.getPath("home"),
+      cols || 80,
+      rows || 24,
+      null,
+      { command, label: `install ${harness(kind).bin}` }
+    )
   })
 
   ipcMain.handle("agent:models", async (event, kind: AgentKind) => {

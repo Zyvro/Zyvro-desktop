@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { queryClient } from "~/lib/queryClient"
 import {
   ArrowUp,
+  Download,
   Image as ImageIcon,
   MessageSquarePlus,
   Paperclip,
@@ -26,6 +27,7 @@ import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { askHarness } from "~/state/persistent"
+import { installHarness, NODE_DOWNLOAD_URL, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { PermissionPicker } from "~/panels/PermissionPicker"
@@ -1168,6 +1170,45 @@ function grow(node: HTMLTextAreaElement): void {
   node.style.height = `${Math.min(node.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
 }
 
+// InstallBanner : le harnais choisi n'est pas sur cette machine.
+//
+// Dit avant d'écrire plutôt qu'après avoir envoyé : sans elle, on l'apprenait
+// par l'erreur du premier tour, « not found… Install it with », à recopier
+// dans un terminal. Le bouton fait ce que la phrase demandait. Sans npm, il
+// n'y a rien à lancer : le lien mène à Node.js, qui l'apporte.
+function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.Element {
+  const table = harness(kind)
+  const via = kind === table.bin ? "" : ` (${kind} runs on ${table.bin})`
+  return (
+    <div className="mb-1.5 flex items-center gap-2 rounded border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1.5 text-[11px] text-amber-200/90">
+      <span className="min-w-0 flex-1">
+        <span className="font-mono">{table.bin}</span> is not installed on this machine{via}.
+        {!npm && " Installing it needs npm, which comes with Node.js."}
+      </span>
+      {npm ? (
+        <button
+          type="button"
+          onClick={() => installHarness(kind)}
+          title={`Runs npm install -g ${table.npmPackage} in a terminal tab`}
+          className="flex shrink-0 items-center gap-1 rounded bg-amber-400/15 px-2 py-0.5 font-medium text-amber-100 transition-colors hover:bg-amber-400/25"
+        >
+          <Download className="h-3 w-3" />
+          Install {table.bin}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => void window.zyvro.openExternal(NODE_DOWNLOAD_URL)}
+          className="flex shrink-0 items-center gap-1 rounded bg-amber-400/15 px-2 py-0.5 font-medium text-amber-100 transition-colors hover:bg-amber-400/25"
+        >
+          <Download className="h-3 w-3" />
+          Get Node.js
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function AgentPanel(): JSX.Element {
   const project = useWorkspace((workspace) => workspace.project)
   // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
@@ -1177,6 +1218,10 @@ export function AgentPanel(): JSX.Element {
 
   const thread = chat.threads.find((t) => t.id === chat.activeId) ?? chat.threads[0]
   const kind = thread.kind
+  // Présent tant qu'on ne sait pas le contraire : une bannière qui clignote à
+  // chaque ouverture du panneau, le temps que la réponse arrive, serait fausse.
+  const installes = useHarnessesInstalled()
+  const present = (option: AgentKind) => installes.data?.harnesses[option] ?? true
   // Une session « commencée » est une session qui a un fil côté CLI. C'est le
   // premier message envoyé qui le crée, pas le premier caractère tapé : tant
   // que rien n'est parti, tout se change encore.
@@ -1703,12 +1748,17 @@ export function AgentPanel(): JSX.Element {
                       key={option}
                       type="button"
                       onClick={() => setKind(thread.id, option)}
-                      title={`Run this session with ${option}`}
+                      title={
+                        present(option)
+                          ? `Run this session with ${option}`
+                          : `Run this session with ${option} — not installed yet; choose it to install it`
+                      }
                       className={cn(
                         "shrink-0 rounded px-1.5 py-0.5 text-[11px] transition-colors",
                         kind === option
                           ? "bg-white/[0.08] text-foreground"
-                          : "text-muted-foreground hover:text-foreground"
+                          : "text-muted-foreground hover:text-foreground",
+                        !present(option) && "opacity-50"
                       )}
                     >
                       {option}
@@ -1859,6 +1909,8 @@ export function AgentPanel(): JSX.Element {
 
         {/* Ce que l'agent demande la permission de faire, juste au-dessus de la
             barre de saisie : il attend, et c'est ici qu'on regarde. */}
+        {!present(kind) && <InstallBanner kind={kind} npm={installes.data?.npm ?? true} />}
+
         {asks.map((ask) => (
           <AskCard key={ask.id} ask={ask} />
         ))}

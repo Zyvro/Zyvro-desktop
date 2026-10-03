@@ -192,3 +192,7 @@ Petits correctifs repérés en passant :
   et clef, texte seulement, liste documentée quand `/models` ne répond pas) ;
   le panneau d'agent un quatrième harnais, `mimo`, qui est codex branché sur
   l'API Responses de MiMo par `-c` (`mimoArgs`), la clef dans `MIMO_API_KEY`.
+- **0.1.0-alpha.46 — installer un harnais absent.** Bannière au-dessus de la
+  saisie et pastilles de la barre d'état ; `npm install -g` du paquet de la
+  table (`npmPackage`) dans un onglet du terminal à lui (`agent:install-shell`),
+  jamais tapé dans le shell ouvert. `helpOf` ne garde plus « absent » en cache.

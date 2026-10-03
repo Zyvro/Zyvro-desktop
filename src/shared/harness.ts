@@ -30,6 +30,11 @@ export type Harness = {
   bin: string
   /** Comment l'installer, pour que « pas trouvé » soit une phrase actionnable. */
   install: string
+  /**
+   * Le paquet npm qui l'apporte. Le bouton « Install » le lance tel quel :
+   * `npm install -g <paquet>`, et rien que le principal ne compose.
+   */
+  npmPackage: string
   /** La forme de sa sortie, donc quel analyseur la lit. */
   envelope: Envelope
   /**
@@ -96,6 +101,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     kind: "claude",
     bin: "claude",
     install: "npm install -g @anthropic-ai/claude-code",
+    npmPackage: "@anthropic-ai/claude-code",
     envelope: "claude",
     aimable: true,
     gateway: true,
@@ -104,6 +110,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     kind: "codex",
     bin: "codex",
     install: "npm install -g @openai/codex",
+    npmPackage: "@openai/codex",
     envelope: "codex",
     aimable: true,
     gateway: true,
@@ -112,6 +119,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     kind: "qwen",
     bin: "qwen",
     install: "npm install -g @qwen-code/qwen-code",
+    npmPackage: "@qwen-code/qwen-code",
     envelope: "claude",
     aimable: true,
     gateway: false,
@@ -120,6 +128,7 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     kind: "mimo",
     bin: "codex",
     install: "npm install -g @openai/codex",
+    npmPackage: "@openai/codex",
     envelope: "codex",
     aimable: false,
     gateway: false,

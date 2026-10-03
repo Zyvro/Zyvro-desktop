@@ -379,10 +379,10 @@ export function helpOf(name: string): string {
   const cached = helpCache.get(name)
   if (cached !== undefined) return cached
   const found = locate(name)
-  if (!found) {
-    helpCache.set(name, "")
-    return ""
-  }
+  // Pas gardé en cache : un outil absent peut arriver en cours de route — le
+  // bouton « Install » du panneau est fait pour ça — et « absent pour toute la
+  // vie du processus » laisserait son menu de modèles vide jusqu'au redémarrage.
+  if (!found) return ""
   const result = spawnSync(found.file, ["--help"], {
     encoding: "utf8",
     timeout: TIMEOUT_MS,
