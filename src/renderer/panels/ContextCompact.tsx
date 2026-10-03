@@ -1,6 +1,6 @@
 import { Recycle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { contextPercent, contextTone, contextWindow } from "../../shared/context"
+import { contextPercentIn, contextTone, windowForThread } from "../../shared/context"
 import { compact } from "~/lib/usage"
 
 // Recycler le contexte, à côté de l'auto-synthèse : là où l'on écrit.
@@ -16,31 +16,44 @@ import { compact } from "~/lib/usage"
 export function ContextCompact({
   context,
   model,
+  ranWith,
+  hasCompact,
   disabled,
   onCompact,
 }: {
   /** Jetons dans le contexte, tels que le dernier reçu les a mesurés. */
   context: number | null
-  /** Le modèle épinglé, ou celui que le CLI a fait tourner. */
+  /** Le modèle épinglé, ou null. */
   model: string | null
+  /** Celui qui a réellement tourné — c'est lui qui porte `[1m]` le cas échéant. */
+  ranWith: string | null
+  /** Le harnais sait-il `/compact` ? Sans ça, le clic n'aurait aucun effet. */
+  hasCompact: boolean
   disabled?: boolean
   onCompact: () => void
 }) {
-  const percent = contextPercent(context, model)
-  const fenetre = contextWindow(model)
-  const tone = percent === null ? "calm" : contextTone(percent)
+  const fenetre = windowForThread(model, ranWith)
+  const percent = contextPercentIn(context, fenetre)
+  const tone = percent === null ? "calm" : contextTone(Math.min(100, percent))
+  const over = percent !== null && percent > 100
   const title =
     context === null
-      ? "Compact context — frees room before a long task (runs /compact on the harness)"
-      : percent === null
-        ? `Context: ${compact(context)} tokens${fenetre ? "" : " (window unknown)"}. Click to compact (runs /compact).`
-        : `Context: ${percent}% · ${compact(context)} / ${compact(fenetre!)} tokens. Click to compact before a long task.`
+      ? hasCompact
+        ? "Compact context — frees room before a long task (runs /compact on the harness)"
+        : "This harness has no /compact command"
+      : !hasCompact
+        ? `Context: ${compact(context)} tokens. This harness has no /compact command.`
+        : percent === null
+          ? `Context: ${compact(context)} tokens (window unknown). Click to compact (runs /compact).`
+          : over
+            ? `Context: over the window — ${compact(context)} / ${compact(fenetre!)} tokens. Click to compact.`
+            : `Context: ${percent}% · ${compact(context)} / ${compact(fenetre!)} tokens. Click to compact before a long task.`
 
   return (
     <button
       type="button"
       title={title}
-      disabled={disabled}
+      disabled={disabled || !hasCompact}
       data-compact-trigger
       onClick={onCompact}
       className={cn(
@@ -50,7 +63,7 @@ export function ContextCompact({
     >
       <Recycle className="h-3.5 w-3.5 shrink-0" />
       {percent !== null ? (
-        <span className="tabular-nums">{percent}%</span>
+        <span className="tabular-nums">{over ? "full" : `${percent}%`}</span>
       ) : context != null ? (
         <span className="hidden sm:inline tabular-nums">{compact(context)}</span>
       ) : null}

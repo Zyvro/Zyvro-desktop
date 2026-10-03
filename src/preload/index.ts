@@ -516,6 +516,10 @@ const api = {
     ): Unsubscribe => on("agent:tool-result", cb),
     onModel: (cb: (p: { id: string; conversationId: string; model: string }) => void): Unsubscribe =>
       on("agent:model", cb),
+    // Le harnais vient de compacter le contexte. Le résumé est ce qu'il a
+    // imprimé ; la fenêtre remplace l'historique par là.
+    onCompacted: (cb: (p: { id: string; conversationId?: string; summary: string }) => void): Unsubscribe =>
+      on("agent:compacted", cb),
     // Ce qu'un tour a dépensé, tel que le CLI le rapporte à la fin. Il arrive
     // avec le flux : rien n'est demandé en plus pour l'obtenir.
     /**

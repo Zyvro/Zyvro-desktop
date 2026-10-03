@@ -32,8 +32,9 @@ writeFileSync(path.join(dir, "electron.js"), `module.exports = { app: {}, Browse
 writeFileSync(
   path.join(dir, "h.ts"),
   `export { usageIn, codexUsageIn, mimoUsageIn, addSpent } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
+    `export { compactIn } from "${path.join(ROOT, "src/main/compact").replace(/\\/g, "/")}"\n` +
     `export { compact, detail } from "${path.join(ROOT, "src/renderer/lib/usage").replace(/\\/g, "/")}"\n` +
-    `export { contextWindow, contextPercent, contextTone } from "${path.join(ROOT, "src/shared/context").replace(/\\/g, "/")}"\n`
+    `export { contextWindow, contextPercent, contextPercentIn, contextTone, windowForThread } from "${path.join(ROOT, "src/shared/context").replace(/\\/g, "/")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -187,10 +188,19 @@ const RESULT = {
     String(mod.contextWindow("gpt-5.1"))
   )
   check("sans modèle, pas de fenêtre", mod.contextWindow(null) === null)
+  check(
+    "un `1m` au milieu d'un autre nom n'est pas la fenêtre longue",
+    mod.contextWindow("text-embedding-1m-small") === null,
+    String(mod.contextWindow("text-embedding-1m-small"))
+  )
 
   const p = mod.contextPercent(50_000, "claude-opus-5")
   check("**le pourcentage se calcule**", p === 25, String(p))
-  check("et se borne à 100", mod.contextPercent(400_000, "claude-opus-5") === 100)
+  check(
+    "**et ne masque pas le dépassement**",
+    mod.contextPercent(400_000, "claude-opus-5") === 200,
+    String(mod.contextPercent(400_000, "claude-opus-5"))
+  )
   check(
     "**pas de pourcentage sans fenêtre**",
     mod.contextPercent(50_000, "gpt-5.1") === null,
@@ -198,6 +208,51 @@ const RESULT = {
   )
   check("ni sans mesure", mod.contextPercent(null, "claude-opus-5") === null)
   check("le ton suit", mod.contextTone(10) === "calm" && mod.contextTone(60) === "warm" && mod.contextTone(90) === "hot")
+
+  // La fenêtre du fil : le modèle épinglé ET celui qui a tourné, le plus grand.
+  // Un `claude-opus-5` épinglé qui tourne en `[1m]` doit voir 1M, pas 200k.
+  check(
+    "**`ranWith` [1m] l'emporte sur un modèle épinglé sans suffixe**",
+    mod.windowForThread("claude-opus-5", "claude-opus-5[1m]") === 1_000_000,
+    String(mod.windowForThread("claude-opus-5", "claude-opus-5[1m]"))
+  )
+  check("et l'inverse aussi", mod.windowForThread("claude-opus-5[1m]", "claude-opus-5") === 1_000_000)
+  check("sans ranWith, le modèle épinglé suffit", mod.windowForThread("claude-opus-5", null) === 200_000)
+  check("sans rien, pas de fenêtre", mod.windowForThread(null, null) === null)
+}
+
+// ---- la compaction -------------------------------------------------------
+//
+// Ce qui casse en silence : prendre l'usage du tour `/compact` pour le
+// nouveau contexte (c'est l'ancien, la summarization relit tout), ou ne pas
+// reconnaître la compaction et laisser l'historique entier à l'écran.
+{
+  const evt = {
+    type: "assistant",
+    local_command_run: { command: "compact" },
+    message: { content: [{ type: "text", text: "Conversation compacted. Summary: the user wants X." }] },
+  }
+  const c = mod.compactIn(evt)
+  check("**`local_command_run: compact` se lit**", c !== null && c.summary.includes("Summary:"), JSON.stringify(c))
+  check("un message ordinaire n'est pas une compaction", mod.compactIn({ type: "assistant", message: { content: [{ type: "text", text: "I compacted the files" }] } }) === null)
+  check("ni une autre commande locale", mod.compactIn({ type: "assistant", local_command_run: { command: "goal" } }) === null)
+  check("ni un événement non-assistant", mod.compactIn({ type: "result", local_command_run: { command: "compact" } }) === null)
+  check(
+    "et l'enveloppe de sortie locale est retirée",
+    mod.compactIn({ type: "assistant", local_command_run: { command: "compact" }, local_command_source: "<local-command-stdout>Done.</local-command-stdout>" }).summary === "Done."
+  )
+
+  const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+  check(
+    "**l'usage d'un tour qui compacte n'écrase pas le contexte**",
+    panneau.includes("compacting.has(id)") && panneau.includes("compacting.add(id)"),
+    "le % revient à 100% juste après avoir compacté"
+  )
+  check(
+    "**et le fil est nettoyé comme dans un harnais**",
+    panneau.includes("onCompacted") && panneau.includes("Context compacted"),
+    "l'historique reste entier après /compact"
+  )
 }
 
 // ---- le contexte d'un tour -----------------------------------------------

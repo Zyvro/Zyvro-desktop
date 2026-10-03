@@ -4,6 +4,7 @@ import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
 import { commandsIn, remember as rememberCommands } from "./commands"
 import { type Goal, goalIn, sameGoal } from "./goal"
+import { compactIn } from "./compact"
 import { nextRunIn, type Pending, type Wake, wakeIn } from "./schedule"
 import { startGateway, type GatewayHandle } from "./responses"
 import { randomUUID } from "node:crypto"
@@ -1414,6 +1415,13 @@ export class AgentRunner {
     if (harness(kind).envelope === "claude") {
       const type = parsed.type
       if (type === "assistant") {
+        // `/compact` : la CLI vient de réduire le contexte. Prévenir la fenêtre
+        // pour qu'elle nettoie le fil comme le ferait le TUI du harnais.
+        const compacte = compactIn(parsed)
+        if (compacte) {
+          target.send("agent:compacted", { id, conversationId: turn?.conversationId, summary: compacte.summary })
+          return
+        }
         const message = parsed.message as { content?: unknown[] } | undefined
         for (const block of message?.content ?? []) {
           const b = block as { type?: string; text?: string; name?: string; id?: string; input?: unknown }

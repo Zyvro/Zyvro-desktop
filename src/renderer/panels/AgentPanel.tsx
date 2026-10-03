@@ -35,11 +35,11 @@ import { ModelPicker } from "~/panels/ModelPicker"
 import { ContextCompact } from "~/panels/ContextCompact"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { SynthesisPicker } from "~/panels/SynthesisPicker"
+import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { synthesisSettings } from "~/state/synthesis"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
-import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { handTo, subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { engineReady, subscribeEngine } from "~/state/engine"
 import type { StoredTool } from "../../preload"
@@ -234,6 +234,10 @@ const subscribers = new Set<() => void>()
 const turnToMessage = new Map<string, { threadId: string; messageId: string }>()
 const orphans = new Map<string, Orphan>()
 const cancelled = new Set<string>()
+// Les tours qui viennent de compacter : leur usage rapporte l'ANCIEN contexte
+// (la summarization relit tout), et le remettre à jour rafficherait 100% juste
+// après avoir vidé. Le vrai nouveau contexte arrive au tour suivant.
+const compacting = new Set<string>()
 
 let messageCounter = 0
 function nextMessageId(): string {
@@ -397,6 +401,33 @@ function ensureAttached(): void {
     mapThread(conversationId, (t) => ({ ...t, ranWith: model }))
   })
 
+  // Le harnais vient de compacter. On nettoie le fil comme le ferait son TUI :
+  // l'historique est remplacé par le résumé qu'il a imprimé, et la fenêtre du
+  // contexte repart de zéro jusqu'au prochain tour.
+  window.zyvro.agent.onCompacted(({ id, summary }) => {
+    compacting.add(id)
+    const bound = turnToMessage.get(id)
+    const threadId = bound?.threadId
+    if (threadId === undefined) return
+    mapThread(threadId, (t) => ({
+      ...t,
+      context: null,
+      messages: [
+        {
+          id: nextMessageId(),
+          role: "assistant",
+          parts: [
+            {
+              kind: "text",
+              text: summary.trim() || "Context compacted. The conversation continues from this summary.",
+            },
+          ],
+          streaming: false,
+        },
+      ],
+    }))
+  })
+
   // Le reçu du tour. Il arrive à la fin, avant `done`, et se pose sur le
   // message auquel il appartient — pas sur le fil : deux tours dans le même
   // onglet ont deux dépenses.
@@ -408,8 +439,9 @@ function ensureAttached(): void {
     }
     mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, spent }))
     // La fenêtre suit le dernier reçu : c'est lui qui a relu la conversation.
+    // SAUF si le tour vient de compacter — son entrée est l'ancien contexte.
     const context = spent.context
-    if (context !== undefined) {
+    if (context !== undefined && !compacting.has(id)) {
       mapThread(bound.threadId, (t) => ({ ...t, context }))
     }
   })
@@ -548,6 +580,7 @@ function endTurn(id: string): void {
   turnToMessage.delete(id)
   orphans.delete(id)
   cancelled.delete(id)
+  compacting.delete(id)
   if (!bound) return
   const arrete = cancelled.has(id)
   mapThread(bound.threadId, (thread) =>
@@ -695,6 +728,12 @@ function bindTurn(threadId: string, messageId: string, turnId: string): void {
     error: orphan.error || message.error,
     streaming: !orphan.done && orphan.error === "",
   }))
+  // L'usage orphelin porte lui aussi la taille du contexte — sans ça, un tour
+  // dont le reçu arrive avant le lien laisserait le % à sa valeur d'avant.
+  const orphanContext = orphan.spent?.context
+  if (orphanContext !== undefined && !compacting.has(turnId)) {
+    mapThread(threadId, (t) => ({ ...t, context: orphanContext }))
+  }
   if (orphan.done || orphan.error !== "") endTurn(turnId)
 }
 
@@ -2120,7 +2159,9 @@ export function AgentPanel(): JSX.Element {
                 automatique en plein milieu d'une grosse feature. */}
             <ContextCompact
               context={thread.context}
-              model={thread.model ?? thread.ranWith}
+              model={thread.model}
+              ranWith={thread.ranWith}
+              hasCompact={toutes.some((n) => n.toLowerCase() === "compact")}
               disabled={disabled || thread.busy || !started}
               onCompact={() => {
                 // `/compact` part tel quel, sans images ni auto-synthèse :
