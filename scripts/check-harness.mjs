@@ -78,7 +78,7 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   const mimo = mod.harness("mimo")
   check(
     "**MiMo est MiMo Code, le CLI de Xiaomi**",
-    mimo.bin === "mimo" && mimo.envelope === "opencode" && !mimo.gateway && mimo.installScript === "curl -fsSL https://mimo.xiaomi.com/install | bash",
+    mimo.bin === "mimo" && mimo.envelope === "opencode" && !mimo.gateway && mimo.installer === "mimo" && !mimo.npmPackage,
     JSON.stringify(mimo)
   )
 
@@ -365,7 +365,9 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
     // npm pour trois d'entre eux ; MiMo Code, lui, a le script de Xiaomi.
     check(
       `${kind} sait comment on l'installe`,
-      /^npm install -g \S+/.test(h.install) || /^curl -fsSL https:\/\/\S+ \| bash$/.test(h.install),
+      // npm pour trois d'entre eux ; MiMo Code, par le bouton, qui le
+      // télécharge — et jamais une commande bash, qu'un Windows ne sait pas lancer.
+      /^npm install -g \S+/.test(h.install) || (h.installer === "mimo" && /Install button/.test(h.install)),
       h.install
     )
   }
@@ -588,8 +590,8 @@ await appServer?.stop?.()
     const h = mod.harness(kind)
     check(
       `**ce que le bouton lance pour ${kind} est ce que la phrase d'installation nomme**`,
-      h.npmPackage ? h.install === `npm install -g ${h.npmPackage}` : Boolean(h.installScript) && h.install === h.installScript,
-      `${h.install} / ${h.npmPackage ?? h.installScript}`
+      h.npmPackage ? h.install === `npm install -g ${h.npmPackage}` : h.installer === "mimo" && !/curl|bash/.test(h.install),
+      `${h.install} / ${h.npmPackage ?? h.installer}`
     )
   }
   const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell, webContents } from "electron"
 import path from "node:path"
+import os from "node:os"
 import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
@@ -11,7 +12,7 @@ import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
-import { helpOf, installed, locate, outputOf } from "./cli"
+import { adoptHomeBins, helpOf, installed, locate, outputOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import * as textSearch from "./search"
@@ -40,6 +41,7 @@ import * as attachments from "./attachments"
 import * as importing from "./importing"
 import * as sharing from "./sharing"
 import * as commitMessage from "./commitmessage"
+import * as mimoInstall from "./mimoinstall"
 import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
 
@@ -1071,6 +1073,9 @@ export function registerIpc(onRecents?: () => void): void {
   // pour installer le reste. Demandé à cli.ts, qui sait que `claude` s'appelle
   // `claude.cmd` sous Windows.
   ipcMain.handle("agent:installed", async () => {
+    // Un harnais qui vient de s'installer dans un dossier que le PATH de ce
+    // processus ne connaît pas encore — `~/.mimocode/bin` — doit compter.
+    adoptHomeBins()
     const harnesses = Object.fromEntries(AGENT_KINDS.map((kind) => [kind, installed(harness(kind).bin)]))
     return { harnesses, npm: installed("npm") }
   })
@@ -1089,7 +1094,7 @@ export function registerIpc(onRecents?: () => void): void {
     const { ws } = requireWorkspace(event)
     if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
     const table = harness(kind)
-    let command: { file: string; args: string[] }
+    let command: { file: string; args: string[]; env?: Record<string, string> }
     if (table.npmPackage) {
       const npm = locate("npm")
       if (!npm) {
@@ -1099,10 +1104,13 @@ export function registerIpc(onRecents?: () => void): void {
       command = npm.needsShell
         ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", npm.file, ...args] }
         : { file: npm.file, args }
-    } else if (table.installScript && process.platform !== "win32") {
-      // Le script de l'éditeur, tel que sa documentation le donne — MiMo Code
-      // n'est pas sur npm. Le texte vient de la table, jamais de la fenêtre.
-      command = { file: "/bin/sh", args: ["-c", table.installScript] }
+    } else if (table.installer === "mimo") {
+      // MiMo Code n'est pas sur npm : l'application le télécharge elle-même
+      // (main/mimoinstall.ts), avec son propre exécutable en mode Node — ce qui
+      // marche sous Windows, où il n'y a ni bash ni curl à qui le demander.
+      const script = path.join(os.tmpdir(), `zyvro-mimo-install-${randomUUID()}.cjs`)
+      await fs.writeFile(script, mimoInstall.installerSource(), "utf8")
+      command = { file: process.execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: "1" } }
     } else {
       throw new Error(`${table.bin} cannot be installed from here. Install it with: ${table.install}`)
     }

@@ -17,7 +17,9 @@ const dir = path.join(ROOT, "node_modules", ".zyvro-mimo-check")
 mkdirSync(dir, { recursive: true })
 await build({
   stdin: {
-    contents: `export { sessionIn, mimoUsageIn, addSpent, mimoToolName, mimoModelsFrom, mimoConfig, argsFor } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"`,
+    contents:
+      `export { sessionIn, mimoUsageIn, addSpent, mimoToolName, mimoModelsFrom, mimoConfig, argsFor } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
+      `export { mimoTarget, installerSource, MIMO_RELEASES } from "${path.join(ROOT, "src/main/mimoinstall").replace(/\\/g, "/")}"`,
     resolveDir: ROOT,
   },
   outfile: path.join(dir, "h.cjs"),
@@ -77,6 +79,40 @@ check(
 check("sans démon, rien à déclarer", mod.mimoConfig({}) === null)
 const ligne = mod.argsFor("mimo", { projectDir: "/p", workflows: [], permission: "project", daemonOrigin: "http://127.0.0.1:4100", daemonToken: "jeton-secret" }, null, null).join(" ")
 check("**et le jeton n'est jamais sur la ligne de commande**", !ligne.includes("jeton-secret"), ligne)
+
+// ---- l'installer sans commande à taper ------------------------------------
+//
+// Sous Windows, « curl … | bash » n'est pas une instruction, c'est un mur.
+// L'application télécharge MiMo Code elle-même ; ce qui casse en silence est
+// l'archive choisie — une cible que Xiaomi ne publie pas est un 404 — et le
+// script qui ne tourne plus dans l'application empaquetée.
+{
+  const t = (p, a, cpu) => JSON.stringify(mod.mimoTarget(p, a, cpu))
+  check("**Windows x64 : le zip windows-x64, et mimo.exe dedans**", t("win32", "x64") === JSON.stringify({ target: "windows-x64", archive: "zip", binary: "mimo.exe" }), t("win32", "x64"))
+  check("un processeur sans AVX2 prend la baseline", mod.mimoTarget("win32", "x64", { avx2: false, musl: false }).target === "windows-x64-baseline")
+  check("un Mac Apple Silicon, darwin-arm64", mod.mimoTarget("darwin", "arm64").target === "darwin-arm64")
+  check("Linux en tar.gz, musl compris", t("linux", "x64", { avx2: true, musl: true }) === JSON.stringify({ target: "linux-x64-musl", archive: "tar.gz", binary: "mimo" }))
+  check("Windows ARM n'est pas publié : on le dit au lieu d'un 404", mod.mimoTarget("win32", "arm64") === null)
+
+  const source = mod.installerSource()
+  check("**le script ne dépend de rien hors de lui-même**", !/\brequire\(["'](?!node:)/.test(source) && !/__name|__toESM|__require/.test(source), source.slice(0, 120))
+  check("et il vise les publications de Xiaomi", source.includes(JSON.stringify(mod.MIMO_RELEASES)))
+  check("la copie du choix d'archive dans le script suit la même règle", /`\$\{sys\}-\$\{cpu\}`/.test(source) && /-baseline/.test(source) && /-musl/.test(source) && /mimo\.exe/.test(source))
+  check("il vérifie que le binaire posé démarre, et à la bonne version", /--version/.test(source) && /said\.includes\(version\)/.test(source))
+
+  const { readFileSync } = await import("node:fs")
+  const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
+  check(
+    "**le bouton lance l'installateur avec l'exécutable de l'app, en mode Node**",
+    /installer === "mimo"/.test(ipc) && /file: process\.execPath/.test(ipc) && /ELECTRON_RUN_AS_NODE: "1"/.test(ipc)
+  )
+  const builder = readFileSync(path.join(ROOT, "electron-builder.yml"), "utf8")
+  check(
+    "**et l'app empaquetée garde ce mode** (le fuse RunAsNode n'est pas coupé)",
+    !/runAsNode:\s*false/i.test(builder),
+    "sans lui, le bouton Install de MiMo Code ne lancerait rien"
+  )
+}
 
 console.log(failures === 0 ? "\nMiMo Code se lit comme il parle, et ses outils arrivent par son environnement." : `\n${failures} échec(s)`)
 process.exit(failures === 0 ? 0 : 1)

@@ -205,3 +205,8 @@ Petits correctifs repérés en passant :
   0.1.15), session par `--session`, outils traduits (`mimoToolName`), dépense
   cumulée par étape, MCP par `MIMOCODE_CONFIG_CONTENT`, modèles lus dans
   `mimo models`, installation par le script de Xiaomi.
+- **0.1.0-alpha.49 — MiMo Code s'installe depuis l'app, Windows compris.**
+  `main/mimoinstall.ts` refait ce que fait le script de Xiaomi (dernière
+  version, archive de la plateforme, baseline sans AVX2, `~/.mimocode/bin`),
+  lancé par l'exécutable de l'app en mode Node dans un onglet du terminal ;
+  `adoptHomeBins` le rend visible sans redémarrage.

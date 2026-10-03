@@ -1178,18 +1178,9 @@ function grow(node: HTMLTextAreaElement): void {
 function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.Element {
   const table = harness(kind)
   const via = kind === table.bin ? "" : ` (${kind} runs on ${table.bin})`
-  // MiMo Code s'installe par le script de Xiaomi, pas par npm. Sous Windows il
-  // n'y a pas de script à lancer : la phrase donne la commande.
-  const script = !table.npmPackage && Boolean(table.installScript) && window.zyvro.platform !== "win32"
-  if (!table.npmPackage && !script) {
-    return (
-      <div className="mb-1.5 rounded border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1.5 text-[11px] text-amber-200/90">
-        <span className="font-mono">{table.bin}</span> is not installed on this machine. Install it with{" "}
-        <span className="font-mono">{table.install}</span>.
-      </div>
-    )
-  }
-  const runnable = script || npm
+  // MiMo Code n'est pas sur npm : l'application le télécharge elle-même, sur
+  // toutes les plateformes. Seuls les harnais npm ont besoin de npm.
+  const runnable = table.installer ? true : npm
   return (
     <div className="mb-1.5 flex items-center gap-2 rounded border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1.5 text-[11px] text-amber-200/90">
       <span className="min-w-0 flex-1">

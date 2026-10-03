@@ -278,6 +278,8 @@ function installRoots(): string[] {
     // the directory `winget` and most installers use.
     roots.push(path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "npm"))
     roots.push(path.join(process.env.LOCALAPPDATA || path.join(home, "AppData", "Local"), "Programs"))
+    // Là où l'installateur de MiMo Code — celui de Xiaomi, ou le nôtre — le pose.
+    roots.push(path.join(home, ".mimocode", "bin"))
   }
 
   return roots.filter((root) => root && existsSync(root))
@@ -429,4 +431,18 @@ export function outputOf(name: string, args: string[]): string {
   const text = result.status === 0 ? `${result.stdout ?? ""}` : ""
   if (text.trim()) outputCache.set(key, text)
   return text
+}
+
+// adoptHomeBins ajoute au PATH de ce processus les dossiers d'installation qui
+// existent maintenant et qu'il ne connaissait pas — sans relancer l'app. C'est
+// ce qui fait qu'un harnais installé par le bouton Install compte tout de
+// suite : `~/.mimocode/bin` n'existait pas au démarrage, il existe après.
+// Seulement les dossiers du dossier personnel : demander leur préfixe à npm et
+// à brew coûterait deux processus à chaque vérification.
+export function adoptHomeBins(): void {
+  const home = os.homedir()
+  const dirs = [path.join(home, ".mimocode", "bin"), path.join(home, ".local", "bin"), path.join(home, ".bun", "bin")]
+  const present = dirs.filter((dir) => existsSync(dir))
+  if (present.length === 0) return
+  process.env.PATH = merge(process.env.PATH ?? "", present.join(isWindows ? ";" : ":"))
 }

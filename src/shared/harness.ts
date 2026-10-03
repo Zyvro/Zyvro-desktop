@@ -39,11 +39,12 @@ export type Harness = {
    */
   npmPackage?: string
   /**
-   * Ou, pour un harnais qui ne passe pas par npm, le script d'installation de
-   * son éditeur — lancé par `/bin/sh -c` dans un onglet du terminal. Absent
-   * sous Windows, où le bouton renvoie à la commande à taper.
+   * Ou, pour un harnais qui ne passe pas par npm, l'installateur que
+   * l'application porte elle-même — MiMo Code, que Xiaomi publie en binaires
+   * (voir main/mimoinstall.ts). Il marche partout, Windows compris, sans
+   * commande à taper.
    */
-  installScript?: string
+  installer?: "mimo"
   /** La forme de sa sortie, donc quel analyseur la lit. */
   envelope: Envelope
   /**
@@ -130,8 +131,10 @@ export const HARNESSES: Record<AgentKind, Harness> = {
   mimo: {
     kind: "mimo",
     bin: "mimo",
-    install: "curl -fsSL https://mimo.xiaomi.com/install | bash",
-    installScript: "curl -fsSL https://mimo.xiaomi.com/install | bash",
+    // Une phrase et pas une commande : sous Windows il n'y a pas de bash à qui
+    // donner `curl … | bash`, et le bouton Install fait le travail partout.
+    install: "the Install button in the agent panel, which downloads it from Xiaomi",
+    installer: "mimo",
     envelope: "opencode",
     aimable: false,
     gateway: false,

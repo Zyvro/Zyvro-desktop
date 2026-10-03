@@ -49,6 +49,18 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.49
+
+**MiMo Code installs from the app, on Windows too.** When MiMo Code is missing,
+the agent panel's **Install** button now downloads it itself — Xiaomi's own
+release for your machine (Windows x64, macOS, Linux; the "baseline" build on
+processors without AVX2), unpacked into `~/.mimocode/bin`, where Xiaomi's
+installer puts it. It used to tell you to run `curl … | bash`, which a Windows
+machine cannot do. It runs in a terminal tab so you can see the download, it
+checks that the installed binary starts and reports the right version, and the
+panel picks MiMo Code up as soon as it is there, without a restart. Sign in
+once with `mimo providers login`.
+
 ## New in alpha.48
 
 **The mimo harness is MiMo Code.** Choosing *mimo* in the agent panel now runs
