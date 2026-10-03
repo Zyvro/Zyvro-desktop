@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.64
+
+**Ctrl+C stops the agent.** While an agent is working, Ctrl+C in its prompt box
+stops it, as in its own terminal, and puts the queued messages back in the
+box. With text selected, Ctrl+C still copies it, as it does on Windows and
+Linux; on a Mac, copying stays ⌘C. The Stop button shows the shortcut.
+
 ## New in alpha.63
 
 **Closing a conversation asks first.** The cross on a conversation tab deleted

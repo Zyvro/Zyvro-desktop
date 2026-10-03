@@ -1323,6 +1323,18 @@ export async function requestCloseThread(id: string): Promise<boolean> {
   return true
 }
 
+/** Ctrl+C dans la boîte, pendant un tour, sans texte sélectionné. */
+export function isStopKey(
+  event: Pick<KeyboardEvent<HTMLTextAreaElement>, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey"> & {
+    currentTarget: { selectionStart: number | null; selectionEnd: number | null }
+  },
+  running: boolean
+): boolean {
+  if (!running || event.key.toLowerCase() !== "c") return false
+  if (!event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false
+  return event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+}
+
 function markCancelled(turnId: string): void {
   cancelled.add(turnId)
 }
@@ -1670,6 +1682,14 @@ export function AgentPanel(): JSX.Element {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Ctrl+C arrête l'agent qui travaille, comme dans son terminal. Seulement
+    // sans sélection : sous Windows et Linux, Ctrl+C copie, et un texte
+    // sélectionné doit rester copiable (sur Mac, copier est ⌘C).
+    if (isStopKey(event, thread.turnId !== null)) {
+      event.preventDefault()
+      stop()
+      return
+    }
     if (menuOuvert) {
       if (event.key === "ArrowDown") {
         event.preventDefault()
@@ -2349,7 +2369,7 @@ export function AgentPanel(): JSX.Element {
               <button
                 type="button"
                 onClick={stop}
-                title="Stop"
+                title="Stop (Ctrl+C)"
                 className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12]"
               >
                 <Square className="h-3 w-3" />

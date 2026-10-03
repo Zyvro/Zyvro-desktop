@@ -242,6 +242,19 @@ check(
     panel.slice(panel.indexOf("export function whatClosingLoses"), panel.indexOf("export async function requestCloseThread")).includes(t)
   )
 )
+{
+  const debut = panel.indexOf("export function isStopKey")
+  const regle = panel.slice(debut, panel.indexOf("\n}\n", debut))
+  check(
+    "**Ctrl+C dans la boîte arrête l'agent qui travaille**",
+    /if \(isStopKey\(event, thread\.turnId !== null\)\) \{\s*event\.preventDefault\(\)\s*stop\(\)/.test(panel)
+  )
+  check(
+    "**mais pas quand du texte est sélectionné (Ctrl+C copie sous Windows)**",
+    /selectionStart === event\.currentTarget\.selectionEnd/.test(regle) && /if \(!running/.test(regle) && /event\.metaKey/.test(regle)
+  )
+  check("et le bouton Stop le dit", /title="Stop \(Ctrl\+C\)"/.test(panel))
+}
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 
 console.log(failures === 0 ? "\nCe qu'on écrit reste, et ce qu'on a envoyé revient avec ↑." : `\n${failures} échec(s)`)

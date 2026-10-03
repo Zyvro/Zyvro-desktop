@@ -259,3 +259,6 @@ Petits correctifs repérés en passant :
   par `requestCloseThread` : confirmation qui nomme ce qui serait perdu
   (`whatClosingLoses` : transcript, brouillon, file, images), aucune question
   pour une session vide.
+- **0.1.0-alpha.64 — Ctrl+C arrête l'agent.** Dans la boîte, pendant un tour et
+  sans sélection (`isStopKey`), même effet que Stop ; avec une sélection,
+  Ctrl+C copie toujours.
