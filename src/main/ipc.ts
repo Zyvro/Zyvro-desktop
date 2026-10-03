@@ -44,6 +44,7 @@ import * as commitMessage from "./commitmessage"
 import * as mimoInstall from "./mimoinstall"
 import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
+import { studioWindows } from "./windows"
 
 // One Workspace per window, holding every project folder the person opened in
 // that window. Each project keeps its own daemon, file watcher and git repo
@@ -305,8 +306,10 @@ const pendingAsks = new Map<string, (answer: { allow: boolean; message?: string 
 const ASK_PATIENCE_MS = 10 * 60 * 1000
 
 export const askHost: AskHost = async (request) => {
-  const [win] = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isFocused())
-  const target = win ?? BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+  // Une fenêtre de Studio : une fenêtre de capture n'écoute pas cette question,
+  // et l'agent attendrait dix minutes une réponse que personne ne voit.
+  const [win] = studioWindows().filter((w) => w.isFocused())
+  const target = win ?? studioWindows()[0]
   if (!target) return { allow: false, message: "Zyvro Studio is not open" }
 
   const id = randomUUID()

@@ -18,7 +18,14 @@ export default defineConfig({
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
-      rollupOptions: { input: { index: resolve(__dirname, "src/preload/index.ts") } },
+      // Deux ponts : celui de la fenêtre de Studio, et celui, bien plus étroit,
+      // des fenêtres de capture (src/main/capture.ts).
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, "src/preload/index.ts"),
+          capture: resolve(__dirname, "src/preload/capture.ts"),
+        },
+      },
     },
   },
   renderer: {
@@ -65,7 +72,10 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, "src/renderer/index.html") },
+        input: {
+          index: resolve(__dirname, "src/renderer/index.html"),
+          capture: resolve(__dirname, "src/renderer/capture.html"),
+        },
         // The shared components keep their "use client" banners for Next.js.
         // Rollup has no use for them and would print one warning per file.
         onwarn(warning, warn) {

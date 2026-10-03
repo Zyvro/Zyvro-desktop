@@ -145,6 +145,42 @@ def write_icns(master: Image.Image, target: Path) -> None:
     shutil.rmtree(iconset)
 
 
+def write_tray(win_tile: Image.Image) -> None:
+    """The capture icon in the macOS menu bar and the Windows notification area.
+
+    macOS draws menu bar icons itself, in black or white to suit the bar, from
+    the alpha of a "Template" image: the mark's silhouette, nothing else. The
+    Windows tray keeps no such convention and a white glyph vanishes on a light
+    taskbar, so it gets the small tile. While a recording runs, the Windows icon
+    carries a red dot; the macOS bar shows the elapsed time beside the icon
+    instead, since a template image cannot be red.
+    """
+    tray = OUT / "tray"
+    tray.mkdir(parents=True, exist_ok=True)
+
+    glyph = Image.open(BRAND).convert("RGBA")
+    glyph = glyph.crop(glyph.getbbox())
+    alpha = glyph.split()[3]
+    for name, px in (("trayTemplate.png", 18), ("trayTemplate@2x.png", 36)):
+        side = round(px * 0.86)
+        w = round(glyph.width * side / max(glyph.size))
+        h = round(glyph.height * side / max(glyph.size))
+        mark = Image.new("RGBA", glyph.size, (0, 0, 0, 255))
+        mark.putalpha(alpha)
+        mark = mark.resize((w, h), Image.LANCZOS)
+        canvas = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+        canvas.alpha_composite(mark, ((px - w) // 2, (px - h) // 2))
+        canvas.save(tray / name)
+
+    for name, px in (("tray.png", 16), ("tray@2x.png", 32)):
+        win_tile.resize((px, px), Image.LANCZOS).save(tray / name)
+        recording = win_tile.resize((px * 4, px * 4), Image.LANCZOS)
+        r = px * 4 * 0.2
+        cx, cy = px * 4 - r - 1, px * 4 - r - 1
+        ImageDraw.Draw(recording).ellipse([cx - r, cy - r, cx + r, cy + r], fill=(239, 68, 68, 255), outline=(11, 11, 15, 255), width=px // 4)
+        recording.resize((px, px), Image.LANCZOS).save(tray / name.replace("tray", "trayRecording"))
+
+
 def main() -> int:
     if not BRAND.exists():
         print(f"Cannot find the brand mark at {BRAND}", file=sys.stderr)
@@ -168,7 +204,9 @@ def main() -> int:
         sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)],
     )
 
-    print(f"Wrote {OUT/'icon.png'}, {OUT/'icon.icns'} and {OUT/'icon.ico'}")
+    write_tray(win)
+
+    print(f"Wrote {OUT/'icon.png'}, {OUT/'icon.icns'}, {OUT/'icon.ico'} and {OUT/'tray'}")
     return 0
 
 

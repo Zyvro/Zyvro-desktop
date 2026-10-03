@@ -9,6 +9,8 @@ import { prepare as prepareCliPath } from "./cli"
 import { appContextTemplate } from "./contextmenu"
 import fs from "node:fs"
 import { trackZoom, zoomBy } from "./zoom"
+import { lastWindowClosed, launchedInBackground, startCapture } from "./capture"
+import { studioWindows } from "./windows"
 
 const isDev = !app.isPackaged
 
@@ -192,6 +194,17 @@ function createWindow(): BrowserWindow {
   return win
 }
 
+// openStudio : une fenêtre de Studio devant, ouverte s'il n'y en a plus. Ce
+// que demande l'icône de capture — « Open Zyvro Studio », ses réglages.
+function openStudio(): BrowserWindow {
+  const [win] = studioWindows()
+  if (!win) return createWindow()
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  return win
+}
+
 function send(win: Electron.BrowserWindow | undefined, channel: string, payload?: unknown): void {
   if (win instanceof BrowserWindow) win.webContents.send(channel, payload)
 }
@@ -204,7 +217,8 @@ function send(win: Electron.BrowserWindow | undefined, channel: string, payload?
 // VS Code : le menu est refait quand une fenêtre prend le focus.
 function recentSubmenu(): Electron.MenuItemConstructorOptions[] {
   const recents = loadRecents()
-  const devant = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  const focused = BrowserWindow.getFocusedWindow()
+  const devant = (focused && studioWindows().includes(focused) ? focused : null) ?? studioWindows()[0]
   const projet = devant ? workspaceFor(devant).project : null
   const fichiers: Electron.MenuItemConstructorOptions[] = (projet ? recentFiles(projet) : []).slice(0, 10).map((rel) => {
     const i = rel.lastIndexOf("/")
@@ -510,7 +524,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", (_event, argv) => {
     const folder = folderFromArgv(argv)
-    const [win] = BrowserWindow.getAllWindows()
+    const [win] = studioWindows()
     if (!win) {
       createWindow()
       return
@@ -541,7 +555,8 @@ if (!app.requestSingleInstanceLock()) {
     // configuration MCP d'un tour d'agent est écrite au moment du tour, et elle
     // ne peut nommer que ce qui écoute déjà. Il rend toutes les fenêtres
     // ouvertes, pas seulement la principale — l'app en a une par projet.
-    void startShotsServer(() => BrowserWindow.getAllWindows(), browserHost, askHost).catch((err) => {
+    // Les fenêtres de Studio seulement : jamais celles de la capture d'écran.
+    void startShotsServer(() => studioWindows(), browserHost, askHost).catch((err) => {
       console.error("[shots] le serveur de capture n'a pas démarré:", err)
     })
 
@@ -566,27 +581,35 @@ if (!app.requestSingleInstanceLock()) {
     buildMenu()
     // Open Recent montre les fichiers du projet de la fenêtre au premier plan.
     app.on("browser-window-focus", () => buildMenu())
-    createWindow()
+
+    // L'icône de capture, dans la barre de menus ou la zone de notification.
+    // Elle ne démarre aucun moteur : une capture n'a besoin d'aucun projet.
+    startCapture({ openStudio })
+    // Lancée par la session, l'app ne vient que pour l'icône : pas de fenêtre.
+    if (!launchedInBackground()) createWindow()
 
     app.on("open-file", (event, filePath) => {
       event.preventDefault()
-      const [win] = BrowserWindow.getAllWindows()
+      const [win] = studioWindows()
       if (win) win.webContents.send("menu:open-path", filePath)
       else createWindow()
     })
 
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (studioWindows().length === 0) createWindow()
     })
   })
 
+  // Sous Windows et Linux, fermer la dernière fenêtre quittait l'app. Avec
+  // l'icône de capture, elle reste dans la zone de notification ; « Quit » dans
+  // le menu de l'icône la ferme pour de bon.
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit()
+    if (process.platform !== "darwin") lastWindowClosed()
   })
 
   // Every daemon and shell is a child process of this one. Quitting without
   // reaping them would leave them running after the dock icon disappears.
   app.on("before-quit", () => {
-    for (const win of BrowserWindow.getAllWindows()) void disposeWorkspace(win)
+    for (const win of studioWindows()) void disposeWorkspace(win)
   })
 }

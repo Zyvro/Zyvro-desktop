@@ -1,0 +1,274 @@
+/* Les fenêtres de capture. Sombres comme l'app, qui n'a pas de thème clair. */
+
+:root {
+  --bg: #0b0b0f;
+  --panel: #14141b;
+  --line: rgba(255, 255, 255, 0.1);
+  --text: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.55);
+  --accent: #38bdf8;
+  --danger: #ef4444;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: var(--text);
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* ---- la sélection ---- */
+
+html[data-role="overlay"] body {
+  cursor: crosshair;
+}
+
+.veil {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.box {
+  position: fixed;
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  /* Le voile autour de la zone, et la zone claire : l'ombre fait le voile. */
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.38);
+}
+
+.size,
+.hint {
+  position: fixed;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(11, 11, 15, 0.85);
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.hint {
+  top: 48px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  font-size: 13px;
+}
+
+/* ---- le cadre d'un enregistrement ---- */
+
+.frame {
+  position: fixed;
+  inset: 0;
+  border: 2px solid var(--danger);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+/* ---- la pastille ---- */
+
+.pill {
+  position: fixed;
+  inset: 2px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px 0 14px;
+  border-radius: 999px;
+  background: rgba(20, 20, 27, 0.95);
+  border: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.pill .time {
+  flex: 1;
+}
+
+/* ---- les boutons ---- */
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #04131c;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #7dd3fc;
+}
+
+button.stop {
+  border-radius: 999px;
+  background: var(--danger);
+  border-color: var(--danger);
+  color: white;
+  font-weight: 600;
+}
+
+button.icon {
+  margin-left: auto;
+  padding: 0 8px;
+  border: none;
+  background: none;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--muted);
+}
+
+button.link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+}
+
+/* ---- le résultat ---- */
+
+html[data-role="result"] body {
+  background: var(--bg);
+}
+
+.result {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+}
+
+.result header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  -webkit-app-region: drag;
+}
+
+.result header button {
+  -webkit-app-region: no-drag;
+}
+
+.muted {
+  color: var(--muted);
+  margin: 0;
+  font-size: 12px;
+}
+
+.preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: repeating-conic-gradient(#16161d 0% 25%, #1c1c24 0% 50%) 50% / 16px 16px;
+  overflow: hidden;
+}
+
+.preview img,
+.preview video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.kept {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.publish {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.link-row {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.link-row input {
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 8px;
+  user-select: text;
+}
+
+.status {
+  margin: 0;
+  min-height: 1.45em;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status[data-kind="error"] {
+  color: #fca5a5;
+  white-space: normal;
+}

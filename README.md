@@ -100,6 +100,15 @@ containing one is refused before any model call, with `code: "local_only_node"`
 and a sentence saying where to open it instead. Seeing the node is how someone
 finds out the desktop app can do this at all.
 
+## Screen capture
+
+An icon in the macOS menu bar or the Windows notification area captures an
+area of the screen, or records up to a minute of it, and offers to copy it,
+keep it, or publish it as a public link that lasts 24 hours. A recording is
+published as WebM with a GIF beside it, made on the machine while it records.
+It starts from a click or a shortcut only: no agent tool reaches it. See
+[CAPTURE.md](CAPTURE.md).
+
 ## Project format
 
 Opening a folder creates `.zyvro/` inside it:

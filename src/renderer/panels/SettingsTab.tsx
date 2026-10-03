@@ -1,9 +1,11 @@
 import { useSyncExternalStore, type ReactNode } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { KeyRound } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getSettings, resetSettings, subscribeSettings, updateSettings } from "~/state/settings"
 import { useWorkspace } from "~/state/workspace"
 import { DEFAULT_SETTINGS } from "../../shared/settings"
+import type { CaptureSettings, CaptureSettingsView } from "../../preload"
 
 // Les réglages de l'éditeur (⌘,). Chaque changement s'applique tout de suite
 // aux éditeurs ouverts ; il n'y a pas de bouton « Appliquer », comme dans VS
@@ -62,6 +64,83 @@ function Nombre({ valeur, min, max, onChange }: { valeur: number; min: number; m
 
 function Case({ valeur, onChange }: { valeur: boolean; onChange: (b: boolean) => void }) {
   return <input type="checkbox" className="h-4 w-4 accent-sky-400" checked={valeur} onChange={(e) => onChange(e.target.checked)} />
+}
+
+// Un raccourci se tape en entier avant d'être essayé : à chaque touche, on
+// enregistrerait « Command+S », puis « Command+Sh »… auprès du système.
+function Raccourci({ valeur, erreur, onChange }: { valeur: string; erreur: string | null; onChange: (v: string) => void }) {
+  const commit = (v: string) => {
+    if (v.trim() && v.trim() !== valeur) onChange(v.trim())
+  }
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <input
+        key={valeur}
+        className={cn(champ, "w-64 font-mono text-[12px]", erreur && "border-red-400/60")}
+        defaultValue={valeur}
+        spellCheck={false}
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit(e.currentTarget.value)
+        }}
+      />
+      {erreur && <span className="max-w-64 text-right text-[11px] text-red-300">{erreur}</span>}
+    </div>
+  )
+}
+
+// Les réglages de l'icône de capture. Ils vivent dans le processus principal,
+// pas dans le stockage de la fenêtre : l'icône existe sans fenêtre ouverte.
+function CaptureSection() {
+  const client = useQueryClient()
+  const query = useQuery({ queryKey: ["capture-settings"], queryFn: () => window.zyvro.capture.settings() })
+  const save = useMutation({
+    mutationFn: (patch: Partial<CaptureSettings>) => window.zyvro.capture.update(patch),
+    onSuccess: (next) => client.setQueryData(["capture-settings"], next),
+  })
+  const choose = useMutation({
+    mutationFn: () => window.zyvro.capture.chooseFolder(),
+    onSuccess: (next) => client.setQueryData(["capture-settings"], next),
+  })
+  const c: CaptureSettingsView | undefined = query.data
+  if (!c) return null
+  const mac = window.zyvro.platform === "darwin"
+  return (
+    <>
+      <h2 className="mt-8 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Screen capture</h2>
+      <p className="mt-1 text-[12px] text-muted-foreground">
+        The Zyvro icon in the {mac ? "menu bar" : "notification area"} captures an area of the screen, or records up to
+        a minute of it, and can publish it as a public link that lasts 24 hours.
+      </p>
+      <Ligne titre="Capture area" aide="Shortcut that works from any application.">
+        <Raccourci valeur={c.shortcutImage} erreur={c.shortcutErrors.image} onChange={(shortcutImage) => save.mutate({ shortcutImage })} />
+      </Ligne>
+      <Ligne titre="Record area" aide="Press it again to stop. Recordings stop on their own after one minute.">
+        <Raccourci valeur={c.shortcutVideo} erreur={c.shortcutErrors.video} onChange={(shortcutVideo) => save.mutate({ shortcutVideo })} />
+      </Ligne>
+      <Ligne
+        titre="Keep a copy of every capture"
+        aide={c.keepDir ? c.keepDir : "Every screenshot and recording is also saved in a folder you choose."}
+      >
+        <div className="flex items-center gap-3">
+          {c.keepDir && (
+            <button className="text-[12px] text-muted-foreground hover:text-foreground" onClick={() => choose.mutate()}>
+              Change…
+            </button>
+          )}
+          <Case
+            valeur={c.keepDir !== null}
+            onChange={(on) => (on ? choose.mutate() : save.mutate({ keepDir: null }))}
+          />
+        </div>
+      </Ligne>
+      {c.loginAvailable && (
+        <Ligne titre="Start at login" aide="Open Zyvro Studio in the background when you log in, so the capture icon is always there.">
+          <Case valeur={c.launchAtLogin} onChange={(launchAtLogin) => save.mutate({ launchAtLogin, loginAsked: true })} />
+        </Ligne>
+      )}
+    </>
+  )
 }
 
 export function SettingsTab() {
@@ -179,6 +258,8 @@ export function SettingsTab() {
         <Ligne titre="Check for updates" aide="Ask GitHub for a newer release at startup and every few hours. Nothing is downloaded without asking.">
           <Case valeur={r.checkForUpdates} onChange={(checkForUpdates) => updateSettings({ checkForUpdates })} />
         </Ligne>
+
+        <CaptureSection />
       </div>
     </div>
   )

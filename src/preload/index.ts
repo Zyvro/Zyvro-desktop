@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from "electron"
+import { plainMessage } from "../shared/ipcerror"
 
 // This is the entire surface the renderer gets. Every entry is a named
 // operation, never a path to a general capability: no `invoke(channel, ...)`
@@ -62,6 +63,9 @@ export type WorkflowRef = { id: string; name: string; description?: string }
 export type Recent = { path: string; name: string; openedAt: string }
 import type { Shell } from "../main/shell"
 export type { Shell }
+import type { CaptureSettings } from "../shared/capture"
+import type { CaptureSettingsView } from "../main/capture"
+export type { CaptureSettings, CaptureSettingsView }
 export type Account = { id: string; email: string; name: string }
 // The store's wire shapes live in src/main/store.ts and are imported, never
 // copied. They were copied, and the copies drifted: this file declared a
@@ -147,17 +151,6 @@ export type {
 //
 // Ici et pas dans les panneaux : le pont est le passage obligé de toutes ces
 // erreurs. Le faire douze fois voudrait dire l'oublier au treizième.
-const IPC_WRAPPER = /^Error invoking remote method '[^']*':\s*/
-
-function plainMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err)
-  if (!IPC_WRAPPER.test(raw)) return raw
-  // Une fois l'enveloppe retirée, le nom de la classe reste collé devant la
-  // phrase — « Error: », « TypeError: » — et n'apprend rien non plus.
-  const inner = raw.replace(IPC_WRAPPER, "").replace(/^[A-Za-z]*Error:\s*/, "")
-  return inner || raw
-}
-
 function invoke<T>(channel: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke(channel, ...args).then(
     (value) => value as T,
@@ -562,6 +555,13 @@ const api = {
     onStopped: (cb: (p: { code: number | null; log: string }) => void): Unsubscribe => on("engine:stopped", cb),
   },
 
+  /** L'icône de capture : ses réglages, gardés par le processus principal. */
+  capture: {
+    settings: (): Promise<CaptureSettingsView> => invoke("capture:settings"),
+    update: (patch: Partial<CaptureSettings>): Promise<CaptureSettingsView> =>
+      invoke("capture:update-settings", patch),
+    chooseFolder: (): Promise<CaptureSettingsView> => invoke("capture:choose-folder"),
+  },
   account: {
     current: (): Promise<Account | null> => invoke("account:current"),
     signIn: (email: string, password: string): Promise<Account> =>

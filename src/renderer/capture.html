@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Zyvro Capture</title>
+    <!-- The capture windows: the area picker, the frame and the stop control
+         around a recording, the hidden recorder, and the result. One page,
+         the role chosen by the fragment, so it is one more entry to build
+         rather than five.
+
+         Tighter than the main window: nothing here talks to a daemon or the
+         network. Images are data: URLs, the recording plays from a blob:.
+         connect-src keeps the dev server's socket for hot reload. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws://localhost:*;"
+    />
+  </head>
+  <body>
+    <script type="module" src="./capture/main.ts"></script>
+  </body>
+</html>

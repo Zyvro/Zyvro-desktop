@@ -49,6 +49,28 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.54
+
+**Screen capture from the menu bar.** A Zyvro icon now sits in the macOS menu
+bar and the Windows notification area. **Capture Area** (⌘⇧2 / Ctrl+Shift+2)
+takes a screenshot of the part of the screen you select — on macOS with the
+system's own crosshair. **Record Area** (⌘⌥⇧2 / Ctrl+Alt+Shift+2, press again to
+stop) records up to one minute of it. A small window then offers to copy the
+image, save it, or **Publish Online**: a public link, already in your clipboard,
+that works for 24 hours. A recording is published as a video with a GIF beside
+it to download.
+
+Settings › Screen capture changes the shortcuts, can keep a copy of every
+capture in a folder of your choice, and can start Zyvro Studio at login so the
+icon is always there (off unless you turn it on). Publishing needs you to be
+signed in. On Windows, closing the last window now leaves Zyvro Studio in the
+notification area; choose **Quit** from the icon's menu to close it.
+
+macOS asks once for permission to record the screen. Because the app is not
+signed with a Developer ID, it may ask again after an update.
+
+The capture is yours alone: the agent panel's tools never see it.
+
 ## New in alpha.53
 
 **Images in the chat open full size.** Click any image in the agent panel — one
