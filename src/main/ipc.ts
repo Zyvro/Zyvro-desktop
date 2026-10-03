@@ -937,35 +937,22 @@ export function registerIpc(onRecents?: () => void): void {
     }
   )
 
-  ipcMain.handle("terminal:create", async (event, cols: number, rows: number, cwd?: string, history?: string) => {
+  ipcMain.handle("terminal:create", async (event, cols: number, rows: number) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)
-
-    // Rouvrir un shell là où il était, et nulle part ailleurs.
-    //
-    // Le rendu ne nomme pas un dossier : il renvoie une valeur que le principal
-    // lui a donnée, et le principal la revérifie. C'est la même règle que
-    // partout ici — un chemin qui vient de la fenêtre est du texte jusqu'à
-    // preuve du contraire, et « ouvrir un shell ici » deviendrait sinon
-    // « ouvrir un shell n'importe où sur la machine ».
-    let lieu = root
-    if (typeof cwd === "string" && cwd !== "" && cwd !== root) {
-      const gardes = await ws.terminals.saved(root)
-      if (gardes.some((garde) => garde.cwd === cwd)) lieu = cwd
-    }
 
     // Le démon du projet part avec le shell : un agent lancé à la main dedans
     // doit pouvoir joindre les mêmes serveurs MCP que celui du panneau.
     return ws.terminals.create(
       event.sender,
-      lieu,
+      root,
       cols || 80,
       rows || 24,
       {
         daemonOrigin: ws.daemon.current?.origin,
         daemonToken: ws.daemon.current?.token,
       },
-      { seed: typeof history === "string" ? history : "" }
+      {}
     )
   })
 
@@ -1041,14 +1028,6 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("terminal:running", async (event) => {
     const { ws } = requireWorkspace(event)
     return ws.terminals.running(requireRoot(ws))
-  })
-
-  // Ce que les shells de ce projet avaient écrit la dernière fois. Demandé
-  // quand il n'en reste aucun de vivant : la fenêtre a été fermée entre-temps,
-  // les programmes sont morts avec elle, et il ne reste que ce qu'ils ont dit.
-  ipcMain.handle("terminal:saved", async (event) => {
-    const { ws } = requireWorkspace(event)
-    return ws.terminals.saved(requireRoot(ws))
   })
 
   // Et leur défilement. En deux temps comme pour les tours d'agent : la page

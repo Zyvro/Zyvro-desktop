@@ -477,7 +477,7 @@ export function mimoUsageIn(event: Record<string, unknown>): Spent | null {
   const output = count(tokens.output) + count(tokens.reasoning)
   if (input + output === 0) return null
   const cost = typeof part?.cost === "number" && Number.isFinite(part.cost) ? part.cost : null
-  return { input, output, cacheRead, cacheWrite, costUsd: cost }
+  return { input, output, cacheRead, cacheWrite, costUsd: cost, context: input }
 }
 
 export function addSpent(a: Spent | null, b: Spent): Spent {
@@ -488,6 +488,9 @@ export function addSpent(a: Spent | null, b: Spent): Spent {
     cacheRead: a.cacheRead + b.cacheRead,
     cacheWrite: a.cacheWrite + b.cacheWrite,
     costUsd: a.costUsd === null && b.costUsd === null ? null : (a.costUsd ?? 0) + (b.costUsd ?? 0),
+    // Le contexte se prend sur l'étape la plus fraîche : c'est elle qui a
+    // relu la conversation entière. Additionner gonflerait la fenêtre.
+    context: b.context ?? a.context,
   }
 }
 
@@ -672,6 +675,15 @@ export type Spent = {
   cacheWrite: number
   /** Ce que le CLI en dit, quand il le dit. Null sur un abonnement. */
   costUsd: number | null
+  /**
+   * Jetons dans le contexte après ce tour — pas la somme des étapes.
+   *
+   * Un tour à plusieurs étapes (mimo) additionne ses coûts, pas ses
+   * contextes : à chaque étape le modèle relit tout, et additionner
+   * compterait la même conversation plusieurs fois. C'est la dernière
+   * mesure qui dit où en est la fenêtre.
+   */
+  context?: number
 }
 
 function count(value: unknown): number {
@@ -699,12 +711,15 @@ export function usageIn(event: Record<string, unknown>): Spent | null {
   if (fresh + cacheWrite + cacheRead + output === 0) return null
 
   const cost = event.total_cost_usd
+  const total = fresh + cacheWrite + cacheRead
   return {
-    input: fresh + cacheWrite + cacheRead,
+    input: total,
     output,
     cacheRead,
     cacheWrite,
     costUsd: typeof cost === "number" && Number.isFinite(cost) ? cost : null,
+    // Un seul appel, toute la conversation : l'entrée EST le contexte.
+    context: total,
   }
 }
 
@@ -753,6 +768,8 @@ export function codexUsageIn(event: Record<string, unknown>): Spent | null {
     // codex ne chiffre pas ses tours : il tourne sur un abonnement, ou — ici —
     // sur un serveur local qui ne facture rien.
     costUsd: null,
+    // Chez OpenAI `input_tokens` est le total, cache compris : le contexte.
+    context: total,
   }
 }
 

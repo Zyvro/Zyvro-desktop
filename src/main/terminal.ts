@@ -1,10 +1,6 @@
-import { execFileSync, spawn as spawnPipe, type ChildProcess } from "node:child_process"
-import { mkdirSync, readlinkSync, renameSync, writeFileSync } from "node:fs"
+import { spawn as spawnPipe, type ChildProcess } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
-import fs from "node:fs/promises"
-import { createHash } from "node:crypto"
-import { app } from "electron"
 import { randomUUID } from "node:crypto"
 import type { WebContents } from "electron"
 import { shellMcp, type McpTarget } from "./mcp"
@@ -366,31 +362,14 @@ export class Terminals {
   }
 
   /**
-   * Fermer tous les shells, et garder ce qu'ils ont dit.
+   * Fermer tous les shells.
    *
    * Le processus meurt avec la fenêtre — mesuré : un `npm run dev` lancé dans
-   * un shell est bien tué par ce chemin, avec tout son arbre. Ce qui peut
-   * survivre, c'est le défilement, et c'est ce que Jeremy a demandé : « on
-   * rouvre le projet, bam, on a toujours nos shells, avec nos programmes tués
-   * mais au moins une partie de l'historique ».
-   *
-   * Écrit ici et pas dans `dispose` : fermer un onglet de shell à la main est
-   * un geste qui dit « je n'en veux plus », alors que fermer la fenêtre dit
-   * « à tout à l'heure ».
+   * un shell est bien tué par ce chemin, avec tout son arbre. Les sessions
+   * persistantes, elles, sont détachées : leur défilement est chez `tmux` ou
+   * `screen`, et la liste latérale les montre à la prochaine ouverture.
    */
   async disposeAll(cwd?: string): Promise<void> {
-    const vivants = [...this.sessions.values()]
-    // Synchrone : à ⌘Q, `before-quit` n'attend pas une promesse, et
-    // l'application sortait avant que l'écriture asynchrone ait eu lieu. Le
-    // fichier gardait alors les shells de la fois d'avant — y compris ceux
-    // qu'on avait fermés — et ils revenaient à la réouverture.
-    //
-    // Et seulement s'il reste des shells : à la fermeture, `disposeAll` passe
-    // deux fois — `before-quit`, puis la fenêtre qui se ferme — et le second
-    // passage, qui ne trouve plus rien, écrasait la sauvegarde du premier par
-    // une liste vide. Un fichier qui doit devenir vide l'est déjà : fermer le
-    // dernier shell à la main l'a réécrit (`close`).
-    if (cwd && vivants.length > 0) this.keepHistory(cwd, vivants)
     for (const id of [...this.sessions.keys()]) this.dispose(id)
   }
 
@@ -398,153 +377,23 @@ export class Terminals {
    * Fermer les shells d'un seul projet — celui qu'on ferme — en laissant les
    * autres (les projets ouverts à côté dans la même fenêtre) tourner.
    *
-   * Le défilement est gardé sous le nom de ce projet, comme à la fermeture de
-   * la fenêtre : rouvrir ce dossier plus tard retrouve ce qu'avaient écrit ses
-   * shells.
+   * Les clients de sessions persistantes partent aussi : fermer le projet les
+   * détache, et `PersistentList` les remontre. Un onglet qui rouvrirait tout
+   * seul contredirait cette liste.
    */
   disposeProject(projectDir: string): void {
     const racine = path.resolve(projectDir)
     const siens = [...this.sessions.values()].filter(
       (session) =>
-        !session.attached &&
-        (session.cwd === racine || session.cwd === projectDir || session.cwd.startsWith(racine + path.sep))
+        session.cwd === racine || session.cwd === projectDir || session.cwd.startsWith(racine + path.sep)
     )
-    if (siens.length > 0) this.keepHistory(projectDir, siens)
     for (const session of siens) this.dispose(session.id)
   }
 
-  // ---- l'historique qui survit à la fermeture ------------------------------
-
-  // Où ce shell se trouve maintenant.
-  //
-  // Un pty naît avec un cwd, mais quelqu'un tape `cd` — et c'est même le geste
-  // le plus courant. Rouvrir le projet dans le dossier de départ pendant que le
-  // défilement montre du travail fait ailleurs, c'est un écran qui ment.
-  // Signalé par Jeremy dix minutes après la première version.
-  //
-  // Lu au système, parce que rien dans le shell ne nous le dit : `/proc` sur
-  // Linux, `lsof` sur macOS — vérifié qu'il rend bien le dossier et qu'il suit
-  // les `cd`. Windows n'a ni l'un ni l'autre et gardera son dossier de départ ;
-  // c'est moins bien, et c'est dit plutôt que caché.
-  private cwdOf(pid: number): string | null {
-    if (!pid) return null
-    try {
-      if (process.platform === "linux") return readlinkSync(`/proc/${pid}/cwd`)
-      if (process.platform !== "darwin") return null
-      const sortie = execFileSync("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "cwd", "-Fn"], {
-        encoding: "utf8",
-        timeout: 2000,
-      })
-      const ligne = sortie.split("\n").find((l) => l.startsWith("n"))
-      return ligne ? ligne.slice(1) : null
-    } catch {
-      // Un dossier qu'on ne sait pas lire n'empêche pas de fermer la fenêtre.
-      return null
-    }
-  }
-
-  private historyFile(projectDir: string): string {
-    // Haché comme les conversations, et pour les mêmes raisons : un chemin
-    // n'est pas un nom de fichier — il a des séparateurs, il peut être plus
-    // long qu'un nom ne peut l'être, et macOS normalise certains caractères
-    // derrière votre dos.
-    const key = createHash("sha256").update(path.resolve(projectDir)).digest("hex").slice(0, 16)
-    return path.join(app.getPath("userData"), "shells", `${key}.json`)
-  }
-
   /**
-   * Fermer un shell parce qu'on n'en veut plus — la croix de son onglet — et
-   * le retirer de ce qu'on rouvrira.
-   *
-   * Sans ça le fichier gardait le shell fermé : replier puis rouvrir le
-   * terminal relisait ce fichier, et le shell qu'on venait de fermer revenait.
-   * Distinct de `dispose`, qui sert aussi quand un onglet disparaît parce
-   * qu'on change de projet : là, rien n'a été refusé, et réécrire le fichier
-   * effacerait l'historique qu'on veut retrouver.
+   * Fermer un shell parce qu'on n'en veut plus — la croix de son onglet.
    */
-  close(id: string, projectDir: string | null): void {
+  close(id: string, _projectDir: string | null): void {
     this.dispose(id)
-    if (projectDir) this.keepHistory(projectDir, [...this.sessions.values()])
-  }
-
-  private keepHistory(projectDir: string, sessions: Session[]): void {
-    const racine = path.resolve(projectDir)
-    const retenus = sessions.filter(
-      (session) =>
-        // Pas les sessions persistantes : leur défilement est chez `screen` ou
-        // `tmux`, et le garder ici en ferait un second, plus vieux, affiché
-        // dans un shell mort qu'on croirait vivant.
-        //
-        // Et tout shell du projet, sous-dossier compris : un shell rouvert dans
-        // `server/` n'était pas retenu, puisque son dossier n'était pas
-        // exactement la racine.
-        !session.attached &&
-        (session.cwd === racine || session.cwd === projectDir || session.cwd.startsWith(racine + path.sep))
-    )
-    // Dans l'ordre des onglets, chacun avec le sien : ceux qu'on avait côte à
-    // côte le redeviennent.
-    const parId = new Map(retenus.map((session) => [session.id, session]))
-    const shells = inLayoutOrder(
-      retenus.map((session) => session.id),
-      this.layout
-    ).map(({ id, tab }) => ({ session: parId.get(id) as Session, tab }))
-    try {
-      const file = this.historyFile(projectDir)
-      mkdirSync(path.dirname(file), { recursive: true })
-      // Un fichier temporaire puis un renommage : une fenêtre qui se ferme
-      // pendant l'écriture laisserait sinon un JSON tronqué, et la réouverture
-      // suivante perdrait tout l'historique au lieu d'en perdre la fin.
-      const temp = `${file}.${process.pid}.tmp`
-      writeFileSync(
-        temp,
-        JSON.stringify({
-          shells: shells.map(({ session, tab }) => ({
-            seen: session.seen,
-            cwd: this.cwdOf(session.pty.pid) ?? session.cwd,
-            tab,
-          })),
-        }),
-        "utf8"
-      )
-      renameSync(temp, file)
-    } catch {
-      // Un historique qu'on ne sait pas écrire n'est pas une raison de refuser
-      // de fermer la fenêtre.
-    }
-  }
-
-  /**
-   * Ce que les shells de ce projet avaient écrit la dernière fois.
-   *
-   * Un tableau, un élément par shell ouvert alors : la réouverture en refait
-   * autant, chacun avec son défilement au-dessus d'une invite neuve. Les
-   * programmes, eux, sont morts avec la fenêtre — on ne fait pas semblant du
-   * contraire.
-   */
-  async saved(projectDir: string): Promise<{ seen: string; cwd: string; tab?: number }[]> {
-    try {
-      const raw = await fs.readFile(this.historyFile(projectDir), "utf8")
-      const parsed = JSON.parse(raw) as { shells?: unknown }
-      if (!Array.isArray(parsed.shells)) return []
-      const out: { seen: string; cwd: string; tab?: number }[] = []
-      for (const brut of parsed.shells) {
-        // La première version n'écrivait que le texte. Un fichier de ce
-        // matin-là ne doit pas faire perdre son historique à quelqu'un.
-        if (typeof brut === "string") {
-          out.push({ seen: brut, cwd: projectDir })
-          continue
-        }
-        const forme = (brut && typeof brut === "object" ? brut : {}) as Record<string, unknown>
-        if (typeof forme.seen !== "string") continue
-        out.push({
-          seen: forme.seen,
-          cwd: typeof forme.cwd === "string" ? forme.cwd : projectDir,
-          tab: typeof forme.tab === "number" ? forme.tab : undefined,
-        })
-      }
-      return out
-    } catch {
-      return []
-    }
   }
 }

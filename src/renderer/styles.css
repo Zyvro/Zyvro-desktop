@@ -174,6 +174,13 @@ button,
   box-shadow: inset 0 1px 0 0 rgb(56 189 248 / 0.6);
 }
 
+/* Le champ de vision sous le curseur : un liseré à peine visible, pour savoir
+   dans quelle zone on se trouve sans avoir à cliquer. Assez léger pour ne pas
+   gêner la lecture, assez présent pour se voir. */
+.zy-zone-hover {
+  box-shadow: inset 0 0 0 1px rgb(56 189 248 / 0.18);
+}
+
 /* Le coup d'œil de la marge de git : ce qu'il y avait au dernier commit, sous
    le changement, et « Revert ». */
 .zy-peek {

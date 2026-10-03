@@ -31,8 +31,9 @@ mkdirSync(dir, { recursive: true })
 writeFileSync(path.join(dir, "electron.js"), `module.exports = { app: {}, BrowserWindow: {} }\n`)
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export { usageIn, codexUsageIn } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
-    `export { compact, detail } from "${path.join(ROOT, "src/renderer/lib/usage").replace(/\\/g, "/")}"\n`
+  `export { usageIn, codexUsageIn, mimoUsageIn, addSpent } from "${path.join(ROOT, "src/main/agent").replace(/\\/g, "/")}"\n` +
+    `export { compact, detail } from "${path.join(ROOT, "src/renderer/lib/usage").replace(/\\/g, "/")}"\n` +
+    `export { contextWindow, contextPercent, contextTone } from "${path.join(ROOT, "src/shared/context").replace(/\\/g, "/")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -167,6 +168,64 @@ const RESULT = {
     mod.usageIn({ usage: { input_tokens: -5, output_tokens: 3 } }).input === 0
   )
   check("un coût absent laisse le coût absent", mod.usageIn({ usage: { output_tokens: 3 } }).costUsd === null)
+}
+
+// ---- la fenêtre du contexte ----------------------------------------------
+//
+// Le pourcentage sert à savoir s'il faut compactér AVANT une longue tâche.
+// Ce qui casse en silence : un pourcentage sans fenêtre (un chiffre qui a
+// l'air d'une mesure), une fenêtre inventée pour un modèle inconnu, ou le
+// contexte d'un tour à plusieurs étapes additionné au lieu d'être relu sur
+// la dernière.
+{
+  check("**claude standard : 200k**", mod.contextWindow("claude-opus-5") === 200_000)
+  check("le [1m] est la fenêtre longue", mod.contextWindow("claude-opus-5[1m]") === 1_000_000)
+  check("mimo annonce les siennes", mod.contextWindow("mimo/mimo-auto") === 1_000_000)
+  check(
+    "**un modèle qu'on ne connaît pas ne fabrique pas de fenêtre**",
+    mod.contextWindow("gpt-5.1") === null && mod.contextWindow("ollama-local/qwen2.5:0.5b") === null,
+    String(mod.contextWindow("gpt-5.1"))
+  )
+  check("sans modèle, pas de fenêtre", mod.contextWindow(null) === null)
+
+  const p = mod.contextPercent(50_000, "claude-opus-5")
+  check("**le pourcentage se calcule**", p === 25, String(p))
+  check("et se borne à 100", mod.contextPercent(400_000, "claude-opus-5") === 100)
+  check(
+    "**pas de pourcentage sans fenêtre**",
+    mod.contextPercent(50_000, "gpt-5.1") === null,
+    String(mod.contextPercent(50_000, "gpt-5.1"))
+  )
+  check("ni sans mesure", mod.contextPercent(null, "claude-opus-5") === null)
+  check("le ton suit", mod.contextTone(10) === "calm" && mod.contextTone(60) === "warm" && mod.contextTone(90) === "hot")
+}
+
+// ---- le contexte d'un tour -----------------------------------------------
+{
+  const spent = mod.usageIn(RESULT)
+  check("**claude : le contexte est toute l'entrée**", spent.context === spent.input && spent.context === 2 + 16736 + 10126)
+
+  const etape1 = mod.mimoUsageIn({
+    type: "step_finish",
+    part: { tokens: { input: 71, output: 50, reasoning: 0, cache: { read: 25536, write: 0 } }, cost: 0.001 },
+  })
+  const etape2 = mod.mimoUsageIn({
+    type: "step_finish",
+    part: { tokens: { input: 168, output: 3, reasoning: 0, cache: { read: 25600, write: 0 } }, cost: 0.001 },
+  })
+  const cumul = mod.addSpent(etape1, etape2)
+  check(
+    "**mimo : le contexte est la dernière étape, pas la somme**",
+    cumul.context === etape2.context && cumul.context === 168 + 25600,
+    `${cumul.context} au lieu de ${168 + 25600} — additionner gonflerait la fenêtre`
+  )
+  check("mais le coût se cumule bien", cumul.input === etape1.input + etape2.input)
+
+  const codex = mod.codexUsageIn({
+    type: "turn.completed",
+    usage: { input_tokens: 52580, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 417 },
+  })
+  check("codex : le total d'entrée est le contexte", codex.context === 52580)
 }
 
 // ---- l'abrégé -----------------------------------------------------------

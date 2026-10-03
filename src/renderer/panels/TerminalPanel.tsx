@@ -40,12 +40,7 @@ type SessionStatus = {
   exitCode: number | null
   generation: number
   /**
-   * Ce que ce shell avait écrit la dernière fois, à réafficher au-dessus de
-   * l'invite neuve. Vide dans le cas courant.
-   */
-  history?: string
-  /** Le dossier où ce shell était à la fermeture, pour l'y rouvrir. */
-  cwd?: string
+   * L'étiquette d'une session persistante, quand ce shell en est le client.
   /**
    * L'étiquette d'une session persistante, quand ce shell en est le client.
    *
@@ -392,7 +387,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
             return { ...session, reprise: false }
           })
       : window.zyvro.terminal
-          .create(term.cols, term.rows, readStatus(key).cwd, readStatus(key).history)
+          .create(term.cols, term.rows)
           .then((session) => ({ ...session, reprise: false }))
 
   void ouvrir
@@ -408,16 +403,6 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       // Ce que ce shell a de branché, écrit avant tout le reste : la sortie du
       // shell attend dans `early`, donc le bandeau reste au-dessus de la
       // première invite au lieu de tomber au milieu.
-      // Le défilement d'avant, tout en haut : au-dessus du bandeau et de la
-      // première invite, comme il l'était à l'écran la dernière fois.
-      const avant = readStatus(key).history
-      if (avant) {
-        term.write(avant)
-        // Une ligne qui dit franchement que ce qui précède est du passé : sans
-        // elle, on relit une compilation d'hier en croyant qu'elle tourne.
-        term.write("\r\n\u001b[2m— session précédente, les programmes ont été arrêtés —\u001b[0m\r\n")
-        patchStatus(key, { history: undefined, cwd: undefined })
-      }
       if (session.banner) term.write(session.banner)
       // Lié d'abord, rejoué ensuite : les données portent l'identifiant du
       // shell, et une page qui ne l'a pas encore adopté les mettrait dans
@@ -666,9 +651,10 @@ export function TerminalPanel(): JSX.Element {
   // Le statut est semé AVANT que les composants montent : c'est lui qui dit à
   // la référence de rappel d'adopter au lieu de créer.
   //
-  // Seulement à la première arrivée sur un projet (ou après un rechargement) :
-  // un basculement entre projets ouverts restaure `layoutsByProject` et n'a pas
-  // besoin de redemander — les clés de session sont encore vivantes.
+  // Seulement les shells encore vivants (rechargement du rendu) : un projet
+  // qu'on rouvre n'en recrée aucun, et une session persistante reste dans la
+  // liste latérale — l'ouvrir à la place de la personne contredirait ce qu'elle
+  // y voit.
   const reprendre = async (dir: string): Promise<void> => {
     const vivants = await window.zyvro.terminal.running().catch(() => [])
     // Le projet a pu changer pendant l'aller-retour. Adopter les shells d'un
@@ -678,28 +664,7 @@ export function TerminalPanel(): JSX.Element {
     // Des clés existent déjà pour ce projet (un basculement pendant l'attente,
     // un `poser` arrivé plus tôt) : ne pas les écraser par une seconde liste.
     if (layoutsByProject.has(dir) && layoutsByProject.get(dir)!.groups.flat().length > 0) return
-    if (vivants.length === 0) {
-      // Aucun shell vivant : la fenêtre a été fermée entre-temps et les
-      // programmes sont morts avec elle — mesuré, un `npm run dev` est bien tué
-      // avec tout son arbre. Ce qui reste, c'est ce qu'ils ont dit, et Jeremy
-      // l'a demandé ainsi : « on rouvre le projet, bam, on a toujours nos
-      // shells, avec nos programmes tués mais au moins une partie de
-      // l'historique ».
-      const passe = await window.zyvro.terminal.saved().catch(() => [])
-      if ((useWorkspace.getState().project?.project ?? null) !== dir) return
-      const keys = (passe.length > 0 ? passe : [{ seen: "", cwd: "" }]).map((shell) => {
-        const key = nextSessionKey()
-        // Le dossier suit le défilement : rouvrir à la racine pendant que
-        // l'écran montre du travail fait dans `server/` est un écran qui ment.
-        if (shell.seen || shell.cwd) patchStatus(key, { history: shell.seen, cwd: shell.cwd })
-        return key
-      })
-      poser(
-        keys,
-        passe.map((shell) => shell.tab)
-      )
-      return
-    }
+    if (vivants.length === 0) return
     const keys = vivants.map((vivant) => {
       const key = nextSessionKey()
       // L'étiquette suit : un onglet repris doit garder son nom de session,

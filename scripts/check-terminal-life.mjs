@@ -162,56 +162,26 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   )
 }
 
-// ---- et la fermeture laisse quelque chose derrière ------------------------
+// ---- et la fermeture ne laisse plus de shells à rouvrir -------------------
 //
-// Demandé par Jeremy : « on rouvre le projet, bam, on a toujours nos shells,
-// avec nos programmes tués mais au moins une partie de l'historique ».
+// Demande de Jeremy : ne pas sauvegarder les shells ouverts, ne pas les
+// rouvrir avec le projet. Les persistants restent dans la liste latérale.
 {
   const term = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   check(
-    "**fermer la fenêtre garde le défilement**",
-    // Synchrone depuis que ⌘Q n'attendait pas l'écriture (voir
-    // check-shell-history, qui l'exerce pour de vrai).
-    /async disposeAll\(cwd\?: string\)/.test(term) && term.includes("if (cwd && vivants.length > 0) this.keepHistory(cwd, vivants)"),
-    "tout est perdu à la fermeture, y compris ce qui aurait tenu"
-  )
-  // Écrit par un temporaire puis renommé : une fenêtre qui se ferme pendant
-  // l'écriture laisserait sinon un JSON tronqué.
-  check("écrit sans pouvoir être tronqué", term.includes("renameSync(temp, file)"))
-  // Fermer un onglet à la main dit « je n'en veux plus » : ça ne doit pas
-  // écrire d'historique.
-  check(
-    "**et fermer un seul shell n'en garde rien**",
-    !/dispose\(id: string\): void \{[\s\S]{0,200}?keepHistory/.test(term),
-    "fermer un onglet ressusciterait son défilement à la prochaine ouverture"
+    "**fermer la fenêtre ne garde pas de défilement à rouvrir**",
+    !term.includes("keepHistory") && !term.includes("historyFile"),
+    "le fichier d'historique est encore écrit"
   )
   check(
-    "**et le panneau le réaffiche, en disant que c'est du passé**",
-    panel.includes("session précédente, les programmes ont été arrêtés"),
+    "**fermer un projet détache aussi les persistants**",
+    !/!session\.attached &&/.test(term.slice(term.indexOf("disposeProject"))),
+    "un client persistant oublié se rouvrirait en onglet tout seul"
+  )
+  check(
+    "et le panneau n'affiche plus de session précédente**",
+    !panel.includes("session précédente, les programmes ont été arrêtés"),
     "on relit une compilation d'hier en croyant qu'elle tourne"
-  )
-
-  // Le dossier suit le défilement. Signalé par Jeremy dix minutes après la
-  // première version : rouvrir à la racine pendant que l'écran montre du
-  // travail fait dans `server/` est un écran qui ment.
-  check(
-    "**et il rouvre dans le dossier où on était**",
-    /cwd: this\.cwdOf\(session\.pty\.pid\) \?\? session\.cwd/.test(term),
-    "l'invite s'ouvre à la racine sous un défilement qui parle d'ailleurs"
-  )
-  check("lu au système, pas deviné", term.includes("/usr/sbin/lsof") && term.includes("/proc/${pid}/cwd"))
-  // Le rendu ne nomme pas un chemin : il renvoie une valeur que le principal
-  // lui a donnée, et le principal la revérifie.
-  check(
-    "**et le rendu ne choisit pas où s'ouvre un shell**",
-    ipc.includes("gardes.some((garde) => garde.cwd === cwd)"),
-    "« ouvrir un shell ici » deviendrait « ouvrir un shell n'importe où »"
-  )
-  // Un fichier écrit par la première version ne portait que le texte.
-  check(
-    "et un historique d'avant ce champ se relit quand même",
-    term.includes('if (typeof brut === "string")'),
-    "une version de plus, et quelqu'un perd son historique"
   )
 }
 

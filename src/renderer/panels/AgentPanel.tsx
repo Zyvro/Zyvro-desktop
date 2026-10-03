@@ -30,6 +30,7 @@ import { askHarness } from "~/state/persistent"
 import { installHarness, NODE_DOWNLOAD_URL, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
+import { ContextCompact } from "~/panels/ContextCompact"
 import { PermissionPicker } from "~/panels/PermissionPicker"
 import { SynthesisPicker } from "~/panels/SynthesisPicker"
 import { synthesisSettings } from "~/state/synthesis"
@@ -167,6 +168,14 @@ type Thread = {
    * file par panneau enverrait la suite d'une conversation dans une autre.
    */
   queued: Queued[]
+  /**
+   * Jetons dans le contexte, tels que le dernier reçu les a mesurés.
+   *
+   * Null tant qu'aucun tour n'a parlé — ou depuis un `/compact`, tant que le
+   * suivant n'a pas rendu la taille réelle. On ne la devine pas : un
+   * pourcentage faux est pire qu'un pourcentage absent.
+   */
+  context: number | null
 }
 
 /** Un message en attente. Il porte ses images : elles ont été choisies avec lui. */
@@ -210,6 +219,7 @@ function blankThread(model: string | null = null, kind: AgentKind = "claude"): T
     saved: "",
     images: [],
     queued: [],
+    context: null,
   }
 }
 
@@ -395,6 +405,11 @@ function ensureAttached(): void {
       return
     }
     mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, spent }))
+    // La fenêtre suit le dernier reçu : c'est lui qui a relu la conversation.
+    const context = spent.context
+    if (context !== undefined) {
+      mapThread(bound.threadId, (t) => ({ ...t, context }))
+    }
   })
 
   window.zyvro.agent.onError(({ id, message }) => {
@@ -825,6 +840,9 @@ export async function restore(): Promise<void> {
     // les ferait partir tout seuls, longtemps après, sur un projet peut-être
     // rouvert pour autre chose — et chacun coûte un tour.
     queued: [],
+    // La fenêtre telle que le dernier reçu l'a mesurée, pour qu'une conversation
+    // rouverte demain sache où elle en est sans attendre un tour.
+    context: [...c.messages].reverse().find((m) => m.spent?.context !== undefined)?.spent?.context ?? null,
     // L'empreinte de ce qui est sur le disque, dans la forme où on l'écrirait :
     // sans ça, le premier tour réécrirait un transcript identique.
     saved: "",
@@ -1317,6 +1335,12 @@ export function AgentPanel(): JSX.Element {
     if ((text === "" && thread.images.length === 0) || project === null) return
     const threadId = thread.id
     const images = thread.images
+
+    // `/compact` tapé à la main ouvre le même cadran que le bouton : la
+    // taille réelle n'est connue qu'au tour suivant, on ne la devine pas.
+    if (/^\/compact\b/i.test(text)) {
+      mapThread(threadId, (t) => ({ ...t, context: null }))
+    }
 
     // La boîte se vide dans les deux cas : ce qu'on vient d'écrire est parti
     // quelque part, en vol ou en file, et le laisser à l'écran ferait croire
@@ -2075,6 +2099,27 @@ export function AgentPanel(): JSX.Element {
               busy={reecriture.busy}
               canRewrite={draft.trim() !== ""}
               onRewriteNow={() => void reecrireMaintenant()}
+            />
+            {/* Recycler le contexte avant une longue tâche : le pourcentage dit
+                où en est la fenêtre du modèle, un clic lance `/compact` sur le
+                harnais pour retomber bas et ne pas tomber sur une compaction
+                automatique en plein milieu d'une grosse feature. */}
+            <ContextCompact
+              context={thread.context}
+              model={thread.model ?? thread.ranWith}
+              disabled={disabled || thread.busy || !started}
+              onCompact={() => {
+                // `/compact` part tel quel, sans images ni auto-synthèse :
+                // une commande locale n'est pas une question à réécrire, et
+                // joindre une image à un compactage n'a aucun sens.
+                //
+                // La taille réelle n'est connue qu'au tour suivant — le
+                // compactage lui-même relit l'ancien contexte — donc on
+                // l'oublie plutôt que d'afficher un chiffre qui n'est plus
+                // vrai.
+                mapThread(thread.id, (t) => ({ ...t, context: null, images: [] }))
+                void dispatch(thread.id, "/compact", [])
+              }}
             />
             <button
               type="button"

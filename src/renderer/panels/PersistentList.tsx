@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { useWorkspace } from "~/state/workspace"
 import { askOpen, sessionsChanged, sessionsToken, subscribeSessions } from "~/state/persistent"
 import { askConfirm, askName } from "~/state/prompt"
+import { SidebarSection } from "~/panels/SidebarSection"
 
 // Les shells qui survivent à l'application.
 //
@@ -120,11 +121,11 @@ export function PersistentList() {
   }
 
   return (
-    <div className="flex shrink-0 flex-col border-t border-white/[0.06]">
-      <header className="flex items-center gap-1 px-3 py-2">
-        <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Persistent shells
-        </span>
+    <SidebarSection
+      id="persistent"
+      title="Persistent shells"
+      count={liste.length}
+      actions={
         <button
           className="rounded p-1 text-muted-foreground hover:bg-white/[0.07] hover:text-foreground disabled:opacity-40"
           title={`New persistent shell — kept by ${dispo.data}, survives closing Zyvro`}
@@ -133,8 +134,8 @@ export function PersistentList() {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
-      </header>
-
+      }
+    >
       {liste.length === 0 ? (
         <p className="px-3 pb-2 text-[12px] leading-relaxed text-muted-foreground">
           A shell {dispo.data} keeps running when Zyvro closes. Your dev server is still there when you come back.
@@ -166,6 +167,6 @@ export function PersistentList() {
           ))}
         </div>
       )}
-    </div>
+    </SidebarSection>
   )
 }

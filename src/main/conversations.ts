@@ -73,6 +73,8 @@ export type StoredMessage = {
     cacheRead: number
     cacheWrite: number
     costUsd: number | null
+    /** Jetons dans le contexte après ce tour, quand le CLI l'a mesuré. */
+    context?: number
   }
   error?: string
   /** Les images parties avec ce message : leurs identifiants, jamais leurs

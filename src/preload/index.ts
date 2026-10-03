@@ -358,10 +358,8 @@ const api = {
      */
     create: (
       cols: number,
-      rows: number,
-      cwd?: string,
-      history?: string
-    ): Promise<{ id: string; pty: boolean; banner?: string }> => invoke("terminal:create", cols, rows, cwd, history),
+      rows: number
+    ): Promise<{ id: string; pty: boolean; banner?: string }> => invoke("terminal:create", cols, rows),
     /** Fermer un shell pour de bon : il ne sera pas rouvert avec le projet. */
     close: (id: string): Promise<boolean> => invoke("terminal:close", id),
     /**
@@ -373,13 +371,6 @@ const api = {
     running: (): Promise<{ id: string; pty: boolean; label?: string; tab: number }[]> => invoke("terminal:running"),
     /** Ce qu'un shell a déjà écrit. À demander une fois l'identifiant adopté. */
     replay: (id: string): Promise<boolean> => invoke("terminal:replay", id),
-    /**
-     * Le défilement des shells de la dernière session de ce projet.
-     *
-     * Les programmes, eux, sont morts avec la fenêtre — mesuré. On ne rend que
-     * ce qu'ils ont dit, au-dessus d'une invite neuve.
-     */
-    saved: (): Promise<{ seen: string; cwd: string; tab?: number }[]> => invoke("terminal:saved"),
     layout: (groups: string[][]): Promise<boolean> => invoke("terminal:layout", groups),
     write: (id: string, data: string): Promise<boolean> => invoke("terminal:write", id, data),
     resize: (id: string, cols: number, rows: number): Promise<boolean> =>

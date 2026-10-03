@@ -248,7 +248,9 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   )
   check(
     "**et son défilement n'est pas gardé à la fermeture**",
-    /!session\.attached &&/.test(term),
+    // Plus aucun défilement n'est écrit : celui d'une session vivante ne peut
+    // pas ressusciter dans un shell mort.
+    !term.includes("keepHistory") && !term.includes("historyFile"),
     "la réouverture recrée un shell mort affichant l'historique d'une session vivante"
   )
   // Mais elle reste reprise après un rechargement du rendu : son client est

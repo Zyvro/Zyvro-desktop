@@ -1,23 +1,23 @@
-// Les shells qu'on rouvre avec un projet, et ceux qu'on a fermés.
+// Les shells ne rouvrent plus avec un projet.
 //
-// Signalé : « quand j'ouvre un projet où j'avais des shells sauvegardés, que je
-// les ferme, puis que je cache le terminal et le rouvre, les shells se
-// rouvrent ; pareil si je quitte l'application et la relance alors que je les
-// avais fermés. »
+// Demande de Jeremy : « supprime la save de shell ouvert et ne reouvre pas les
+// shells quand on reouvre le projet. meme pour les shells persistent on les
+// gardent seulement affichee dans la liste. »
 //
-// Deux causes :
+// Ce qui casse en silence ici :
 //
-// 1. **Fermer un shell ne touchait pas au fichier.** Replier puis rouvrir le
-//    terminal le relisait, et les shells fermés revenaient.
+// 1. **Un fichier d'historique qui revient.** La moitié du chemin (l'écriture
+//    à la fermeture) et l'autre moitié (la lecture à l'ouverture) doivent
+//    partir ensemble. N'en retirer qu'une laisse un fichier mort ou un restore
+//    qui lit un fichier qu'on n'écrit plus — et les shells reviennent le jour
+//    où quelqu'un réaccroche l'autre bout.
 //
-// 2. **À ⌘Q, le fichier n'était pas réécrit.** `before-quit` n'attend pas une
-//    promesse, et l'écriture asynchrone n'avait pas lieu : le fichier gardait
-//    la fois d'avant.
+// 2. **Les persistants qui se rouvrent quand même.** `disposeProject` doit
+//    détacher leurs clients, et `reprendre` ne doit adopter que des ptys
+//    encore vivants (rechargement du rendu), jamais en recréer.
 //
-// Et deux choses à ne pas casser en réparant : changer de projet ne doit pas
-// effacer l'historique (seule la croix d'un onglet dit « je n'en veux plus »),
-// et un shell rouvert garde l'historique qu'on lui a rendu, sinon il disparaît
-// à la deuxième réouverture.
+// 3. **Le badge des sections repliées.** Browser / Persistent / Workflows
+//    doivent dire combien d'éléments elles contiennent même fermées.
 //
 //     node scripts/check-shell-history.mjs
 import { build } from "esbuild"
@@ -54,56 +54,81 @@ const check = (name, ok, detail = "") => {
   }
 }
 
-// Des sessions sans vrai pty : ce qu'on vérifie est le fichier, pas le shell.
 const projet = path.join(donnees, "projet")
-mkdirSync(path.join(projet, "server"), { recursive: true })
-const faux = (t, id, cwd, seen) =>
-  t.sessions.set(id, { id, pty: { pid: 0, kill() {} }, cwd, seen, attached: false })
+mkdirSync(projet, { recursive: true })
+const faux = (t, id, cwd, seen, attached = false) =>
+  t.sessions.set(id, { id, pty: { pid: 0, kill() {} }, cwd, seen, attached })
 
 try {
   const t = new Terminals()
   faux(t, "a", projet, "sortie A")
-  faux(t, "b", path.join(projet, "server"), "sortie B")
+  faux(t, "p", projet, "persistant", true)
   await t.disposeAll(projet)
-  // Le second passage de la fermeture — la fenêtre après `before-quit` — ne
-  // trouve plus de shells : il ne doit pas écraser la sauvegarde.
-  await t.disposeAll(projet)
-  const garde = await t.saved(projet)
-  check("**fermer la fenêtre garde les deux shells, même quand la fermeture passe deux fois**", garde.length === 2, JSON.stringify(garde))
-  check("**un shell ouvert dans un sous-dossier est gardé aussi**", garde.some((g) => g.seen === "sortie B"))
+  check(
+    "**fermer la fenêtre ne laisse rien à rouvrir**",
+    typeof t.saved !== "function",
+    "saved() est encore là : le chemin de réouverture n'est pas parti"
+  )
+  check("et les shells sont bien morts", t.sessions.size === 0)
 
-  // On rouvre : deux shells neufs, semés de leur historique.
+  // Fermer un projet détache aussi les clients persistants : la liste latérale
+  // reste la seule porte d'entrée.
   const t2 = new Terminals()
-  faux(t2, "c", projet, "sortie A\r\n")
-  faux(t2, "d", projet, "sortie B\r\n")
-  t2.close("c", projet)
-  const apres = await t2.saved(projet)
-  check("**fermer un shell à la main le retire de ce qu'on rouvrira**", apres.length === 1 && apres[0].seen.startsWith("sortie B"), JSON.stringify(apres))
-  t2.close("d", projet)
-  check("**tous fermés : rien à rouvrir, même en repliant le terminal**", (await t2.saved(projet)).length === 0)
-
-  // Changer de projet démonte les onglets, qui appellent `dispose` : le
-  // fichier ne bouge pas.
-  const t3 = new Terminals()
-  faux(t3, "e", projet, "gardé")
-  await t3.disposeAll(projet)
-  const t4 = new Terminals()
-  faux(t4, "f", projet, "gardé")
-  t4.dispose("f")
-  check("**changer de projet n'efface pas l'historique**", (await t4.saved(projet)).length === 1)
+  faux(t2, "b", projet, "ordinaire")
+  faux(t2, "c", projet, "persistant", true)
+  t2.disposeProject(projet)
+  check(
+    "**fermer le projet détache les persistants**",
+    t2.sessions.size === 0,
+    `${t2.sessions.size} session(s) restante(s) — un onglet rouvrirait tout seul`
+  )
 } finally {
   rmSync(donnees, { recursive: true, force: true })
 }
 
 const src = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
-check("**l'écriture est synchrone : ⌘Q n'attend pas une promesse**", /writeFileSync\(/.test(src) && /renameSync\(temp, file\)/.test(src) && !/await this\.keepHistory/.test(src))
-check("un shell rouvert garde l'historique qu'on lui rend", /const vu = seed \?/.test(src))
 const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
-check("la croix d'un onglet le dit au principal", /window\.zyvro\.terminal\.close\(ptyId\)/.test(panneau))
-check("et le shell rouvert reçoit son historique", /readStatus\(key\)\.cwd, readStatus\(key\)\.history\)/.test(panneau))
+const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
+const preload = readFileSync(path.join(ROOT, "src/preload/index.ts"), "utf8")
 
-if (failures) {
-  console.log(`\n${failures} échec(s)`)
-  process.exit(1)
+check("**plus d'écriture d'historique**", !src.includes("keepHistory") && !src.includes("historyFile"))
+check("plus de lecture non plus", !src.includes("async saved(") && !ipc.includes("terminal:saved"))
+check("et le pont ne l'expose plus", !preload.includes("terminal:saved"))
+check(
+  "**le panneau ne recrée pas de shells**",
+  !panneau.includes("terminal.saved") && !panneau.includes("session précédente"),
+  "la restauration depuis le fichier est revenue"
+)
+check(
+  "il adopte seulement les ptys vivants",
+  panneau.includes("if (vivants.length === 0) return") && panneau.includes("vivant.pty")
+)
+
+// ---- les sections repliables ---------------------------------------------
+{
+  const section = readFileSync(path.join(ROOT, "src/renderer/panels/SidebarSection.tsx"), "utf8")
+  check(
+    "**une section repliable compte ses éléments**",
+    section.includes("data-section-toggle") && section.includes("count > 0"),
+    "le badge ne dirait pas s'il y en a"
+  )
+  for (const [fichier, id] of [
+    ["BrowserList", "browser"],
+    ["PersistentList", "persistent"],
+    ["WorkflowList", "workflows"],
+  ]) {
+    const src2 = readFileSync(path.join(ROOT, `src/renderer/panels/${fichier}.tsx`), "utf8")
+    check(
+      `**${fichier} est repliable et compte**`,
+      src2.includes("SidebarSection") && src2.includes(`id="${id}"`) && src2.includes("count="),
+      `${fichier} n'a pas le collapse ou le badge`
+    )
+  }
 }
-console.log("\nUn shell fermé reste fermé ; ceux qu'on a laissés reviennent avec leur historique.")
+
+console.log(
+  failures === 0
+    ? "\nUn projet qu'on rouvre n'a plus de shells ; les persistants restent dans leur liste."
+    : `\n${failures} échec(s)`
+)
+process.exit(failures === 0 ? 0 : 1)

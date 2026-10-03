@@ -79,11 +79,21 @@ check("un shell fermé depuis ne laisse pas de trou qui gêne", j(t.regroup(["s1
 {
   const lire = (p) => readFileSync(path.join(ROOT, p), "utf8")
   const term = lire("src/main/terminal.ts")
-  check("le principal écrit l'onglet de chaque shell, dans l'ordre des onglets", /inLayoutOrder\(\s*retenus\.map/.test(term) && /\s+tab,\s*\}\)\)/.test(term))
+  // L'historique n'est plus écrit : les onglets ne voyagent plus sur le disque.
+  // Ce qui reste, c'est de rendre les vivants dans l'ordre de la disposition.
+  check(
+    "plus d'onglet écrit sur le disque avec un historique",
+    !/inLayoutOrder\(\s*retenus\.map/.test(term) && !term.includes("keepHistory"),
+    "le fichier d'historique est encore écrit avec les onglets"
+  )
   check("et rend les vivants dans cet ordre", /running\(cwd: string\)[\s\S]*?inLayoutOrder\(/.test(term))
   const panel = lire("src/renderer/panels/TerminalPanel.tsx")
   check("le rendu envoie la disposition quand les onglets ou les identifiants changent", /window\.zyvro\.terminal\.layout\(layout\)/.test(panel) && /if \("ptyId" in patch\) window\.queueMicrotask\(envoyerDisposition\)/.test(panel))
-  check("et regroupe ce qu'il reprend", /passe\.map\(\(shell\) => shell\.tab\)/.test(panel) && /vivants\.map\(\(vivant\) => vivant\.tab\)/.test(panel))
+  check(
+    "et regroupe ce qu'il reprend (les vivants seulement)",
+    /vivants\.map\(\(vivant\) => vivant\.tab\)/.test(panel) && !/passe\.map\(\(shell\) => shell\.tab\)/.test(panel),
+    "la restauration depuis le fichier d'historique est revenue"
+  )
 }
 
 // ---- la séparation qui se tire -----------------------------------------------------

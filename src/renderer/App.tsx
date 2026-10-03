@@ -16,6 +16,7 @@ import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
 import { AgentPanel } from "~/panels/AgentPanel"
 import { ShotOverlay } from "~/panels/ShotPicker"
+import { ZoneHover } from "~/panels/ZoneHover"
 import { StatusBar } from "~/panels/StatusBar"
 import { Splitter } from "~/panels/Splitter"
 import { NamePrompt } from "~/panels/NamePrompt"
@@ -32,7 +33,17 @@ import "~/lib/projectIndex"
 // Pareil pour les dépôts sur la fenêtre : un dossier lâché s'ouvre en projet.
 import "~/lib/windowDrop"
 
-const LIMITS = { sidebar: [180, 520], agent: [280, 720], terminal: [120, 640] } as const
+// Les limites des séparateurs. Le terminal n'a plus de plafond fixe : un
+// panneau qu'on ne peut tirer qu'à 640 px reste bloqué à ~70 % d'un grand
+// écran. Son maximum suit la fenêtre — toute la hauteur, moins un filet pour
+// l'éditeur et les barres.
+const LIMITS = { sidebar: [180, 520], agent: [280, 720], terminal: [80, Number.POSITIVE_INFINITY] } as const
+
+function terminalMax(): number {
+  // 160 px : barre de titre + status + un filet d'éditeur. Le reste est au
+  // terminal, et c'est ce qu'on veut quand on le tire vers le haut.
+  return Math.max(200, window.innerHeight - 160)
+}
 
 function clamp(value: number, [min, max]: readonly [number, number]): number {
   return Math.min(max, Math.max(min, value))
@@ -203,7 +214,7 @@ export default function App() {
             <>
               <Splitter
                 orientation="horizontal"
-                onResize={(delta) => setTerminal((h) => clamp(h - delta, LIMITS.terminal))}
+                onResize={(delta) => setTerminal((h) => clamp(h - delta, [LIMITS.terminal[0], terminalMax()]))}
               />
               <div data-shot-zone="Terminal" className="shrink-0" style={{ height: terminal }}>
                 <TerminalPanel />
@@ -234,6 +245,7 @@ export default function App() {
       </div>
 
       <StatusBar />
+      <ZoneHover />
       <ShotOverlay />
       <NamePrompt />
       <QuickOpen />
