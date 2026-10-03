@@ -72,7 +72,30 @@ export function draftFor(threadId: string): string {
   return brouillons.get(threadId) ?? ""
 }
 
+// ---------- la session neuve ----------
+//
+// Une session sans message n'a pas d'identifiant stable : le panneau en crée
+// une nouvelle à chaque lancement, et son brouillon, rangé sous l'ancien
+// identifiant, n'était plus retrouvé après un redémarrage. Il est donc AUSSI
+// rangé sous une clé par dossier — `blank:<dossier>` — que la session neuve du
+// même dossier reprend tant qu'on n'a pas touché à la sienne.
+
+const touches = new Set<string>()
+
+export function blankKey(root: string | null): string {
+  return `blank:${root ?? ""}`
+}
+
+/** Le brouillon à montrer : celui de la session, ou celui d'une session neuve
+ *  d'avant le redémarrage, tant que celle-ci n'a rien écrit elle-même. */
+export function draftShown(threadId: string, blank: string | null): string {
+  const propre = brouillons.get(threadId) ?? ""
+  if (propre !== "" || touches.has(threadId) || blank === null) return propre
+  return brouillons.get(blank) ?? ""
+}
+
 export function setDraftFor(threadId: string, text: string): void {
+  touches.add(threadId)
   const borne = text.length > DRAFT_MAX ? text.slice(0, DRAFT_MAX) : text
   if ((brouillons.get(threadId) ?? "") === borne) return
   // Supprimer puis remettre : la Map garde l'ordre d'insertion, donc le plus

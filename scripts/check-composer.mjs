@@ -78,11 +78,27 @@ c.stepHistory("s", -1, "")
 c.leaveHistory("s")
 check("taper fait sortir de l'historique", !c.inHistory("s"))
 
+// ---- la session neuve, après un redémarrage ----
+// Elle n'a pas d'identifiant stable : son brouillon est aussi rangé par
+// dossier, et la session neuve suivante du même dossier le reprend.
+c = charger()
+const blank = c.blankKey("/projets/demo")
+c.setDraftFor("neuve-1", "écrit avant de quitter")
+c.setDraftFor(blank, "écrit avant de quitter")
+c.flushDrafts()
+c = charger()
+check("**la session neuve d'après le redémarrage reprend le brouillon**", c.draftShown("neuve-2", blank) === "écrit avant de quitter")
+check("une session qui a des messages ne le prend pas", c.draftShown("ancienne", null) === "")
+check("un autre dossier non plus", c.draftShown("neuve-3", c.blankKey("/ailleurs")) === "")
+c.setDraftFor("neuve-2", "")
+check("**dès qu'on y touche, la session ne montre plus que le sien**", c.draftShown("neuve-2", blank) === "")
+
 const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
 check(
   "**le panneau tient son brouillon hors du composant, par session**",
-  /useSyncExternalStore\(subscribeDrafts, \(\) => draftFor\(thread\.id\)/.test(panel) && !/const \[draft, setDraft\] = useState\(""\)/.test(panel)
+  /useSyncExternalStore\(subscribeDrafts, \(\) => draftShown\(thread\.id, blank\)/.test(panel) && !/const \[draft, setDraft\] = useState\(""\)/.test(panel)
 )
+check("et une session sans message le range aussi par dossier", /if \(blank !== null\) setDraftFor\(blank, texte\)/.test(panel))
 check("chaque envoi rejoint l'historique", /rememberPrompt\(prompt\)/.test(panel))
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 

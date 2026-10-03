@@ -231,3 +231,6 @@ Petits correctifs repérés en passant :
   Windows : envoi sans projet, scripts `.cmd` lancés sans cmd.exe ; capture
   depuis Settings ; shells persistants multi-projets (StrictMode, projet fermé,
   double attache).
+- **0.1.0-alpha.56 — le brouillon d'une session neuve survit au redémarrage.**
+  Rangé aussi sous `blank:<dossier>` (`blankKey`, `draftShown`), repris par la
+  session neuve du même dossier tant qu'elle n'a rien écrit elle-même.

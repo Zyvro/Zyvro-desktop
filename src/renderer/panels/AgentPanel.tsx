@@ -28,7 +28,8 @@ import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { askHarness } from "~/state/persistent"
 import {
-  draftFor,
+  blankKey,
+  draftShown,
   inHistory,
   leaveHistory,
   rememberPrompt,
@@ -1392,10 +1393,17 @@ export function AgentPanel(): JSX.Element {
   // Le brouillon de la session affichée, hors du composant (state/composer) :
   // fermer le panneau, changer de mode, de session ou de projet ne le perd plus,
   // et chaque session garde le sien.
-  const draft = useSyncExternalStore(subscribeDrafts, () => draftFor(thread.id), () => "")
+  // Une session sans message garde aussi son brouillon sous une clé par
+  // dossier (state/composer) : c'est elle qu'on retrouve après un redémarrage,
+  // la session neuve n'ayant pas d'identifiant stable.
+  const ouRoot = useWorkspace((workspace) => workspace.root)
+  const blank = thread.messages.length === 0 ? blankKey(ouRoot) : null
+  const draft = useSyncExternalStore(subscribeDrafts, () => draftShown(thread.id, blank), () => "")
   const setDraft = (next: string | ((actuel: string) => string)): void => {
     const id = thread.id
-    setDraftFor(id, typeof next === "function" ? next(draftFor(id)) : next)
+    const texte = typeof next === "function" ? next(draftShown(id, blank)) : next
+    setDraftFor(id, texte)
+    if (blank !== null) setDraftFor(blank, texte)
   }
   // Où est le curseur : une commande ne se complète que tant qu'on est dedans,
   // pas quand on est revenu écrire au milieu d'une phrase qui commence par une
@@ -1630,7 +1638,7 @@ export function AgentPanel(): JSX.Element {
         const texte = stepHistory(thread.id, event.key === "ArrowUp" ? -1 : 1, draft)
         if (texte !== null) {
           event.preventDefault()
-          setDraftFor(thread.id, texte)
+          setDraft(texte)
           requestAnimationFrame(() => {
             const champ = composer.current
             if (!champ) return

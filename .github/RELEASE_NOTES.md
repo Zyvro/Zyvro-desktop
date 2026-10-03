@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.56
+
+**A new session's prompt survives a restart too.** A session you have not sent
+anything in yet gets a fresh identity every time Zyvro starts, so what you had
+typed in it was not found again after quitting. It is now also kept per folder,
+and the new session of the same project picks it up — until you change it.
+
 ## New in alpha.55
 
 **Your prompt is never lost, and your past prompts come back.** What you type in
