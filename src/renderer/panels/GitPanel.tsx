@@ -21,6 +21,7 @@ import { useWorkspace } from "~/state/workspace"
 import { askName } from "~/state/prompt"
 import { GitMenu } from "~/panels/GitMenu"
 import { gitRunning, subscribeGit, type GitRunning } from "~/state/git"
+import { draftFor, setDraftFor, subscribeDrafts } from "~/state/composer"
 
 const IDLE_GIT: GitRunning = { verb: "", done: false, failed: false }
 
@@ -381,8 +382,17 @@ function SuggestButton({ onMessage }: { onMessage: (message: string) => void }) 
   )
 }
 
+// Le message en cours vit hors du panneau, un par dépôt, comme le brouillon
+// du panneau d'agent : passer aux fichiers et revenir, changer de dépôt ou
+// relancer l'app le jetait — un message de commit de trois lignes compris.
+export function commitDraftKey(root: string): string {
+  return `git:${root}`
+}
+
 function CommitBox({ status }: { status: GitStatus }) {
-  const [message, setMessage] = useState("")
+  const key = commitDraftKey(status.root)
+  const message = useSyncExternalStore(subscribeDrafts, () => draftFor(key), () => "")
+  const setMessage = useCallback((text: string) => setDraftFor(key, text), [key])
   // The box is resized when it is handed to us and again on every keystroke.
   // A callback ref is the mount half of that, and it is what this project uses
   // in place of an effect.
@@ -395,13 +405,16 @@ function CommitBox({ status }: { status: GitStatus }) {
   // A generated message arrives from outside the keystroke path, so it has to
   // resize the box itself; otherwise a three-line suggestion lands in a
   // one-line box and reads as truncated.
-  const setAndFit = useCallback((text: string) => {
-    setMessage(text)
-    if (boxRef.current) {
-      boxRef.current.value = text
-      fit(boxRef.current)
-    }
-  }, [])
+  const setAndFit = useCallback(
+    (text: string) => {
+      setMessage(text)
+      if (boxRef.current) {
+        boxRef.current.value = text
+        fit(boxRef.current)
+      }
+    },
+    [setMessage]
+  )
   const commit = useGitAction(gitActions.commit)
   const push = useGitAction(gitActions.push)
 
@@ -593,7 +606,8 @@ export function GitPanel() {
           bouton n'était pas assez pour le voir. */}
       <GitActivity />
 
-      <CommitBox status={repo} />
+      {/* Une boîte par dépôt : en changer la remonte, à la hauteur du sien. */}
+      <CommitBox key={repo.root} status={repo} />
 
       {/* Conflicts first, and on their own, because they are the only group you
           cannot clear by clicking a plus, and anything below them is waiting on

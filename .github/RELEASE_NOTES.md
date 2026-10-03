@@ -49,6 +49,12 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.61
+
+**The commit message is kept.** The message box of the Git panel lost what was
+typed in it as soon as you switched to another panel, changed repository or
+restarted the app. Each repository now keeps its own message until you commit.
+
 ## New in alpha.60
 
 **Attached images survive a restart.** An image pasted or dropped into the

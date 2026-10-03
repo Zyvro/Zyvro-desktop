@@ -249,3 +249,6 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.60 — les images jointes survivent au redémarrage.** Vignettes
   de la boîte et de la file gardées (`keepChips`, branché dans `mapThread`) et
   rendues à la relecture (`chipsFor` dans `restore`).
+- **0.1.0-alpha.61 — le message de commit ne se perd plus.** Gardé hors du
+  panneau Git, un par dépôt (`commitDraftKey`, magasin des brouillons de
+  `state/composer`), et la boîte se remonte en changeant de dépôt.

@@ -216,6 +216,20 @@ check(
   /keepChips\(id, \[\.\.\.next\.images, \.\.\.next\.queued\.flatMap\(\(q\) => q\.images\)\]\)/.test(panel)
 )
 check("**et reviennent dans la boîte à la relecture**", /images: chipsFor\(c\.id\)/.test(panel))
+// Le message de commit : même règle, un par dépôt.
+const git = readFileSync(path.join(ROOT, "src/renderer/panels/GitPanel.tsx"), "utf8")
+check(
+  "**le message de commit vit hors du panneau Git, un par dépôt**",
+  /useSyncExternalStore\(subscribeDrafts, \(\) => draftFor\(key\)/.test(git) &&
+    /const key = commitDraftKey\(status\.root\)/.test(git) &&
+    !/const \[message, setMessage\] = useState/.test(git)
+)
+check("et changer de dépôt remonte sa boîte", /<CommitBox key=\{repo\.root\} status=\{repo\} \/>/.test(git))
+c = charger()
+c.setDraftFor("git:/projets/a", "feat: trois lignes\n\ndétail")
+c.flushDrafts()
+c = charger()
+check("**un message de commit survit au redémarrage**", c.draftFor("git:/projets/a") === "feat: trois lignes\n\ndétail" && c.draftFor("git:/projets/b") === "")
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 
 console.log(failures === 0 ? "\nCe qu'on écrit reste, et ce qu'on a envoyé revient avec ↑." : `\n${failures} échec(s)`)
