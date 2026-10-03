@@ -15,6 +15,8 @@ import * as agentModule from "./agent"
 import { adoptHomeBins, helpOf, installed, locate, outputOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
+import { mediaUrlFor } from "./media"
+import { mediaKindOf } from "../shared/media"
 import * as textSearch from "./search"
 import * as persistent from "./persistent"
 import { createWatcher, type Watcher } from "./watch"
@@ -753,6 +755,16 @@ export function registerIpc(onRecents?: () => void): void {
     const dehors = accorde(ws, relative)
     if (dehors) return files.readAt(dehors, relative, force === true)
     return files.readFile(requireRoot(ws), relative, force === true)
+  })
+
+  // Une vidéo ou un son du projet (ou accordé) : une adresse que le lecteur
+  // interroge par morceaux, jamais le chemin (main/media.ts).
+  ipcMain.handle("files:media-url", async (event, relative: string) => {
+    const { ws } = requireWorkspace(event)
+    const p = String(relative ?? "")
+    if (!mediaKindOf(p)) throw new Error(`"${p}" is not a video or audio file.`)
+    const file = accorde(ws, p) ?? (await files.resolveInside(requireRoot(ws), p))
+    return mediaUrlFor(file)
   })
 
   ipcMain.handle("files:write", async (event, relative: string, text: string) => {

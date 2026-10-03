@@ -11,6 +11,7 @@ import fs from "node:fs"
 import { trackZoom, zoomBy } from "./zoom"
 import { lastWindowClosed, launchedInBackground, startCapture } from "./capture"
 import { studioWindows } from "./windows"
+import { handleMedia, registerMediaScheme } from "./media"
 
 const isDev = !app.isPackaged
 
@@ -536,7 +537,12 @@ if (!app.requestSingleInstanceLock()) {
     if (folder) win.webContents.send("menu:open-path", folder)
   })
 
+  // Le schéma des vidéos et des sons doit être déclaré avant que l'app soit
+  // prête ; il est servi juste après.
+  registerMediaScheme()
+
   void app.whenReady().then(async () => {
+    handleMedia()
     // Before anything is spawned. A window opened from the Finder starts with
     // the system PATH and nothing else, so the local engine, the shells, the
     // agent and the commit-message CLI would all be looking in the wrong places

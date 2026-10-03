@@ -262,3 +262,9 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.64 — Ctrl+C arrête l'agent.** Dans la boîte, pendant un tour et
   sans sélection (`isStopKey`), même effet que Stop ; avec une sélection,
   Ctrl+C copie toujours.
+- **0.1.0-alpha.65 — vidéo, son, et réponses lues à voix haute.** Schéma
+  `zyvro-media:` servi par morceaux (`main/media.ts`, jetons émis après
+  vérification du chemin, `Range` → 206), `MediaView` pour les onglets vidéo et
+  son, repli « Open with Default App » ; bouton de lecture au survol de la
+  réponse (`SpeakButton`, `lib/speech` : texte sans Markdown ni code, langue
+  devinée, phrases courtes).

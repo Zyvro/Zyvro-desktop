@@ -7,6 +7,8 @@ import { requestCloseTab, requestCloseTabs, tabsToClose } from "~/lib/closing"
 import { FileTypeIcon } from "~/lib/fileIcons"
 import { isAbsolutePath, nativePath } from "../../shared/external"
 import { CodeEditor } from "./CodeEditor"
+import { MediaView } from "~/panels/MediaView"
+import { mediaKindOf } from "../../shared/media"
 import { GraphTab } from "./GraphTab"
 import { DiffView } from "./DiffView"
 import { GitOutput } from "./GitOutput"
@@ -145,6 +147,8 @@ function TabButton({
 function TabBody({ tab, group = "main" }: { tab: Tab; group?: "main" | "split" }) {
   switch (tab.kind) {
     case "file":
+      // Une vidéo ou un son se lit, il ne s'édite pas.
+      if (mediaKindOf(tab.path)) return <MediaView path={tab.path} />
       return <CodeEditor tabId={tab.id} path={tab.path} group={group} />
     case "graph":
       return <GraphTab workflowId={tab.workflowId} />

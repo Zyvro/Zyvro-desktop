@@ -16,6 +16,8 @@ import {
   Target,
   TerminalSquare,
   X,
+  Volume2,
+  VolumeX,
 } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
@@ -49,6 +51,7 @@ import {
 } from "~/state/composer"
 import { installHarness, NODE_DOWNLOAD_URL, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HARNESS_TINT, renderCode, Working } from "~/lib/chatColors"
+import { speakingId, speechAvailable, subscribeSpeech, toggleSpeech } from "~/lib/speech"
 import { HarnessPicker } from "~/panels/HarnessPicker"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
@@ -2440,10 +2443,11 @@ function Bubble({
         : "Writing"
 
   return (
-    <div className="px-0.5 text-xs leading-relaxed">
+    <div className="group/bulle px-0.5 text-xs leading-relaxed">
       <div className={cn("mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide", tint.text)}>
         <span className={cn("h-1.5 w-1.5 rounded-full", tint.dot, message.streaming && "zy-pulse")} aria-hidden />
         {kind}
+        {!message.streaming && textOf(message).trim() !== "" ? <SpeakButton id={message.id} text={textOf(message)} /> : null}
       </div>
 
       {/* Dans l'ordre où c'est arrivé. Il parle, il appelle un outil, il
@@ -2488,6 +2492,31 @@ function Bubble({
         </div>
       ) : null}
     </div>
+  )
+}
+
+// SpeakButton : lire la réponse à voix haute.
+//
+// Dans l'en-tête de la réponse, à droite du nom du harnais : au survol du
+// message, et loin des lignes d'outils, qui ont leurs propres clics. Visible
+// en permanence pendant la lecture, pour qu'on trouve où l'arrêter.
+function SpeakButton({ id, text }: { id: string; text: string }): JSX.Element | null {
+  const lu = useSyncExternalStore(subscribeSpeech, speakingId, () => null) === id
+  if (!speechAvailable()) return null
+  return (
+    <button
+      type="button"
+      onClick={() => toggleSpeech(id, text)}
+      title={lu ? "Stop reading" : "Read aloud"}
+      aria-label={lu ? "Stop reading" : "Read aloud"}
+      aria-pressed={lu}
+      className={cn(
+        "zy-speak ml-auto rounded p-0.5 normal-case text-muted-foreground transition-opacity hover:bg-white/[0.08] hover:text-foreground focus-visible:opacity-100",
+        lu ? "text-foreground opacity-100" : "opacity-0 group-hover/bulle:opacity-100"
+      )}
+    >
+      {lu ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+    </button>
   )
 }
 

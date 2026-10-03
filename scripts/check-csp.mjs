@@ -54,6 +54,7 @@ const LOOPBACK = ["http://127.0.0.1:*", "http://localhost:*"]
 const NEEDED = [
   { directive: "img-src", tag: "<img", label: "les images" },
   { directive: "media-src", tag: "<video", label: "les vidéos" },
+  { directive: "media-src", tag: "<audio", label: "les sons" },
 ]
 
 function rendererSources(dir = path.join(ROOT, "src/renderer")) {

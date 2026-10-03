@@ -309,6 +309,8 @@ const api = {
     reveal: (relative: string): Promise<boolean> => invoke("shell:reveal", relative),
     /** Ouvrir avec le programme par défaut du système, comme un double-clic. */
     openExternally: (relative: string): Promise<boolean> => invoke("shell:open", relative),
+    /** L'adresse d'une vidéo ou d'un son du projet, pour <video>/<audio>. */
+    mediaUrl: (relative: string): Promise<string> => invoke("files:media-url", relative),
     pick: (request: { save?: boolean; directory?: boolean; title?: string; current?: string }): Promise<string | null> =>
       invoke("files:pick", request),
   },

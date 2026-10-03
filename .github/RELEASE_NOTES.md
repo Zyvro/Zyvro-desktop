@@ -49,6 +49,22 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.65
+
+**Videos and sounds open in a player.** Opening an .mp4, .mov, .webm, .mp3,
+.wav, .m4a, .flac or .ogg file from the tree used to show "binary file". It
+now plays in the editor area, with the usual controls: play, seek, volume,
+speed and full screen. Large files start right away and you can jump anywhere
+in them, because they are read in pieces rather than loaded whole. Formats the
+player cannot decode, such as AVI, say so and open in your system player in
+one click.
+
+**Agent answers can be read aloud.** Hover an answer and a speaker button
+appears at the right of the harness name, away from the tool rows. It reads
+the answer with your system's voice, without the Markdown syntax and skipping
+code blocks, in French or English depending on the answer. Click it again to
+stop. Nothing leaves your machine.
+
 ## New in alpha.64
 
 **Ctrl+C stops the agent.** While an agent is working, Ctrl+C in its prompt box
