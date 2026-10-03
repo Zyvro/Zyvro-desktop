@@ -114,6 +114,19 @@ check("**une session fermée emporte son brouillon**", c.draftFor("garde") === "
 c.stepHistory("nav", -1, "en cours")
 check("**Échap pendant la navigation rend ce qu'on écrivait**", c.cancelHistory("nav") === "en cours" && !c.inHistory("nav"))
 
+// La fenêtre se ferme dans les 250 ms qui suivent la dernière frappe.
+const surDechargement = []
+globalThis.window = { addEventListener: (type, fn) => type === "pagehide" && surDechargement.push(fn) }
+c = charger()
+c.setDraftFor("vite", "tapé juste avant de fermer")
+check("la sauvegarde attend la fin de la rafale", !JSON.parse(stockage.get("zyvro.agentDrafts")).hasOwnProperty("vite"))
+for (const fn of surDechargement) fn()
+check(
+  "**fermer la fenêtre aussitôt après avoir tapé garde les derniers mots**",
+  surDechargement.length > 0 && JSON.parse(stockage.get("zyvro.agentDrafts")).vite === "tapé juste avant de fermer"
+)
+delete globalThis.window
+
 const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
 check(
   "**le panneau tient son brouillon hors du composant, par session**",

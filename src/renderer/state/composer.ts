@@ -142,6 +142,16 @@ export function flushDrafts(): void {
   ecrire(DRAFTS_KEY, Object.fromEntries([...brouillons].slice(-DRAFTS_MAX)))
 }
 
+// La sauvegarde attend 250 ms après la dernière frappe : fermer la fenêtre ou
+// recharger dans cet intervalle perdait les derniers mots tapés. `pagehide`
+// part à chaque déchargement, même quand `beforeunload` a été annulé puis
+// accordé par la boîte « fichiers non enregistrés ».
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    if (sauvegarde) flushDrafts()
+  })
+}
+
 // ---------- l'historique ----------
 
 let historique: string[] = lire<unknown[]>(HISTORY_KEY, []).filter((p): p is string => typeof p === "string" && p !== "")

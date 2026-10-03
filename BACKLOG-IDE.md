@@ -239,3 +239,5 @@ Petits correctifs repérés en passant :
   session) ; la boîte reprend sa hauteur au retour (`poserComposer`) ; Échap
   quitte l'historique (`cancelHistory`) ; fermer une session oublie son
   brouillon (`forgetDraft`).
+- **0.1.0-alpha.58 — les derniers mots tapés survivent à la fermeture.** Le
+  brouillon en attente de sauvegarde (250 ms) est écrit sur `pagehide`.

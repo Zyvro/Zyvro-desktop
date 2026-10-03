@@ -49,6 +49,13 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.58
+
+**The last words typed before closing are kept.** The prompt is saved a quarter
+of a second after you stop typing. Closing the window or reloading inside that
+quarter of a second lost what you had just typed; it is now written as the
+window goes away.
+
 ## New in alpha.57
 
 **Each new session keeps its own prompt.** In alpha.56 every new, empty
