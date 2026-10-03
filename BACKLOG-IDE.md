@@ -215,3 +215,8 @@ Petits correctifs repérés en passant :
   d'accueil ; l'UI et les conversations rangées par projet au basculement ;
   fermer un onglet ne ferme que ses shells. Le « + » ouvre un nouveau Zyvro
   (`project:home`, `goHome`) plutôt qu'un sélecteur de dossier.
+- **0.1.0-alpha.52 — le chat en couleur, et un chat par projet.** Teintes par
+  harnais et par outil, diff et code coloriés (`lib/chatColors`, jetons de
+  `monaco.editor.tokenize` rendus par React, `renderCode` du Markdown partagé),
+  indicateur animé `Working` tant que l'agent produit. Un projet neuf part d'un
+  chat vide, `restore` et `reattach` vérifient le projet, `running(projectDir)`.

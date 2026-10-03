@@ -28,6 +28,7 @@ import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { askHarness } from "~/state/persistent"
 import { installHarness, NODE_DOWNLOAD_URL, useHarnessesInstalled } from "~/lib/harnessInstall"
+import { HARNESS_TINT, renderCode, Working } from "~/lib/chatColors"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { ContextCompact } from "~/panels/ContextCompact"
@@ -572,6 +573,10 @@ function endTurn(id: string): void {
 // arrivée sur un projet (ou après un rechargement, quand la mémoire est vide).
 const chatByProject = new Map<string, ChatState>()
 let restoredFor: string | null = null
+// Les projets dont les conversations ont fini d'être relues. Seuls ceux-là ont
+// un état qui vaut d'être rangé : ranger le chat vide provisoire d'un projet
+// quitté avant la fin de sa lecture ferait qu'au retour on ne le relirait plus.
+const relus = new Set<string>()
 useWorkspace.subscribe((workspace) => {
   const project = workspace.project?.project ?? null
   if (project === restoredFor) return
@@ -590,7 +595,7 @@ useWorkspace.subscribe((workspace) => {
   // qui sont dans le transcript du principal et seront relus au prochain
   // `restore()` si la mémoire a été perdue. Pour les garder tout de suite,
   // `mapThread` met aussi à jour la copie rangée.
-  if (restoredFor) chatByProject.set(restoredFor, state)
+  if (restoredFor && relus.has(restoredFor)) chatByProject.set(restoredFor, state)
   restoredFor = project
   if (!project) {
     resetChat()
@@ -601,8 +606,27 @@ useWorkspace.subscribe((workspace) => {
     commit(range)
     return
   }
-  void restore()
+  // Première arrivée sur ce projet : un chat vide TOUT DE SUITE, puis ses
+  // conversations relues du disque. Sans ce vide, un projet qui n'en avait
+  // encore aucune — le second qu'on ouvre, typiquement — gardait à l'écran le
+  // chat du projet précédent, et ce qu'on y tapait partait dans le fil de
+  // l'autre. Pas `resetChat()` : il délie aussi les tours en vol, y compris
+  // ceux du projet qu'on vient de ranger, qui doivent continuer d'écrire.
+  commit(blankState())
+  void restore(project)
 })
+
+// chatState : l'état affiché, pour les vérifications (check-agent-projects).
+export function chatState(): ChatState {
+  return state
+}
+
+// blankState : un chat neuf, un seul onglet vide, sur le harnais et le modèle
+// qu'on avait sous les yeux.
+function blankState(): ChatState {
+  const fresh = blankThread(activeThread()?.model ?? null, activeThread()?.kind ?? "claude")
+  return { threads: [fresh], activeId: fresh.id, asks: state.asks }
+}
 
 function subscribe(listener: () => void): () => void {
   ensureAttached()
@@ -790,15 +814,20 @@ export function restoreParts(m: {
 // All of them, in the order the store keeps — most recently touched first —
 // because a tab that vanished on restart would be a conversation the agent
 // still remembers and the person cannot reach.
-export async function restore(): Promise<void> {
+export async function restore(project: string | null = restoredFor): Promise<void> {
   if (typeof window === "undefined" || !window.zyvro) return
   const all = await window.zyvro.agent.conversations()
+  // On a pu basculer pendant la lecture : ces conversations sont celles du
+  // projet qu'on a quitté, pas de celui qu'on regarde. Rien n'est affiché ; le
+  // projet les relira en revenant, son état n'ayant pas été rangé.
+  if (project !== restoredFor) return
   const usable = all.filter((c) => c.messages.length > 0)
   // Rien à relire n'est pas rien à faire : un tour peut tourner dans une
   // conversation qui n'a encore jamais été écrite sur le disque — le premier,
   // justement, celui qu'on lance avant de sauver un fichier.
   if (usable.length === 0) {
-    await reattach()
+    if (project) relus.add(project)
+    await reattach(project)
     return
   }
 
@@ -848,7 +877,8 @@ export async function restore(): Promise<void> {
     saved: "",
   }))
   commit({ threads, activeId: threads[0].id, asks: state.asks })
-  await reattach()
+  if (project) relus.add(project)
+  await reattach(project)
 }
 
 // reattach : se raccrocher aux tours qui tournent encore.
@@ -868,8 +898,11 @@ export async function restore(): Promise<void> {
 // La question elle-même est reprise du processus principal, pas du disque : un
 // tour en vol n'y est pas encore écrit — le transcript n'est enregistré qu'à la
 // fin — donc le principal est le seul à l'avoir.
-async function reattach(): Promise<void> {
+async function reattach(project: string | null = restoredFor): Promise<void> {
+  // Le principal ne rend que les tours du projet actif ; si l'on a basculé
+  // pendant la question, ce ne sont plus ceux de l'écran.
   const running = await window.zyvro.agent.running().catch(() => [])
+  if (project !== restoredFor) return
   for (const { id, conversationId, prompt } of running) {
     // Une conversation neuve n'est pas encore sur le disque : son premier tour
     // est en vol, et `restore` n'a donc rien trouvé à recréer. On lui refait un
@@ -2176,8 +2209,8 @@ function Bubble({
   if (message.role === "user") {
     const images = message.images ?? []
     return (
-      <div className="rounded-md border border-white/[0.06] bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
-        <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">You</div>
+      <div className="rounded-md border border-white/[0.06] border-l-2 border-l-primary/70 bg-white/[0.04] px-2.5 py-1.5 text-xs leading-relaxed text-foreground">
+        <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary/90">You</div>
         {textOf(message) ? (
           <div className="whitespace-pre-wrap break-words">{textOf(message)}</div>
         ) : null}
@@ -2195,9 +2228,24 @@ function Bubble({
     )
   }
 
+  const tint = HARNESS_TINT[kind] ?? HARNESS_TINT.claude
+  // Ce qu'il fait en ce moment, pour l'indicateur de fin : un outil en vol, du
+  // texte déjà parti, ou rien encore.
+  const dernier = message.parts[message.parts.length - 1]
+  const verb = !message.streaming
+    ? ""
+    : dernier?.kind === "tool" && !dernier.call.finished
+      ? dernier.call.running
+      : message.parts.length === 0
+        ? "Thinking"
+        : "Writing"
+
   return (
     <div className="px-0.5 text-xs leading-relaxed">
-      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">{kind}</div>
+      <div className={cn("mb-0.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide", tint.text)}>
+        <span className={cn("h-1.5 w-1.5 rounded-full", tint.dot, message.streaming && "zy-pulse")} aria-hidden />
+        {kind}
+      </div>
 
       {/* Dans l'ordre où c'est arrivé. Il parle, il appelle un outil, il
           reparle — et c'est ce qu'on lit. L'affichage n'a plus rien à décider :
@@ -2212,13 +2260,14 @@ function Bubble({
             <ToolRow call={part.call} conversationId={conversationId} />
           </div>
         ) : part.text !== "" ? (
-          <Markdown key={`x${index}`} text={part.text} className="text-foreground" compact />
+          <Markdown key={`x${index}`} text={part.text} className="zy-agent-md text-foreground" compact renderCode={renderCode} />
         ) : null
       )}
 
-      {message.streaming && message.parts.length === 0 ? (
-        <div className="text-muted-foreground">Thinking…</div>
-      ) : null}
+      {/* Tant qu'il produit : une étoile qui tourne, le verbe qui scintille, des
+          points qui sautent — à la fin du message, là où le prochain mot va
+          arriver. Un « Thinking… » gris et fixe ne disait pas si ça avançait. */}
+      {message.streaming ? <Working verb={verb} kind={kind} /> : null}
 
       {/* Ce que le tour a dépensé. Discret et sous la réponse : c'est une
           information qu'on va chercher, pas une qu'on subit — et elle

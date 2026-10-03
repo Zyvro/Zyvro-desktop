@@ -48,6 +48,9 @@ await build({
     "~": path.join(ROOT, "src/renderer"),
   },
   loader: { ".tsx": "tsx" },
+  // Monaco n'est chargé qu'à la demande, pour colorier le code du chat : il
+  // reste dehors, ce test ne dessine rien.
+  external: ["monaco-editor"],
   // Le module du site refuse de se charger sans elle : elle est gravée dans le
   // paquet à la compilation, et un site construit sans produirait des appels
   // vers nulle part. Ici on ne fait aucun appel, mais il faut bien répondre.

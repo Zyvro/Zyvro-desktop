@@ -1443,7 +1443,9 @@ export function registerIpc(onRecents?: () => void): void {
   // de son existence.
   ipcMain.handle("agent:running", async (event) => {
     const { ws } = requireWorkspace(event)
-    return ws.agent.running()
+    // Les tours du projet affiché seulement : la fenêtre en tient plusieurs, et
+    // ceux des autres appartiennent à leurs propres chats.
+    return ws.agent.running(requireRoot(ws))
   })
 
   // Et rejouer ce qu'il a déjà dit. En deux temps, jamais en un : le rendu doit

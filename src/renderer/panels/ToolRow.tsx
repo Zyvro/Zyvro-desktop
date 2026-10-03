@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { PlanItem, ToolShape } from "../../preload"
+import { ToolOutput } from "~/lib/chatColors"
 
 // One line per thing the agent did, with the detail a click away.
 //
@@ -55,6 +56,27 @@ const ICONS: Record<ToolShape, typeof Wrench> = {
   other: Wrench,
 }
 
+// Une couleur par sorte de travail, comme Claude Code et Codex en donnent une :
+// on repère d'un coup d'œil où il a écrit, où il a lancé une commande.
+const TINTS: Record<ToolShape, string> = {
+  read: "text-sky-300",
+  edit: "text-amber-300",
+  terminal: "text-emerald-300",
+  search: "text-violet-300",
+  web: "text-cyan-300",
+  plan: "text-pink-300",
+  agent: "text-indigo-300",
+  zyvro: "text-primary",
+  other: "text-muted-foreground",
+}
+
+// Le premier mot est le verbe — « Ran », « Edited », « Reading » — et le reste
+// est ce sur quoi il porte, qui est ce qu'on cherche des yeux.
+function splitVerb(label: string): [string, string] {
+  const space = label.indexOf(" ")
+  return space === -1 ? [label, ""] : [label.slice(0, space), label.slice(space)]
+}
+
 // A plan reads as a checklist, which is the one input worth showing as itself
 // rather than as text.
 function Plan({ items }: { items: PlanItem[] }) {
@@ -88,6 +110,8 @@ export function ToolRow({ call, conversationId }: { call: ToolCall; conversation
   // makes with invocationMessage and pastTenseMessage, and it is worth making:
   // "Running the tests" and "Ran the tests" are different news.
   const label = call.finished ? call.done : call.running
+  const [verb, subject] = splitVerb(label)
+  const tint = call.isError ? "text-red-300" : TINTS[call.shape] ?? TINTS.other
 
   // A plan has nothing to fold: it is the thing you want to see.
   const body = call.shape === "plan" ? "plan" : call.detail || call.output ? "text" : "none"
@@ -116,12 +140,24 @@ export function ToolRow({ call, conversationId }: { call: ToolCall; conversation
         ) : (
           <ChevronRight className="h-3 w-3 shrink-0 opacity-60" />
         )}
+        {/* Le point d'état, à la Claude Code : il pulse tant que l'outil
+            tourne, vert quand il a fini, rouge quand il a échoué. */}
+        <span
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            !call.finished ? "zy-pulse bg-amber-300" : call.isError ? "bg-red-400" : "bg-emerald-400"
+          )}
+          aria-hidden
+        />
         {call.finished ? (
-          <Icon className="h-3 w-3 shrink-0" />
+          <Icon className={cn("h-3 w-3 shrink-0", tint)} />
         ) : (
-          <Loader2 className="h-3 w-3 shrink-0 zy-spin" />
+          <Loader2 className={cn("h-3 w-3 shrink-0 zy-spin", tint)} />
         )}
-        <span className="truncate">{label}</span>
+        <span className="truncate">
+          <span className={cn("font-medium", tint)}>{verb}</span>
+          <span className={call.isError ? "text-red-300/80" : "text-foreground/80"}>{subject}</span>
+        </span>
       </button>
 
       {call.shape === "plan" && call.plan.length > 0 && (
@@ -142,18 +178,19 @@ export function ToolRow({ call, conversationId }: { call: ToolCall; conversation
         <div className="ml-[18px] space-y-1 border-l border-white/[0.08] pl-2 pt-1">
           {call.detail && (
             <pre className="zy-scroll max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed text-foreground/75">
+              {/* Une commande se lit comme dans un terminal : l'invite en vert. */}
+              {call.shape === "terminal" ? <span className="select-none text-emerald-400">$ </span> : null}
               {call.detail}
             </pre>
           )}
           {call.output && (
-            <pre
+            <ToolOutput
+              text={call.output}
               className={cn(
                 "zy-scroll max-h-56 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] leading-relaxed",
                 call.isError ? "text-red-300/85" : "text-muted-foreground"
               )}
-            >
-              {call.output}
-            </pre>
+            />
           )}
         </div>
       )}

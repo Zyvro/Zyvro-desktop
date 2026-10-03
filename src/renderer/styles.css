@@ -231,3 +231,140 @@ button,
 .zy-doc > :first-child {
   margin-top: 0;
 }
+
+/* ---------- le chat des agents, en couleur ----------
+ *
+ * Demandé par Jeremy : « un peu comme dans codex ou claude code, c'est plus
+ * coloré ». Le Markdown est celui du site, partagé ; sa couleur ici vient de la
+ * classe `zy-agent-md` que seul le panneau d'agent pose, pour que le site reste
+ * comme il est. */
+.zy-agent-md :not(pre) > code {
+  color: #f0abfc;
+  background: rgba(217, 70, 239, 0.12);
+}
+.zy-agent-md h1,
+.zy-agent-md h2,
+.zy-agent-md h3 {
+  color: #c4b5fd;
+}
+.zy-agent-md h4,
+.zy-agent-md h5,
+.zy-agent-md h6 {
+  color: #a5b4fc;
+}
+.zy-agent-md strong {
+  color: #fde68a;
+}
+.zy-agent-md li > span[aria-hidden] {
+  color: #a78bfa;
+}
+.zy-agent-md blockquote {
+  border-left-color: rgba(167, 139, 250, 0.5);
+}
+
+/* ---------- « il travaille » ----------
+ *
+ * À la fin d'un message tant que l'agent produit : une étoile qui tourne, le
+ * verbe qui scintille, trois points qui sautent. De quoi voir que ça avance
+ * plutôt que de se demander si c'est figé. */
+@keyframes zy-working-star {
+  0% {
+    transform: rotate(0deg) scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: rotate(180deg) scale(1.25);
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg) scale(1);
+    opacity: 0.85;
+  }
+}
+.zy-working-star {
+  animation: zy-working-star 1.6s ease-in-out infinite;
+}
+
+@keyframes zy-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+.zy-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.45) 35%,
+    #ffffff 50%,
+    rgba(255, 255, 255, 0.45) 65%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: zy-shimmer 1.8s linear infinite;
+}
+
+@keyframes zy-dot {
+  0%,
+  80%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+.zy-dots {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 10px;
+}
+.zy-dots > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: zy-dot 1.2s ease-in-out infinite;
+}
+.zy-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.zy-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* Un point qui respire : un outil qui tourne, un harnais qui parle. */
+@keyframes zy-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.zy-pulse {
+  animation: zy-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zy-working-star,
+  .zy-shimmer,
+  .zy-dots > span,
+  .zy-pulse {
+    animation: none;
+  }
+  .zy-shimmer {
+    color: rgba(255, 255, 255, 0.75);
+    background: none;
+  }
+}

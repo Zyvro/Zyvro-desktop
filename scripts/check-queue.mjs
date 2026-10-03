@@ -167,7 +167,8 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
 
   check(
     "**le processus principal sait dire ce qui tourne encore**",
-    /running\(\): \{ id: string; conversationId: string; prompt: string \}\[\]/.test(main),
+    // Par projet depuis qu'une fenêtre en tient plusieurs : `running(projectDir)`.
+    /running\(projectDir\?: string\): \{ id: string; conversationId: string; prompt: string \}\[\]/.test(main),
     "la page neuve n'a aucun moyen de retrouver le tour en vol"
   )
   // La question est reprise du principal et pas du disque : un tour en vol n'y
@@ -189,7 +190,8 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
 
   check(
     "**le rendu se raccroche au démarrage**",
-    panel.includes("await reattach()") && panel.includes("window.zyvro.agent.running()"),
+    // `reattach(project)` : il se raccroche aux tours du projet qu'il relit.
+    panel.includes("await reattach(project)") && panel.includes("window.zyvro.agent.running()"),
     "le tour continue de tourner dans le vide"
   )
   // Lié d'abord, rejoué ensuite : l'inverse garerait les événements une
@@ -211,7 +213,7 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   const restaure2 = panel.slice(panel.indexOf("export async function restore("))
   check(
     "et rien à relire n'est pas rien à faire",
-    /if \(usable\.length === 0\) \{\s*await reattach\(\)/.test(restaure2),
+    /if \(usable\.length === 0\) \{\s*(if \(project\) relus\.add\(project\)\s*)?await reattach\(project\)/.test(restaure2),
     "un projet sans conversation enregistrée ne se raccrocherait jamais"
   )
 }

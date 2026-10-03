@@ -1,76 +1,32 @@
-Zyvro Studio is a desktop workspace for Zyvro workflows: a file tree, an editor,
-a terminal, source control, and an agent panel, with the graph editor opening in
-a tab beside the code it acts on.
+# Zyvro Studio 0.1.0-alpha.51
 
-**This is an alpha.** It is built from three public repositories, it is not
-signed, and the parts that touch a store are new. Read the two warnings below
-before the first launch.
+## What's new
 
-## Why it exists
+- **Context recycle** — a recycle icon in the agent input shows how much of the model's window the conversation occupies. One click runs `/compact` on the harness, so a long task starts on a clean slate instead of hitting auto-compact halfway.
+- **Shells stay closed** — opening a project no longer restores dead shells. Persistent sessions (tmux/screen) stay in the sidebar list only; you open them when you want them.
+- **Collapsible sections** — Browser, Persistent shells and Workflows fold away, with a count badge so you can see whether anything is inside without opening them.
+- **Full-height terminal** — the shell panel is no longer capped at 640 px; drag it wherever you want.
+- **Field-of-view hint** — a faint outline marks the zone under the cursor (Editor, Terminal, Agent, Explorer…).
 
-A ChatGPT or Claude subscription is not an API credential, and no hosted server
-can use one. But the `claude` and `codex` command line tools on your own machine
-are already signed in, so Zyvro Studio runs them as text providers. Your
-subscription drives a workflow, and no credential ever reaches Zyvro.
+## Artifacts
 
-Everything runs locally. Workflows live as files under `.zyvro/` in the folder
-you open, so they version alongside your code. The only traffic that leaves your
-machine is the model call itself, and it goes straight to the provider.
+| File | Size | SHA-256 |
+|---|---|---|
+| `Zyvro Studio-0.1.0-alpha.51-arm64.dmg` | 134.2 MB | `0ef48bb4c9b0640f86fafc5a8a1123416b80c17e7460fd9ff5d35aff2d745ff6` |
+| `Zyvro Studio-0.1.0-alpha.51.dmg` | 141.0 MB | `f3c7bf36cdf49cd2a8d759cbba1cfe0927c37a060308cea1a61551e6b7b840b4` |
 
-## First launch
+Windows (`Zyvro-Studio-Setup-0.1.0-alpha.51.exe`) is built by the release workflow on a Windows runner.
 
-**macOS.** Take the `.dmg` for your machine — `arm64` for Apple Silicon, the
-other for Intel — open it and drag the app to Applications. A `.zip` of the same
-build is there too, for anyone who would rather not mount an image.
+## Before you open it
 
-alpha.2 shipped without a `.dmg` at all, on a note in the build workflow saying
-`hdiutil` failed on the build machines. It does not; the run that note came from
-had already failed for an unrelated reason, and the last error in the log was
-read as the cause. The `.dmg` is back.
+**Nothing is signed for distribution.** That is a statement about this release, not a preference.
 
-The app is ad-hoc signed but not notarized, so macOS says the developer cannot
-be verified: right-click it and choose
-**Open**, which offers the same dialog with a button that proceeds. Or:
+**macOS.** The app is ad-hoc signed and not notarized. Double-clicking it says the developer cannot be verified. Right-click → **Open**, or remove the quarantine flag:
 
 ```sh
 xattr -dr com.apple.quarantine "/Applications/Zyvro Studio.app"
 ```
 
-**Windows.** The installer is not signed, so SmartScreen shows "Windows
-protected your PC". Choose **More info**, then **Run anyway**.
+**Windows.** No Authenticode certificate, so SmartScreen shows "Windows protected your PC" on first run — **More info → Run anyway**.
 
-Both warnings are accurate: neither platform can tell you this download came
-from us rather than from someone who intercepted it. Every file's SHA-256 is at
-the bottom of this page, and checking it is the only verification available
-until the certificates are in place.
-
-```sh
-shasum -a 256 ~/Downloads/Zyvro*        # macOS
-certutil -hashfile Zyvro*.exe SHA256    # Windows
-```
-
-## What is in it
-
-- Large number of fix
-
-## Known limits
-
-- Image nodes need a Google AI Studio or Black Forest Labs key once the free
-  daily allowance is spent
-- Video nodes need one of those two keys from the start: there is no free
-  allowance for video, and both backends bill by the second
-- The app has no self-updater, and the engine now ships inside it rather than
-  updating separately: a new engine means a new app
-- Nothing in the store is reviewed. Packs are signed now, but a signature says
-  who published something, not that it is safe — read a pack's Lua before
-  installing it; the app puts that one click from the listing
-- Publish to GitHub is not in the Git panel, and neither is an interactive
-  rebase or merge: `pull` is fast-forward only rather than leaving a repository
-  half-way through something this panel cannot finish
-
-## Checksums
-
-| File | Size | SHA-256 |
-|---|---|---|
-| `Zyvro Studio-0.1.0-alpha.7-arm64.dmg` | 134.4 MB | `7c4812c590598e6abdc2b1564b31ded8ed215579d69754ce04e75aa27c8b1d0a` |
-| `Zyvro Studio-0.1.0-alpha.7.dmg` | 141.2 MB | `9e6a0c66bbec206d18feeb587bdf366771e15bae4f8ed725b2c29835caaa1828` |
+Neither platform can tell you the download came from us rather than from someone who intercepted it. The SHA-256 above is the only integrity check available; it only helps if you check it.

@@ -49,6 +49,29 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.52
+
+**The agent chat in colour.** Each harness has its own colour — Claude orange,
+Codex green, Qwen violet, MiMo Xiaomi orange — on its name and dot. Tool lines
+are coloured by kind (reads blue, edits amber, commands green, searches
+violet, web cyan) with a status dot that pulses while the tool runs, turns
+green when it is done and red when it failed. A diff in a tool's output reads
+in green and red, a command shows its `$` prompt, and code blocks are
+highlighted with the editor's own tokenizer, in the same colours as your files.
+Inline code, headings, bold text and bullets are coloured too.
+
+**You can see the agent working.** While an agent is producing, the end of its
+message shows a spinning star, a shimmering verb that says what it is doing —
+*Thinking* before the first word, the tool it is running, *Writing* — and three
+bouncing dots. The animations stop if your system asks for reduced motion.
+
+**Each project has its own chat.** With several projects in one window,
+switching to a project that had no conversation yet kept showing the previous
+project's chat, and what you typed went into that project's thread. A new
+project now starts on an empty chat, a turn running in a background project
+keeps writing to its own thread, and in-flight turns are reattached only to the
+project they belong to.
+
 ## New in alpha.51
 
 **Recycle the context before a long task.** A recycle icon in the agent input

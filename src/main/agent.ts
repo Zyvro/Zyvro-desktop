@@ -810,6 +810,12 @@ const REPLAY_MAX_BYTES = 2 * 1024 * 1024
 type Turn = {
   id: string
   conversationId: string
+  /**
+   * Le projet où ce tour tourne. Une fenêtre tient plusieurs projets, et un
+   * tour du projet A ne doit pas réapparaître dans le chat du projet B quand
+   * celui-ci se raccroche aux tours en vol.
+   */
+  projectDir: string
   /** Ce que les étapes du tour ont coûté jusqu'ici — MiMo Code les compte une à une. */
   spent?: Spent | null
   /**
@@ -1090,7 +1096,7 @@ export class AgentRunner {
     // déjà : l'écrire une seconde fois dans le message d'erreur serait la
     // deuxième liste qui a tort le jour où le paquet change de nom.
     const child = launchPiped(bin, args, { cwd: ctx.projectDir, env }, harness(kind).install)
-    this.turns.set(id, { id, conversationId, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false })
+    this.turns.set(id, { id, conversationId, projectDir: ctx.projectDir, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false })
 
     child.stdin.write(text)
     child.stdin.end()
@@ -1258,8 +1264,10 @@ export class AgentRunner {
    * événements arrivaient donc dans le vide — le panneau les garait comme
    * « orphelins » pour toujours, et l'écran ne bougeait plus.
    */
-  running(): { id: string; conversationId: string; prompt: string }[] {
-    return [...this.turns.values()].map((turn) => ({
+  // Ceux d'un seul projet quand on le nomme : c'est ce que demande le panneau
+  // en arrivant sur un projet, et les tours des autres ne sont pas les siens.
+  running(projectDir?: string): { id: string; conversationId: string; prompt: string }[] {
+    return [...this.turns.values()].filter((turn) => projectDir === undefined || turn.projectDir === projectDir).map((turn) => ({
       id: turn.id,
       conversationId: turn.conversationId,
       prompt: turn.prompt,
