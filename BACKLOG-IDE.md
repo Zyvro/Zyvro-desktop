@@ -246,3 +246,6 @@ Petits correctifs repérés en passant :
   et rendu à la boîte au démarrage (`restoreQueued`), sans repartir seul ;
   brouillons et historique fusionnés entre fenêtres (`ecrireBrouillons`,
   `historiqueStocke`, écouteur `storage` — correctif d'une autre session).
+- **0.1.0-alpha.60 — les images jointes survivent au redémarrage.** Vignettes
+  de la boîte et de la file gardées (`keepChips`, branché dans `mapThread`) et
+  rendues à la relecture (`chipsFor` dans `restore`).

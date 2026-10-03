@@ -175,6 +175,20 @@ check("et ↑ dans l'une rappelle ce qu'on a envoyé dans l'autre", fenB.stepHis
 fenB.flushDrafts()
 delete globalThis.window
 
+// Les images jointes à la boîte : leur fichier survit, leur vignette aussi.
+c = charger()
+c.keepChips("img", [{ id: "a1", name: "capture.png" }, { id: "a2", name: "logo.png" }])
+c = charger()
+check("**les images jointes survivent au redémarrage**", c.chipsFor("img").map((x) => x.id).join() === "a1,a2")
+c.keepChips("img", [])
+check("envoyées, elles ne sont plus gardées", c.chipsFor("img").length === 0 && !("img" in JSON.parse(stockage.get("zyvro.agentChips"))))
+c.keepChips("img-fermee", [{ id: "b1", name: "x.png" }])
+c.forgetDraft("img-fermee")
+check("une session fermée emporte ses images", c.chipsFor("img-fermee").length === 0)
+stockage.set("zyvro.agentChips", "pas du json")
+check("un stockage abîmé ne casse rien", charger().chipsFor("img").length === 0)
+stockage.delete("zyvro.agentChips")
+
 const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
 check(
   "**le panneau tient son brouillon hors du composant, par session**",
@@ -197,6 +211,11 @@ check(
   /if \(next\.queued !== thread\.queued\) keepQueued\(id, next\.queued\.map\(\(q\) => q\.text\)\)/.test(panel)
 )
 check("**la relecture rend la file à la boîte**", /for \(const thread of threads\) restoreQueued\(thread\.id\)/.test(panel))
+check(
+  "**les images de la boîte et de la file sont gardées à chaque changement**",
+  /keepChips\(id, \[\.\.\.next\.images, \.\.\.next\.queued\.flatMap\(\(q\) => q\.images\)\]\)/.test(panel)
+)
+check("**et reviennent dans la boîte à la relecture**", /images: chipsFor\(c\.id\)/.test(panel))
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 
 console.log(failures === 0 ? "\nCe qu'on écrit reste, et ce qu'on a envoyé revient avec ↑." : `\n${failures} échec(s)`)

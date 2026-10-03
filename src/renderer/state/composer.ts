@@ -16,6 +16,7 @@
 const DRAFTS_KEY = "zyvro.agentDrafts"
 const HISTORY_KEY = "zyvro.promptHistory"
 const QUEUED_KEY = "zyvro.agentQueued"
+const CHIPS_KEY = "zyvro.agentChips"
 /** Les brouillons de cette taille-là sont des collages ; au-delà, on ne garde pas. */
 const DRAFT_MAX = 100_000
 const DRAFTS_MAX = 200
@@ -273,6 +274,7 @@ export function forgetDraft(threadId: string): void {
   navigations.delete(threadId)
   touches.delete(threadId)
   keepQueued(threadId, [])
+  keepChips(threadId, [])
   if (!brouillons.has(threadId)) return
   brouillons.delete(threadId)
   modifies.add(threadId)
@@ -317,4 +319,38 @@ export function restoreQueued(threadId: string): boolean {
   if (rendus.length === 0) return false
   setDraftFor(threadId, [draftFor(threadId), ...rendus].filter(Boolean).join("\n\n"))
   return true
+}
+
+// ---------- les images jointes ----------
+//
+// Une image collée ou déposée dans la boîte est un fichier, gardé par le
+// processus principal à côté de la conversation — il survit au redémarrage.
+// Sa vignette, elle, ne vivait que dans l'état du panneau : on la perdait en
+// relançant, et l'image avec, puisque plus rien ne la nommait. Les vignettes
+// de la boîte, et celles des messages en file, sont donc gardées ici.
+
+export type Chip = { id: string; name: string }
+
+function vignettesStockees(): Record<string, Chip[]> {
+  const brut = lire<unknown>(CHIPS_KEY, {})
+  return brut && typeof brut === "object" && !Array.isArray(brut) ? (brut as Record<string, Chip[]>) : {}
+}
+
+/** Les images en attente d'envoi de cette session ont changé. Vide : oubliées. */
+export function keepChips(threadId: string, chips: readonly Chip[]): void {
+  const gardes = chips
+    .filter((c) => c && typeof c.id === "string" && c.id !== "")
+    .map((c) => ({ id: c.id, name: typeof c.name === "string" ? c.name : "" }))
+  const toutes = vignettesStockees()
+  if (gardes.length === 0 && !(threadId in toutes)) return
+  if (JSON.stringify(toutes[threadId] ?? []) === JSON.stringify(gardes)) return
+  if (gardes.length === 0) delete toutes[threadId]
+  else toutes[threadId] = gardes
+  ecrire(CHIPS_KEY, toutes)
+}
+
+/** Au démarrage : les images qui attendaient d'être envoyées avec cette session. */
+export function chipsFor(threadId: string): Chip[] {
+  const gardees = vignettesStockees()[threadId]
+  return Array.isArray(gardees) ? gardees.filter((c) => c && typeof c.id === "string" && c.id !== "") : []
 }

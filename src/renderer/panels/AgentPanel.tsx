@@ -30,10 +30,12 @@ import { askHarness } from "~/state/persistent"
 import {
   blankKey,
   cancelHistory,
+  chipsFor,
   draftShown,
   forgetDraft,
   holdsBlank,
   inHistory,
+  keepChips,
   keepQueued,
   leaveHistory,
   releaseBlank,
@@ -286,6 +288,11 @@ function mapThread(id: string, applied: (thread: Thread) => Thread): void {
   const change = (thread: Thread): Thread => {
     const next = applied(thread)
     if (next.queued !== thread.queued) keepQueued(id, next.queued.map((q) => q.text))
+    // Les images aussi : celles de la boîte et celles parties en file, qui
+    // reviennent ensemble dans la boîte au redémarrage, comme avec « Stop ».
+    if (next.images !== thread.images || next.queued !== thread.queued) {
+      keepChips(id, [...next.images, ...next.queued.flatMap((q) => q.images)])
+    }
     return next
   }
   let touched = false
@@ -935,7 +942,8 @@ export async function restore(project: string | null = restoredFor): Promise<voi
     pending: null,
     ranWith: c.ranWith ?? null,
     kind: c.kind,
-    images: [],
+    // Les images jointes qui n'étaient pas encore parties (keepChips).
+    images: chipsFor(c.id),
     // Une file en attente ne repart pas après la fermeture, et c'est voulu :
     // ces messages n'ont jamais été envoyés. Les relancer au prochain
     // démarrage les ferait partir tout seuls, longtemps après, sur un projet

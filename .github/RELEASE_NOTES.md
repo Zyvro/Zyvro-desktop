@@ -49,6 +49,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.60
+
+**Attached images survive a restart.** An image pasted or dropped into the
+prompt box is kept on disk, but its chip lived only in the panel: restarting
+the app removed it, and nothing pointed at the image any more. The images
+waiting in the prompt box, and those of queued messages, now come back with
+the prompt.
+
 ## New in alpha.59
 
 **Queued messages are not lost on restart.** A message sent while the agent is
