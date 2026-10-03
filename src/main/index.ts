@@ -19,8 +19,14 @@ const isDev = !app.isPackaged
 // move onto the packaged app's profile — its recents, its signed-in account.
 // Those are worth keeping apart, and a dev run that wiped the real one would be
 // a bad way to find that out.
+//
+// Its own folder, then — and not "zyvro-desktop", which is exactly the one the
+// packaged app uses (its name comes from package.json). Sharing it also meant
+// sharing the single-instance lock, which is keyed by this folder: with Zyvro
+// Studio open, `npm run dev` found the lock taken, quit right after "starting
+// electron app…", and took electron-vite down with it.
 if (isDev) {
-  app.setPath("userData", path.join(app.getPath("appData"), "zyvro-desktop"))
+  app.setPath("userData", path.join(app.getPath("appData"), "zyvro-desktop-dev"))
 }
 
 // A packaged app takes its icon from the bundle, but a development run and the

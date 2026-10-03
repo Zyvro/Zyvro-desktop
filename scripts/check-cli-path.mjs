@@ -17,7 +17,7 @@
 //     node scripts/check-cli-path.mjs
 import { build } from "esbuild"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { createRequire } from "node:module"
 
@@ -162,6 +162,25 @@ check(
 )
 check("un outil absent n'est pas inventé", locate("outil-qui-n-existe-pas") === null)
 process.env.PATH = saved
+
+// ---- la sonde ne prend pas le terminal ---------------------------------
+//
+// Les shells interrogés au démarrage sont interactifs (`-i`), et un shell
+// interactif prend le terminal auquel il est rattaché. Lancés depuis `npm run
+// dev`, ils prenaient celui de la personne, étaient tués, et son zsh mourait sur
+// « error on TTY read: Input/output error ». Détachés, ils n'ont pas de terminal
+// à prendre.
+{
+  const source = readFileSync(path.join(ROOT, "src/main/cli.ts"), "utf8")
+  const sonde = source.slice(source.indexOf('spawn(shell, ["-ilc"'), source.indexOf('spawn(shell, ["-ilc"') + 400)
+  check("**la sonde des shells tourne détachée du terminal**", /detached: true/.test(sonde), sonde.slice(0, 200))
+  const index = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
+  check(
+    "**le développement a son propre profil, et donc son propre verrou**",
+    /app\.setPath\("userData", path\.join\(app\.getPath\("appData"\), "zyvro-desktop-dev"\)\)/.test(index),
+    "partager celui de l'app installée faisait quitter `npm run dev` dès qu'elle était ouverte"
+  )
+}
 
 rmSync(dir, { recursive: true, force: true })
 console.log(failures === 0 ? "\nLes CLI de la machine sont trouvables depuis l'application." : `\n${failures} vérification(s) en échec.`)

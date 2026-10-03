@@ -128,9 +128,20 @@ function readShellEnv(shell: string): Promise<ShellEnv | null> {
     // `env -0` rather than `env`: a value is allowed to contain a newline, and
     // a reader that split on newlines would cut one variable in half and take
     // the rest of it for another.
+    //
+    // `detached` is what keeps this from killing the terminal the app was
+    // started from. An interactive shell takes the controlling terminal's
+    // foreground for its own process group; started from `npm run dev`, the
+    // probes inherited that terminal, took it in parallel, and were killed —
+    // leaving it to a process group that no longer existed. The person's own
+    // shell then read EIO and exited: "zsh: error on TTY read: Input/output
+    // error". A packaged app opened from the Dock has no terminal, which is why
+    // only development ever saw it. Detached is a session of its own (setsid),
+    // with no controlling terminal to take.
     const child = spawn(shell, ["-ilc", `echo "${MARK}"; /usr/bin/env -0; echo "${MARK}"`], {
       env: { ...process.env, ZYVRO_SHELL_PROBE: "1" },
       stdio: ["ignore", "pipe", "ignore"],
+      detached: true,
     })
 
     let out = ""
