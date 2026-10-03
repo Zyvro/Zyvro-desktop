@@ -49,7 +49,7 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
-## New in alpha.66
+## New in alpha.67
 
 **Advanced skills.** A **Skills** button in the agent panel lets the agent pick
 relevant skills by itself in a conversation. Before each prompt, Zyvro reads a

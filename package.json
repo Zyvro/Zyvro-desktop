@@ -1,6 +1,6 @@
 {
   "name": "zyvro-desktop",
-  "version": "0.1.0-alpha.66",
+  "version": "0.1.0-alpha.67",
   "description": "Zyvro Studio — local workflow IDE",
   "main": "./out/main/index.js",
   "author": "Zyvro",

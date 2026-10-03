@@ -60,9 +60,11 @@ try {
   // Fake Git behaves like clone + rev-parse, including a hostile receipt symlink.
   const sentinel = path.join(dir, "untouched")
   await fs.writeFile(sentinel, "keep me")
-  const git = path.join(dir, "git-fixture")
-  await write(git, `#!${process.execPath}\nconst fs=require('node:fs'),path=require('node:path');const a=process.argv.slice(2);if(a.includes('clone')){const d=a.at(-1);fs.mkdirSync(path.join(d,'review'),{recursive:true});fs.writeFileSync(path.join(d,'review','SKILL.md'),${JSON.stringify(skill("pack-review"))});fs.symlinkSync(${JSON.stringify(sentinel)},path.join(d,'.zyvro-pack.json'));}else{console.log('a'.repeat(40));}\n`)
-  await fs.chmod(git, 0o755)
+  // Un script Node lancé par Node, pas un shebang : Windows ne sait pas
+  // démarrer un fichier `#!…`.
+  const gitScript = path.join(dir, "git-fixture.cjs")
+  const git = [process.execPath, gitScript]
+  await write(gitScript, `const fs=require('node:fs'),path=require('node:path');const a=process.argv.slice(2);if(a.includes('clone')){const d=a.at(-1);fs.mkdirSync(path.join(d,'review'),{recursive:true});fs.writeFileSync(path.join(d,'review','SKILL.md'),${JSON.stringify(skill("pack-review"))});fs.symlinkSync(${JSON.stringify(sentinel)},path.join(d,'.zyvro-pack.json'));}else{console.log('a'.repeat(40));}\n`)
   const [one, two] = await Promise.all([m.downloadPack("https://github.com/owner/repo", packs, git), m.downloadPack("https://github.com/owner/repo", packs, git)])
   assert.equal(one.id, two.id)
   assert.equal(await fs.readFile(sentinel, "utf8"), "keep me")

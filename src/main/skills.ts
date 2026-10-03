@@ -120,7 +120,13 @@ export function githubRepository(input: string): { id: string; url: string } {
 const downloads = new Map<string, Promise<SkillPack>>()
 
 /** Download only. No hooks, setup scripts or model calls run as a side effect. */
-export function downloadPack(repository: string, packsDir: string, git = "git"): Promise<SkillPack> {
+/**
+ * `git` is the executable, or `[executable, ...leading args]` — the latter lets
+ * a check run a Node script as Git on Windows, which cannot start a shebang
+ * script.
+ */
+export function downloadPack(repository: string, packsDir: string, git: string | string[] = "git"): Promise<SkillPack> {
+  const [gitFile, ...gitPrefix] = Array.isArray(git) ? git : [git]
   const repo = githubRepository(repository)
   const key = path.join(packsDir, repo.id)
   const running = downloads.get(key)
@@ -131,11 +137,11 @@ export function downloadPack(repository: string, packsDir: string, git = "git"):
     await fs.mkdir(packsDir, { recursive: true })
     const temporary = path.join(packsDir, `.download-${randomUUID()}`)
     try {
-      await exec(git, ["-c", `core.hooksPath=${path.join(packsDir, ".no-hooks")}`, "-c", "protocol.file.allow=never", "clone", "--template=", "--depth", "1", "--single-branch", "--", `${repo.url}.git`, temporary], {
+      await exec(gitFile, [...gitPrefix, "-c", `core.hooksPath=${path.join(packsDir, ".no-hooks")}`, "-c", "protocol.file.allow=never", "clone", "--template=", "--depth", "1", "--single-branch", "--", `${repo.url}.git`, temporary], {
         timeout: 120_000, maxBuffer: 1024 * 1024, windowsHide: true,
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LFS_SKIP_SMUDGE: "1" },
       })
-      const { stdout } = await exec(git, ["-C", temporary, "rev-parse", "HEAD"], { timeout: 10_000, windowsHide: true })
+      const { stdout } = await exec(gitFile, [...gitPrefix, "-C", temporary, "rev-parse", "HEAD"], { timeout: 10_000, windowsHide: true })
       const pack = { id: repo.id, repository: repo.url, revision: stdout.trim(), path: key }
       const record = path.join(temporary, ".zyvro-pack.json")
       // A repository may already contain this name, including as a symlink.

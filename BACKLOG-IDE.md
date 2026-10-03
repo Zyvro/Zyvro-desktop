@@ -273,3 +273,7 @@ Petits correctifs repérés en passant :
   (`main/skills.ts`, `shared/skills.ts`, bouton `SkillsButton`), packs GitHub
   téléchargés inactifs, pages Settings (`SettingsAgents`, `SettingsSkills`) ;
   permission d'enregistrement d'écran jugée sur la capture (`main/capture.ts`).
+- **0.1.0-alpha.67 — alpha.66 publiée pour de bon.** La CI Windows échouait sur
+  `check-skills` : son faux Git était un script `#!`, que Windows ne lance pas.
+  `downloadPack` accepte `[exécutable, ...arguments]`, et la vérification passe
+  `[node, script]`. Les notes d'alpha.66, jamais publiée, sont celles-ci.
