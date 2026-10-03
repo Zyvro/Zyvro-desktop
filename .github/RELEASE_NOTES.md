@@ -49,6 +49,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.57
+
+**Each new session keeps its own prompt.** In alpha.56 every new, empty
+session of a project shared the prompt kept for after a restart: opening a
+second one showed the first one's text, and clearing it cleared both. Only one
+new session holds it now; the others start empty.
+
+**A prompt that comes back has its full height.** Closing and reopening the
+agent panel, or switching session, brought a five-line prompt back in a
+one-line box. It now opens at the height of its text.
+
+**Esc leaves the prompt history.** After going up through past prompts with ↑,
+**Esc** takes you straight back to what you were writing.
+
+**Closing a session takes its draft with it**, instead of keeping it in storage
+forever.
+
 ## New in alpha.56
 
 **A new session's prompt survives a restart too.** A session you have not sent

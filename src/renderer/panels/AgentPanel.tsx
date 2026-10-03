@@ -29,9 +29,13 @@ import { permission as agentPermission, setPermission, subscribePermission } fro
 import { askHarness } from "~/state/persistent"
 import {
   blankKey,
+  cancelHistory,
   draftShown,
+  forgetDraft,
+  holdsBlank,
   inHistory,
   leaveHistory,
+  releaseBlank,
   rememberPrompt,
   setDraftFor,
   stepHistory,
@@ -1247,6 +1251,12 @@ function closeThread(id: string): void {
     void window.zyvro.agent.cancel(thread.turnId)
   }
   void window.zyvro.agent.forget(id)
+  // Son brouillon part avec elle — et, si c'est la session vierge qui tient la
+  // clé de son dossier, la copie par dossier aussi (sinon la session neuve
+  // suivante la reprendrait). Une autre session vierge, elle, n'y touche pas :
+  // `releaseBlank` n'agit que pour la propriétaire.
+  forgetDraft(id)
+  if (thread.messages.length === 0) releaseBlank(id, blankKey(useWorkspace.getState().root))
 
   const index = state.threads.findIndex((t) => t.id === id)
   const threads = state.threads.filter((t) => t.id !== id)
@@ -1403,7 +1413,9 @@ export function AgentPanel(): JSX.Element {
     const id = thread.id
     const texte = typeof next === "function" ? next(draftShown(id, blank)) : next
     setDraftFor(id, texte)
-    if (blank !== null) setDraftFor(blank, texte)
+    // Seulement si cette session tient la clé de son dossier : une autre
+    // session vierge n'y touche pas.
+    if (holdsBlank(id, blank)) setDraftFor(blank!, texte)
   }
   // Où est le curseur : une commande ne se complète que tant qu'on est dedans,
   // pas quand on est revenu écrire au milieu d'une phrase qui commence par une
@@ -1411,6 +1423,22 @@ export function AgentPanel(): JSX.Element {
   const [caret, setCaret] = useState(0)
 
   const composer = useRef<HTMLTextAreaElement | null>(null)
+  // La boîte prend la hauteur de son texte quand elle naît — un panneau rouvert,
+  // un changement de mode — et quand la session affichée change, car le même
+  // champ reçoit alors le brouillon d'une autre. Sans ça, un brouillon de cinq
+  // lignes revenait dans une boîte d'une ligne : on n'en voyait que la première
+  // et il avait l'air perdu.
+  const poserComposer = useCallback((node: HTMLTextAreaElement | null) => {
+    composer.current = node
+    if (node) requestAnimationFrame(() => grow(node))
+  }, [])
+  const sessionVue = useRef(thread.id)
+  if (sessionVue.current !== thread.id) {
+    sessionVue.current = thread.id
+    requestAnimationFrame(() => {
+      if (composer.current) grow(composer.current)
+    })
+  }
   const scrollTeardown = useRef<(() => void) | null>(null)
 
   // React 18 ignores a value returned from a callback ref, so the teardown is
@@ -1456,6 +1484,8 @@ export function AgentPanel(): JSX.Element {
     rememberPrompt(prompt)
     leaveHistory(threadId)
     setDraft("")
+    // Elle n'est plus neuve : la clé de son dossier revient à la prochaine.
+    releaseBlank(threadId, blank)
     const node = composer.current
     if (node) node.style.height = ""
     // The chips clear with the message they went with: they belong to what was
@@ -1620,6 +1650,16 @@ export function AgentPanel(): JSX.Element {
         // partirait jamais. Vu en l'essayant.
         event.preventDefault()
         completer(proposees[surligne])
+        return
+      }
+    }
+    // Échap pendant qu'on navigue dans l'historique : retour à ce qu'on
+    // écrivait, d'un coup, au lieu de redescendre ligne par ligne.
+    if (event.key === "Escape" && inHistory(thread.id)) {
+      const rendu = cancelHistory(thread.id)
+      if (rendu !== null) {
+        event.preventDefault()
+        setDraft(rendu)
         return
       }
     }
@@ -2182,7 +2222,7 @@ export function AgentPanel(): JSX.Element {
           )}
         >
           <textarea
-            ref={composer}
+            ref={poserComposer}
             rows={1}
             value={draft}
             disabled={disabled}

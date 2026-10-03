@@ -86,12 +86,39 @@ export function blankKey(root: string | null): string {
   return `blank:${root ?? ""}`
 }
 
-/** Le brouillon à montrer : celui de la session, ou celui d'une session neuve
- *  d'avant le redémarrage, tant que celle-ci n'a rien écrit elle-même. */
+// La clé d'un dossier appartient à UNE session neuve à la fois — la première
+// qui la demande. Partagée, elle mélangeait les sessions vierges d'un même
+// dossier : la deuxième affichait le brouillon de la première, et en le
+// vidant, l'effaçait pour les deux.
+const proprietaires = new Map<string, string>()
+
+/** Cette session neuve tient-elle la clé de son dossier ? La prend si personne
+ *  ne l'a. Idempotent : demander deux fois rend la même réponse. */
+export function holdsBlank(threadId: string, blank: string | null): boolean {
+  if (blank === null) return false
+  const tient = proprietaires.get(blank)
+  if (tient === undefined) {
+    proprietaires.set(blank, threadId)
+    return true
+  }
+  return tient === threadId
+}
+
+/** La session a envoyé son premier message : la clé du dossier est libre pour
+ *  la prochaine session neuve, et son contenu est vidé. */
+export function releaseBlank(threadId: string, blank: string | null): void {
+  if (blank === null || proprietaires.get(blank) !== threadId) return
+  proprietaires.delete(blank)
+  setDraftFor(blank, "")
+}
+
+/** Le brouillon à montrer : celui de la session, ou — pour la session neuve qui
+ *  tient la clé de son dossier — celui d'avant le redémarrage, tant qu'elle
+ *  n'a rien écrit elle-même. */
 export function draftShown(threadId: string, blank: string | null): string {
   const propre = brouillons.get(threadId) ?? ""
-  if (propre !== "" || touches.has(threadId) || blank === null) return propre
-  return brouillons.get(blank) ?? ""
+  if (propre !== "" || touches.has(threadId) || !holdsBlank(threadId, blank)) return propre
+  return brouillons.get(blank!) ?? ""
 }
 
 export function setDraftFor(threadId: string, text: string): void {
@@ -168,4 +195,25 @@ export function leaveHistory(threadId: string): void {
 
 export function inHistory(threadId: string): boolean {
   return navigations.has(threadId)
+}
+
+/** Échap pendant la navigation : rendre ce qu'on écrivait avant de remonter. */
+export function cancelHistory(threadId: string): string | null {
+  const nav = navigations.get(threadId)
+  if (!nav) return null
+  navigations.delete(threadId)
+  return nav.saved
+}
+
+/**
+ * Une session fermée emporte son brouillon. Sans ça il restait dans le
+ * stockage indéfiniment — y compris ce qu'on avait collé pour ne pas l'envoyer.
+ */
+export function forgetDraft(threadId: string): void {
+  navigations.delete(threadId)
+  touches.delete(threadId)
+  if (!brouillons.has(threadId)) return
+  brouillons.delete(threadId)
+  prevenir()
+  sauverPlusTard()
 }

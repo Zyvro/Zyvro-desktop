@@ -93,12 +93,43 @@ check("un autre dossier non plus", c.draftShown("neuve-3", c.blankKey("/ailleurs
 c.setDraftFor("neuve-2", "")
 check("**dès qu'on y touche, la session ne montre plus que le sien**", c.draftShown("neuve-2", blank) === "")
 
+// ---- une seule session vierge tient la clé du dossier ----
+// Défaut de l'alpha.56, reproduit par une autre session : toutes les sessions
+// vierges d'un dossier partageaient `blank:<dossier>` — une nouvelle montrait
+// le brouillon d'une autre et, en le vidant, l'effaçait pour les deux.
+c = charger()
+const cle = c.blankKey("/projets/partage")
+check("la première session vierge prend la clé", c.holdsBlank("v1", cle))
+check("**une seconde ne la prend pas**", !c.holdsBlank("v2", cle))
+c.setDraftFor("v1", "à moi")
+c.setDraftFor(cle, "à moi")
+check("**et ne montre pas le brouillon de la première**", c.draftShown("v2", cle) === "")
+c.releaseBlank("v2", cle)
+check("une session qui ne tient pas la clé ne peut pas la vider", c.draftFor(cle) === "à moi")
+c.releaseBlank("v1", cle)
+check("**la propriétaire qui envoie libère et vide la clé**", c.draftFor(cle) === "" && c.holdsBlank("v3", cle))
+c.setDraftFor("garde", "gardé")
+c.forgetDraft("garde")
+check("**une session fermée emporte son brouillon**", c.draftFor("garde") === "")
+c.stepHistory("nav", -1, "en cours")
+check("**Échap pendant la navigation rend ce qu'on écrivait**", c.cancelHistory("nav") === "en cours" && !c.inHistory("nav"))
+
 const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
 check(
   "**le panneau tient son brouillon hors du composant, par session**",
   /useSyncExternalStore\(subscribeDrafts, \(\) => draftShown\(thread\.id, blank\)/.test(panel) && !/const \[draft, setDraft\] = useState\(""\)/.test(panel)
 )
-check("et une session sans message le range aussi par dossier", /if \(blank !== null\) setDraftFor\(blank, texte\)/.test(panel))
+check("et seule la session qui tient la clé du dossier y écrit", /if \(holdsBlank\(id, blank\)\) setDraftFor\(blank!, texte\)/.test(panel))
+check("l'envoi la libère", /releaseBlank\(threadId, blank\)/.test(panel))
+check(
+  "**fermer une session vierge ne vide la clé que si elle la tenait**",
+  /forgetDraft\(id\)/.test(panel) && /releaseBlank\(id, blankKey\(useWorkspace\.getState\(\)\.root\)\)/.test(panel)
+)
+check(
+  "**la boîte reprend la hauteur de son brouillon quand elle réapparaît**",
+  /const poserComposer = useCallback/.test(panel) && /ref=\{poserComposer\}/.test(panel) && /sessionVue\.current !== thread\.id/.test(panel)
+)
+check("Échap y annule la navigation", /event\.key === "Escape" && inHistory\(thread\.id\)/.test(panel))
 check("chaque envoi rejoint l'historique", /rememberPrompt\(prompt\)/.test(panel))
 check("↑ et ↓ y naviguent", /stepHistory\(thread\.id, event\.key === "ArrowUp" \? -1 : 1, draft\)/.test(panel))
 

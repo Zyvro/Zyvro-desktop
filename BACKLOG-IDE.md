@@ -234,3 +234,8 @@ Petits correctifs repérés en passant :
 - **0.1.0-alpha.56 — le brouillon d'une session neuve survit au redémarrage.**
   Rangé aussi sous `blank:<dossier>` (`blankKey`, `draftShown`), repris par la
   session neuve du même dossier tant qu'elle n'a rien écrit elle-même.
+- **0.1.0-alpha.57 — une seule session vierge tient le brouillon du dossier.**
+  `holdsBlank`/`releaseBlank` (défaut de l'alpha.56, trouvé par une autre
+  session) ; la boîte reprend sa hauteur au retour (`poserComposer`) ; Échap
+  quitte l'historique (`cancelHistory`) ; fermer une session oublie son
+  brouillon (`forgetDraft`).
