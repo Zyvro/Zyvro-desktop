@@ -394,6 +394,25 @@ export class Terminals {
     for (const id of [...this.sessions.keys()]) this.dispose(id)
   }
 
+  /**
+   * Fermer les shells d'un seul projet — celui qu'on ferme — en laissant les
+   * autres (les projets ouverts à côté dans la même fenêtre) tourner.
+   *
+   * Le défilement est gardé sous le nom de ce projet, comme à la fermeture de
+   * la fenêtre : rouvrir ce dossier plus tard retrouve ce qu'avaient écrit ses
+   * shells.
+   */
+  disposeProject(projectDir: string): void {
+    const racine = path.resolve(projectDir)
+    const siens = [...this.sessions.values()].filter(
+      (session) =>
+        !session.attached &&
+        (session.cwd === racine || session.cwd === projectDir || session.cwd.startsWith(racine + path.sep))
+    )
+    if (siens.length > 0) this.keepHistory(projectDir, siens)
+    for (const session of siens) this.dispose(session.id)
+  }
+
   // ---- l'historique qui survit à la fermeture ------------------------------
 
   // Où ce shell se trouve maintenant.

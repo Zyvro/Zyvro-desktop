@@ -84,6 +84,15 @@ function nomOnglet(key: string, index: number): string {
 const statuses = new Map<string, SessionStatus>()
 const listeners = new Map<string, Set<() => void>>()
 
+// La disposition des shells, par projet. Un shell vit dans le projet où il est
+// né (son cwd ne change pas) ; basculer de projet ne doit le ni montrer ni
+// tuer — seulement changer quelle disposition est à l'écran. Les composants
+// xterm de TOUS les projets restent montés : les démonter tuerait les ptys
+// (voir le teardown de `mountTerminal`).
+type TermLayout = { groups: Groups; activeKey: string; poids: Record<string, number> }
+const layoutsByProject = new Map<string, TermLayout>()
+let boundProject: string | null = null
+
 // getSnapshot must return a cached value: building `{...}` here would hand
 // React a new object on every call and re-render forever.
 function readStatus(key: string): SessionStatus {
@@ -518,6 +527,8 @@ export function TerminalPanel(): JSX.Element {
   const projectDir = useWorkspace((state) => state.root)
 
   // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
+  // Ceux du projet ACTIF seulement : les autres restent dans
+  // `layoutsByProject`, leurs composants montés mais cachés.
   const [groups, setGroups] = useState<Groups>([])
   const sessions = groups.flat()
   if (groups !== groupesVus) {
@@ -529,7 +540,6 @@ export function TerminalPanel(): JSX.Element {
   const [poids, setPoids] = useState<Record<string, number>>({})
   const zone = useRef<HTMLDivElement | null>(null)
   const [activeKey, setActiveKey] = useState("")
-  const [boundProject, setBoundProject] = useState<string | null>(null)
 
   // Ce que l'arbre nous remet : « ouvrir dans le terminal », c'est un `cd` écrit
   // dans le shell actif.
@@ -572,11 +582,11 @@ export function TerminalPanel(): JSX.Element {
     })
   }
 
-  // Adjusting state during render, not in an effect. A pty's cwd is fixed when
-  // it spawns, so every shell belongs to exactly one project: opening ANOTHER
-  // project has to discard the old sessions and start one in the new directory.
-  // Calling setState here re-renders before anything is committed, which is the
-  // supported way to react to a changed input.
+  // Ajuster l'état pendant le rendu, pas dans un effet. Un pty a le cwd de sa
+  // naissance : chaque shell appartient à exactement un projet. Basculer de
+  // projet RANGE la disposition du sortant et RESTAURE celle de l'entrant —
+  // sans démonter les composants xterm des autres projets, dont la fermeture
+  // appelle `terminal.dispose` et tue le pty.
   //
   // **Un autre projet, oui. « On ne sait pas », jamais.**
   //
@@ -598,18 +608,36 @@ export function TerminalPanel(): JSX.Element {
   // ce sont encore les bons. On ne retient pas non plus le `null` dans
   // `boundProject`, sinon le retour du chemin passerait pour un changement de
   // projet et les remplacerait quand même.
+  //
+  // Depuis le multi-projet, un changement de projet n'est plus « jeter et
+  // reprendre » : c'est « ranger et restaurer ». Les shells du sortant
+  // tournent toujours ; leurs onglets reviennent tels quels au basculement
+  // suivant. `reprendre` ne sert qu'à la première arrivée sur un projet (ou
+  // après un rechargement du rendu, quand les clés de session ont disparu).
   if (projectDir !== null && projectDir !== boundProject) {
-    for (const key of sessions) forgetStatus(key)
-    setBoundProject(projectDir)
-    // La liste reste vide le temps de demander au processus principal s'il lui
-    // reste des shells de ce projet : en ouvrir un tout de suite en ferait un
-    // de trop à côté de ceux qu'on s'apprête à reprendre. C'est un aller-retour
-    // sur la boucle locale, pas une attente.
-    setGroups([])
-    setActiveKey("")
-    // Hors du rendu : appeler quelque chose d'asynchrone pendant qu'on dessine
-    // est la porte d'entrée des rendus en boucle.
-    window.queueMicrotask(() => void reprendre(projectDir))
+    const sortant = boundProject
+    // Ranger la disposition du sortant — pas ses statuts : les ptys vivent, et
+    // `patchStatus` les a déjà liés. Les oublier ici ferait un shell de plus à
+    // chaque retour.
+    if (sortant !== null) {
+      layoutsByProject.set(sortant, { groups, activeKey, poids })
+    }
+    const range = projectDir !== null ? layoutsByProject.get(projectDir) : undefined
+    boundProject = projectDir
+    if (range) {
+      // Restaurer : les clés de session existent encore, leurs composants
+      // sont montés (cachés), il n'y a qu'à les remontrer.
+      setGroups(range.groups)
+      setActiveKey(range.activeKey)
+      setPoids(range.poids)
+    } else {
+      // Première arrivée sur ce projet : demander au principal s'il lui reste
+      // des shells (rechargement du rendu), ou n'en ouvrir qu'un.
+      setGroups([])
+      setActiveKey("")
+      setPoids({})
+      window.queueMicrotask(() => void reprendre(projectDir))
+    }
   }
 
   // poser : installer les onglets repris sans écraser ce qui est arrivé entre-temps.
@@ -637,12 +665,19 @@ export function TerminalPanel(): JSX.Element {
   //
   // Le statut est semé AVANT que les composants montent : c'est lui qui dit à
   // la référence de rappel d'adopter au lieu de créer.
+  //
+  // Seulement à la première arrivée sur un projet (ou après un rechargement) :
+  // un basculement entre projets ouverts restaure `layoutsByProject` et n'a pas
+  // besoin de redemander — les clés de session sont encore vivantes.
   const reprendre = async (dir: string): Promise<void> => {
     const vivants = await window.zyvro.terminal.running().catch(() => [])
     // Le projet a pu changer pendant l'aller-retour. Adopter les shells d'un
     // dossier qu'on ne regarde plus donnerait des invites qui mentent sur
     // l'endroit où l'on se trouve.
     if ((useWorkspace.getState().project?.project ?? null) !== dir) return
+    // Des clés existent déjà pour ce projet (un basculement pendant l'attente,
+    // un `poser` arrivé plus tôt) : ne pas les écraser par une seconde liste.
+    if (layoutsByProject.has(dir) && layoutsByProject.get(dir)!.groups.flat().length > 0) return
     if (vivants.length === 0) {
       // Aucun shell vivant : la fenêtre a été fermée entre-temps et les
       // programmes sont morts avec elle — mesuré, un `npm run dev` est bien tué
@@ -779,6 +814,17 @@ export function TerminalPanel(): JSX.Element {
     forgetStatus(key)
   }
 
+  // Toutes les clés de session de tous les projets : celles du projet actif
+  // (dans `groups`) et celles des autres (dans `layoutsByProject`), qui
+  // doivent rester montées pour ne pas tuer leurs ptys.
+  const allMountedKeys = (() => {
+    const out = new Set<string>(sessions)
+    for (const layout of layoutsByProject.values()) {
+      for (const key of layout.groups.flat()) out.add(key)
+    }
+    return [...out]
+  })()
+
   if (projectDir === null) {
     return (
       <div className="flex h-full flex-col bg-background">
@@ -870,11 +916,12 @@ export function TerminalPanel(): JSX.Element {
             l'emboîter dans un conteneur de groupe le démonterait — son pty
             avec — dès que ce groupe change de forme (son premier shell fermé,
             un voisin ajouté). */}
-        {sessions.map((key) => {
+        {allMountedKeys.map((key) => {
           const group = groupOf(groups, key) ?? [key]
           const i = group.indexOf(key)
           const n = group.length
-          const visible = group.includes(activeKey)
+          const inProject = sessions.includes(key)
+          const visible = inProject && group.includes(activeKey)
           const { left, width } = placeIn(group.map((k) => poids[k] ?? 1), i)
           return (
             <div
@@ -882,13 +929,13 @@ export function TerminalPanel(): JSX.Element {
               className={cn(
                 "absolute inset-y-0",
                 !visible && "hidden",
-                i > 0 && "border-l border-white/[0.08]",
+                i > 0 && inProject && "border-l border-white/[0.08]",
                 // Le shell qui a la main, quand il y en a plusieurs.
                 n > 1 && key === activeKey && "shadow-[inset_0_1px_0_0_rgb(56_189_248/0.6)]"
               )}
-              style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
+              style={inProject ? { left: `${left * 100}%`, width: `${width * 100}%` } : { left: 0, width: "100%" }}
               onMouseDownCapture={() => {
-                if (key !== activeKey) setActiveKey(key)
+                if (inProject && key !== activeKey) setActiveKey(key)
               }}
             >
               <TerminalSession sessionKey={key} active={visible} />
@@ -926,7 +973,7 @@ export function TerminalPanel(): JSX.Element {
             />
           )
         })}
-        {sessions.length === 0 ? (
+        {allMountedKeys.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             No shell open.
           </div>

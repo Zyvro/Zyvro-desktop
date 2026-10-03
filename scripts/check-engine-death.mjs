@@ -204,7 +204,15 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
 
   check(
     "**le processus principal prévient la fenêtre**",
-    /ws\.daemon\.onStopped\(/.test(lire("src/main/ipc.ts")) && lire("src/main/ipc.ts").includes('send("engine:stopped"'),
+    // Un moteur par projet depuis que la fenêtre en tient plusieurs : chacun
+    // est branché à sa naissance (`wireDaemon`), et seul celui du projet actif
+    // parle — un moteur d'arrière-plan qui meurt n'efface pas le port d'un autre.
+    (/ws\.daemon\.onStopped\(/.test(lire("src/main/ipc.ts")) ||
+      (/slot\.daemon\.onStopped\(/.test(lire("src/main/ipc.ts")) &&
+        /if \(slot !== this\.activeSlot\) return/.test(lire("src/main/ipc.ts")) &&
+        /this\.wireDaemon\(slot\)/.test(lire("src/main/ipc.ts")) &&
+        /this\.wireDaemon\(this\.home\)/.test(lire("src/main/ipc.ts")))) &&
+      lire("src/main/ipc.ts").includes('send("engine:stopped"'),
     "la mort est remarquée et personne n'en est informé"
   )
   check("le pont la fait traverser", lire("src/preload/index.ts").includes('on("engine:stopped"'))

@@ -65,10 +65,18 @@ const lire = (p) => readFileSync(path.join(ROOT, p), "utf8")
   check("fermer plusieurs onglets aussi", /if \(!\(await graphsReadyToClose\(tabIds\)\)\) return false/.test(closing))
   check("**et la fenêtre**", /const graphes = unsavedGraphTabs\(\)/.test(closing) && /fermerApresLesGraphes/.test(closing))
   const projet = lire("src/renderer/lib/project.ts")
+  // Depuis le multi-projet, basculer / ajouter un projet ne FERME plus les
+  // onglets : chaque projet garde les siens (ProjectUi). Seul `closeProject`
+  // — fermer le projet actif — demande encore pour les brouillons.
   check(
-    "**changer de projet pose la question des brouillons**",
-    /if \(store\.project && store\.project\.project !== target && !\(await lacherLesOnglets\(\)\)\) return null/.test(projet) &&
-      /export async function closeProject\(\): Promise<void> \{\s*if \(!\(await lacherLesOnglets\(\)\)\) return/.test(projet)
+    "**fermer un projet pose la question des brouillons**",
+    /export async function closeProject\(\): Promise<void> \{[\s\S]*?lacherLesOnglets\(\)/.test(projet),
+    "quitter un projet perdrait ses modifications sans un mot"
+  )
+  check(
+    "et basculer entre projets ne ferme rien (multi-projet)",
+    !/if \(store\.project && store\.project\.project !== target && !\(await lacherLesOnglets\(\)\)\) return null/.test(projet),
+    "un basculement demanderait pour les brouillons d'un projet qu'on ne ferme pas"
   )
 }
 

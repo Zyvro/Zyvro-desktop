@@ -255,7 +255,22 @@ function mapThread(id: string, change: (thread: Thread) => Thread): void {
     touched = true
     return change(thread)
   })
-  if (!touched) return
+  if (!touched) {
+    // Le fil n'est pas à l'écran : il appartient peut-être à un projet en
+    // arrière-plan, dont l'état est rangé. Un tour en vol continue de parler
+    // même quand on a basculé — il faut que son fil reçoive, sinon on perd le
+    // streaming et le transcript.
+    for (const [project, snapshot] of chatByProject) {
+      const found = snapshot.threads.find((t) => t.id === id)
+      if (!found) continue
+      chatByProject.set(project, {
+        ...snapshot,
+        threads: snapshot.threads.map((t) => (t.id === id ? change(t) : t)),
+      })
+      return
+    }
+    return
+  }
   commit({ ...state, threads })
 }
 
@@ -534,13 +549,41 @@ function endTurn(id: string): void {
 // workspace store, which anything can watch. Opening a project is exactly when
 // its conversations become readable, and closing one is when the panel has to
 // stop showing somebody else's.
+//
+// Multi-projet : chaque projet garde SON état de conversations (fils, onglet
+// actif) dans `chatByProject`. Basculer range le sortant et restaure l'entrant
+// — un tour en vol continue de streaming dans le fil qui lui revient, même
+// quand ce fil n'est plus à l'écran. `restore()` ne sert qu'à la première
+// arrivée sur un projet (ou après un rechargement, quand la mémoire est vide).
+const chatByProject = new Map<string, ChatState>()
 let restoredFor: string | null = null
 useWorkspace.subscribe((workspace) => {
   const project = workspace.project?.project ?? null
   if (project === restoredFor) return
+  // Le sortant se range — y compris ses tours en vol, dont les événements
+  // continuent d'arriver et de mettre à jour `state` via `mapThread`. Il faut
+  // donc ranger APRÈS la dernière mise à jour, c'est-à-dire maintenant, et
+  // re-ranger à chaque commit tant qu'il est en vol… Non : `mapThread` écrit
+  // dans `state`, et `state` devient celui de l'entrant. On garde donc les
+  // tours liés par `turnToMessage` (global) et on accepte qu'un tour du
+  // sortant mette à jour un fil absent de l'écran — `mapThread` est un no-op
+  // sur un fil inconnu, et le persist au disque se fait quand même.
+  //
+  // En pratique : on range le sortant, on restaure l'entrant, et les tours du
+  // sortant continuent dans le principal. Quand on revient, `chatByProject`
+  // remonte le fil tel qu'il était — sauf les chunks arrivés entre-temps,
+  // qui sont dans le transcript du principal et seront relus au prochain
+  // `restore()` si la mémoire a été perdue. Pour les garder tout de suite,
+  // `mapThread` met aussi à jour la copie rangée.
+  if (restoredFor) chatByProject.set(restoredFor, state)
   restoredFor = project
   if (!project) {
     resetChat()
+    return
+  }
+  const range = chatByProject.get(project)
+  if (range) {
+    commit(range)
     return
   }
   void restore()

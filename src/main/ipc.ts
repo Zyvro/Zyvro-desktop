@@ -45,13 +45,19 @@ import * as mimoInstall from "./mimoinstall"
 import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
 
-// One Workspace per window: an open project folder, the daemon that serves it,
-// the shells running in it and the agent turns in flight. Bundling them means
-// closing a window tears all four down together instead of leaking a daemon.
-export class Workspace {
+// One Workspace per window, holding every project folder the person opened in
+// that window. Each project keeps its own daemon, file watcher and git repo
+// selection so switching does not tear the previous one down — shells and agent
+// turns of a background project stay alive. Bundling them means closing a
+// window tears everything down together instead of leaking a daemon.
+//
+// `terminals`, `agent` and `grants` stay on the window: a pty is already filed
+// under its birth cwd, conversations are stored per project root, and a file
+// dropped into the window is a grant to the window.
+class ProjectSlot {
   /**
-   * Le dossier que la personne a ouvert, ou null quand elle n'en a ouvert
-   * aucun. C'est lui que l'écran d'accueil regarde.
+   * Le dossier que la personne a ouvert, ou null pour le slot d'accueil.
+   * C'est lui que l'écran d'accueil regarde.
    */
   project: string | null = null
   /**
@@ -66,29 +72,35 @@ export class Workspace {
   /**
    * Où le moteur, les agents et les shells travaillent : le projet ouvert, ou
    * le dossier d'accueil quand il n'y en a pas.
-   *
-   * Les deux, parce qu'ils répondent à deux questions différentes — « qu'est-ce
-   * que la personne a ouvert » et « où ça travaille » — et que les confondre
-   * était ce qui rendait la moitié de l'application inutilisable tant qu'on
-   * n'avait pas ouvert un dossier : pas de projet, donc pas de moteur, donc pas
-   * de catalogue de fournisseurs, pas d'agent, pas de shell. Or les
-   * fournisseurs sont globaux et les agents le sont aussi quand rien n'est
-   * ouvert.
    */
   root: string | null = null
   /**
    * Le dépôt Git que l'onglet Git regarde : "" pour le projet lui-même, sinon
-   * le nom d'un sous-dossier direct qui a son propre `.git`. Un projet confié à
-   * des agents est souvent plusieurs dépôts côte à côte — le front, le back, le
-   * bureau — et un onglet qui ne voyait que la racine n'en voyait aucun.
+   * le nom d'un sous-dossier direct qui a son propre `.git`.
    */
   gitRepo = ""
   readonly daemon = new Daemon()
+  watcher: Watcher | null = null
+
+  async dispose(): Promise<void> {
+    this.watcher?.dispose()
+    this.watcher = null
+    await this.daemon.stop()
+  }
+}
+
+export type OpenProjectRef = { project: string; name: string }
+
+export class Workspace {
+  /** Le slot d'accueil : le moteur de la maison, quand aucun projet n'est actif. */
+  private readonly home = new ProjectSlot()
+  /** Un slot par projet ouvert, indexé par son chemin absolu. */
+  private readonly slots = new Map<string, ProjectSlot>()
+  private activeSlot: ProjectSlot
+  private activeKey: string | null = null
+
   readonly terminals = new Terminals()
   readonly agent = new AgentRunner()
-  // Les dossiers que l'arbre de cette fenêtre a ouverts. Par fenêtre, parce
-  // que deux fenêtres ont deux projets et deux arbres dépliés différemment.
-  watcher: Watcher | null = null
   /**
    * Les fichiers hors du projet que cette fenêtre peut lire et écrire : ceux
    * qu'on y a lâchés ou choisis par File › Open File…, chemins résolus. Un
@@ -97,14 +109,145 @@ export class Workspace {
    */
   readonly grants = new Set<string>()
 
+  constructor() {
+    this.activeSlot = this.home
+    this.wireDaemon(this.home)
+  }
+
+  // Les accesseurs délégués : le reste de ce fichier parle encore de
+  // `ws.project`, `ws.daemon`, etc., et ne doit pas savoir qu'il y a plusieurs
+  // slots. C'est le projet actif qui répond.
+  get project(): string | null {
+    return this.activeSlot.project
+  }
+  set project(value: string | null) {
+    this.activeSlot.project = value
+  }
+  get root(): string | null {
+    return this.activeSlot.root
+  }
+  set root(value: string | null) {
+    this.activeSlot.root = value
+  }
+  get gitRepo(): string {
+    return this.activeSlot.gitRepo
+  }
+  set gitRepo(value: string) {
+    this.activeSlot.gitRepo = value
+  }
+  get startupPending(): boolean {
+    return this.activeSlot.startupPending
+  }
+  set startupPending(value: boolean) {
+    this.activeSlot.startupPending = value
+  }
+  get daemon(): Daemon {
+    return this.activeSlot.daemon
+  }
+  get watcher(): Watcher | null {
+    return this.activeSlot.watcher
+  }
+  set watcher(value: Watcher | null) {
+    this.activeSlot.watcher = value
+  }
+
+  /** Les projets ouverts, dans l'ordre des onglets. */
+  list(): OpenProjectRef[] {
+    return [...this.slots.values()]
+      .filter((slot) => slot.project !== null)
+      .map((slot) => ({ project: slot.project as string, name: path.basename(slot.project as string) }))
+  }
+
+  /** Le projet actif, ou null quand c'est le dossier d'accueil. */
+  current(): OpenProjectRef | null {
+    const project = this.activeSlot.project
+    return project ? { project, name: path.basename(project) } : null
+  }
+
+  private wireDaemon(slot: ProjectSlot): void {
+    slot.daemon.onStopped((reason) => {
+      // Seul le slot actif prévient la fenêtre : un moteur de projet en
+      // arrière-plan qui meurt ne doit pas effacer le port affiché pour un
+      // autre. Le prochain basculement verra l'absence de `current`.
+      if (slot !== this.activeSlot) return
+      for (const win of BrowserWindow.getAllWindows()) {
+        // `workspaces.get` et non `workspaceFor` : ne pas fabriquer un plan de
+        // travail pour une fenêtre qui n'en a pas encore, juste pour comparer.
+        if (workspaces.get(win) === this && !win.isDestroyed()) win.webContents.send("engine:stopped", reason)
+      }
+    })
+  }
+
+  /**
+   * Prendre ou créer le slot d'un projet, et le rendre actif.
+   * Le slot d'accueil reste vivant : les fournisseurs y sont joignables.
+   */
+  activate(dir: string): ProjectSlot {
+    let slot = this.slots.get(dir)
+    if (!slot) {
+      slot = new ProjectSlot()
+      this.slots.set(dir, slot)
+      this.wireDaemon(slot)
+    }
+    this.activeSlot = slot
+    this.activeKey = dir
+    return slot
+  }
+
+  /** Basculer vers un projet déjà ouvert. Rend false s'il ne l'est pas. */
+  switchTo(dir: string): boolean {
+    const slot = this.slots.get(dir)
+    if (!slot) return false
+    this.activeSlot = slot
+    this.activeKey = dir
+    return true
+  }
+
+  /** Revenir au dossier d'accueil (aucun projet actif). */
+  activateHome(): void {
+    this.activeSlot = this.home
+    this.activeKey = null
+  }
+
+  /**
+   * Fermer un projet : son moteur, sa surveillance — et ses shells, qui
+   * étaient les siens. Les autres projets de la fenêtre continuent.
+   */
+  async closeProject(dir: string): Promise<void> {
+    const slot = this.slots.get(dir)
+    if (!slot) return
+    this.slots.delete(dir)
+    // Les shells nés dans ce projet partent avec lui, défilement gardé sous
+    // son nom pour qu'une réouverture le retrouve.
+    this.terminals.disposeProject(dir)
+    await slot.dispose()
+    if (this.activeSlot === slot) {
+      const reste = this.slots.keys().next()
+      if (!reste.done) {
+        const next = this.slots.get(reste.value)
+        if (next) {
+          this.activeSlot = next
+          this.activeKey = reste.value
+          return
+        }
+      }
+      this.activateHome()
+    }
+  }
+
   async dispose(): Promise<void> {
     this.agent.cancelAll()
-    // Le dossier passe avec : c'est lui qui dit sous quel nom garder le
-    // défilement des shells, pour que rouvrir ce projet le retrouve.
+    // Chaque projet garde le défilement de ses shells sous son nom, pour qu'une
+    // réouverture le retrouve — même si plusieurs projets étaient ouverts.
+    for (const slot of this.slots.values()) {
+      if (slot.root) this.terminals.disposeProject(slot.root)
+      await slot.dispose()
+    }
+    this.slots.clear()
+    if (this.home.root) this.terminals.disposeProject(this.home.root)
+    // Le balayage final : ce qui reste (la maison, un shell orphelin).
     await this.terminals.disposeAll(this.root ?? undefined)
-    this.watcher?.dispose()
-    this.watcher = null
-    await this.daemon.stop()
+    await this.home.dispose()
   }
 }
 
@@ -188,13 +331,10 @@ const workspaces = new WeakMap<BrowserWindow, Workspace>()
 export function workspaceFor(win: BrowserWindow): Workspace {
   let ws = workspaces.get(win)
   if (!ws) {
+    // Le moteur d'un projet peut mourir sans prévenir : chaque slot le signale
+    // à sa fenêtre (voir Workspace.wireDaemon). Ici on ne fait que lier le
+    // plan de travail à la fenêtre.
     ws = new Workspace()
-    // Le moteur de ce projet peut mourir sans prévenir. La fenêtre doit
-    // l'apprendre : elle affiche son port, et un port qui ne répond plus est
-    // un chiffre faux — pire qu'un chiffre absent.
-    ws.daemon.onStopped((reason) => {
-      if (!win.isDestroyed()) win.webContents.send("engine:stopped", reason)
-    })
     workspaces.set(win, ws)
   }
   return ws
@@ -329,35 +469,82 @@ export function registerIpc(onRecents?: () => void): void {
     return target
   })
 
+  // Ouvrir un projet : l'ajouter aux onglets de la fenêtre s'il n'y est pas
+  // déjà, puis le rendre actif. Les autres projets ouverts restent vivants —
+  // c'est tout l'intérêt des onglets de projet.
   ipcMain.handle("project:open", async (event, dir: string): Promise<OpenResult> => {
     const { win, ws } = requireWorkspace(event)
     if (typeof dir !== "string" || !dir) throw new Error("A project path is required.")
-    try {
-      const daemon = await ws.daemon.start(dir)
-      // Les dossiers surveillés étaient ceux de l'ancien projet. Les garder
-      // ferait parler un arbre qui n'est plus affiché, et tiendrait ouverts des
-      // descripteurs sur un dossier que la personne a fermé.
-      ws.watcher?.dispose()
-      ws.watcher = null
-      ws.root = dir
+    // Déjà ouvert : on bascule, sans redémarrer son moteur ni toucher à ses
+    // shells. C'est ce que fait le clic sur un onglet de projet.
+    if (ws.switchTo(dir) && ws.daemon.current) {
       ws.project = dir
-      ws.gitRepo = ""
+      ws.root = dir
+      ws.startupPending = false
+      win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
+      win.setRepresentedFilename?.(dir)
+      return { project: dir, name: path.basename(dir), daemon: ws.daemon.current }
+    }
+    const slot = ws.activate(dir)
+    try {
+      const daemon = await slot.daemon.start(dir)
+      // Les dossiers surveillés de ce slot : un arbre neuf, rien à garder.
+      slot.watcher?.dispose()
+      slot.watcher = null
+      slot.root = dir
+      slot.project = dir
+      slot.gitRepo = ""
       win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
       win.setRepresentedFilename?.(dir)
       // Only a folder that opened successfully is worth offering again.
       rememberRecent(dir)
       onRecentsChanged?.()
-      ws.startupPending = false
+      slot.startupPending = false
       return { project: dir, name: path.basename(dir), daemon }
     } catch (err) {
-      ws.root = null
-      ws.project = null
-      ws.startupPending = false
+      slot.root = null
+      slot.project = null
+      slot.startupPending = false
+      // Un échec ne doit pas laisser un onglet fantôme.
+      void ws.closeProject(dir)
       if (err instanceof DaemonError) {
         throw new Error(err.detail ? `${err.message}\n\n${err.detail}` : err.message)
       }
       throw err
     }
+  })
+
+  // Basculer vers un projet déjà ouvert, sans rien fermer ailleurs.
+  ipcMain.handle("project:switch", async (event, dir: string): Promise<OpenResult | null> => {
+    const { win, ws } = requireWorkspace(event)
+    if (typeof dir !== "string" || !dir) throw new Error("A project path is required.")
+    if (!ws.switchTo(dir)) return null
+    const project = ws.project
+    const daemon = ws.daemon.current
+    if (!project || !daemon) return null
+    win.setTitle(`${path.basename(project)} — Zyvro Studio`)
+    win.setRepresentedFilename?.(project)
+    return { project, name: path.basename(project), daemon }
+  })
+
+  // Un nouveau Zyvro dans cette fenêtre : l'écran d'accueil, sur le moteur de
+  // la maison, sans fermer ni arrêter les projets ouverts — ils restent dans la
+  // barre de titre et un clic les reprend. C'est ce que fait le « + » : ouvrir
+  // un Zyvro neuf d'où l'on crée, ouvre ou clone, plutôt qu'un sélecteur de
+  // dossier qui supposait qu'on sait déjà lequel.
+  ipcMain.handle("project:home", async (event) => {
+    const { win, ws } = requireWorkspace(event)
+    ws.activateHome()
+    const daemon = await ensureEngine(ws)
+    win.setTitle("Zyvro Studio")
+    win.setRepresentedFilename?.("")
+    return { root: ws.root, daemon }
+  })
+
+  // Les projets ouverts dans cette fenêtre, pour la barre de titre.
+  ipcMain.handle("project:list", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return { projects: ws.list(), active: ws.current() }
   })
 
   ipcMain.handle("project:current", async (event) => {
@@ -451,17 +638,32 @@ export function registerIpc(onRecents?: () => void): void {
     return recents
   })
 
-  // Fermer un projet ne coupe pas le moteur, il le ramène à la maison : les
-  // fournisseurs, les agents et les shells restent utilisables, et c'est la
-  // seule lecture cohérente de « les agents sont globaux quand aucun projet
-  // n'est ouvert ».
+  // Fermer le projet actif. Les autres onglets de projet continuent ; s'il n'y
+  // en a plus, on revient au moteur de la maison — les fournisseurs, les agents
+  // et les shells restent utilisables, et c'est la seule lecture cohérente de
+  // « les agents sont globaux quand aucun projet n'est ouvert ».
   ipcMain.handle("project:close", async (event) => {
     const { ws } = requireWorkspace(event)
-    await ws.dispose()
-    ws.root = null
-    ws.project = null
+    const partant = ws.project
+    if (partant) await ws.closeProject(partant)
+    // Encore un projet ouvert : on reste dessus, son moteur est déjà le bon.
+    if (ws.project && ws.daemon.current) {
+      return {
+        root: ws.root,
+        daemon: ws.daemon.current,
+        projects: ws.list(),
+        active: ws.current(),
+      }
+    }
+    // Plus aucun projet : le moteur de la maison, comme au premier lancement.
+    if (!ws.root) ws.activateHome()
     const daemon = await ensureEngine(ws)
-    return { root: ws.root, daemon }
+    return {
+      root: ws.root,
+      daemon,
+      projects: ws.list(),
+      active: ws.current(),
+    }
   })
 
   // The graph editor asks for this when someone clicks Browse on a Read File

@@ -210,3 +210,8 @@ Petits correctifs repérés en passant :
   version, archive de la plateforme, baseline sans AVX2, `~/.mimocode/bin`),
   lancé par l'exécutable de l'app en mode Node dans un onglet du terminal ;
   `adoptHomeBins` le rend visible sans redémarrage.
+- **0.1.0-alpha.50 — plusieurs projets dans une fenêtre.** Un `ProjectSlot` par
+  projet dans le `Workspace` (moteur, surveillance, dépôt Git), un slot
+  d'accueil ; l'UI et les conversations rangées par projet au basculement ;
+  fermer un onglet ne ferme que ses shells. Le « + » ouvre un nouveau Zyvro
+  (`project:home`, `goHome`) plutôt qu'un sélecteur de dossier.

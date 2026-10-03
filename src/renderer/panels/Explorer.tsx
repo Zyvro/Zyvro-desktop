@@ -244,8 +244,37 @@ export function Explorer() {
   const project = useWorkspace((s) => s.project)
   const openFile = useWorkspace((s) => s.openFile)
   const activeTabId = useWorkspace((s) => s.activeTabId)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  // Les dossiers dépliés, PAR PROJET : basculer replie l'arbre du sortant et
+  // restaure celui de l'entrant, au lieu de tout aplatir. `patchUi` / `uiOf`
+  // de `state/workspace` tiennent la copie rangée ; ici on ne garde que le Set
+  // du projet actif, celui qu'on dessine.
+  const [expanded, setExpanded] = useState<Set<string>>(() => {
+    const path = useWorkspace.getState().project?.project
+    return new Set(path ? useWorkspace.getState().uiOf(path)?.expanded ?? [] : [])
+  })
   const client = useQueryClient()
+  // Quand le projet change, recharger l'expanded du nouveau. Pendant le rendu,
+  // comme le panneau du bas : un effet serait une subscription de plus, et la
+  // doctrine du dépôt les interdit.
+  const expandedFor = project?.project ?? ""
+  const [expandedBound, setExpandedBound] = useState(expandedFor)
+  if (expandedFor !== expandedBound) {
+    // Ranger le sortant avant de restaurer l'entrant.
+    if (expandedBound) {
+      useWorkspace.getState().patchUi(expandedBound, { expanded: [...expanded] })
+    }
+    setExpandedBound(expandedFor)
+    setExpanded(new Set(expandedFor ? useWorkspace.getState().uiOf(expandedFor)?.expanded ?? [] : []))
+  }
+  // Toute mutation de l'expanded se répercute sur la copie rangée, pour qu'un
+  // basculement la retrouve.
+  const setExpandedForProject = (next: Set<string> | ((prev: Set<string>) => Set<string>)): void => {
+    setExpanded((prev) => {
+      const value = typeof next === "function" ? next(prev) : next
+      if (expandedFor) useWorkspace.getState().patchUi(expandedFor, { expanded: [...value] })
+      return value
+    })
+  }
 
   // Un seul menu contextuel pour tout l'arbre, et ce qu'il vise.
   //
@@ -274,7 +303,7 @@ export function Explorer() {
   // plus : un `node_modules` replié ne coûte rien.
   const toggle = useMemo(
     () => (path: string) =>
-      setExpanded((current) => {
+      setExpandedForProject((current) => {
         const next = new Set(current)
         if (next.has(path)) {
           next.delete(path)
@@ -292,7 +321,7 @@ export function Explorer() {
   // qu'il vient d'écrire, et un survol, qui ouvre le dossier qu'on vise.
   const deplier = (path: string): void => {
     if (path === "") return
-    setExpanded((current) => {
+    setExpandedForProject((current) => {
       if (current.has(path)) return current
       watchDir(path)
       return new Set(current).add(path)
@@ -441,7 +470,7 @@ export function Explorer() {
     if (actif) {
       const manquants = ancestorsOf(actif).filter((d) => !expanded.has(d))
       if (manquants.length > 0) {
-        setExpanded((current) => {
+        setExpandedForProject((current) => {
           const next = new Set(current)
           for (const d of manquants) {
             if (!next.has(d)) {
@@ -478,7 +507,7 @@ export function Explorer() {
   const frappe = useRef({ typed: "", at: 0 })
 
   const toutReplier = (): void => {
-    setExpanded((current) => {
+    setExpandedForProject((current) => {
       for (const d of current) unwatchDir(d)
       return new Set()
     })

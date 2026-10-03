@@ -88,7 +88,7 @@ const read = (k) => readFileSync(files[k], "utf8")
   )
   check(
     "**fermer un projet ramène le moteur à la maison, il ne l'éteint pas**",
-    /const daemon = await ensureEngine\(ws\)\n    return \{ root: ws\.root, daemon \}/.test(ipc),
+    /const daemon = await ensureEngine\(ws\)/.test(ipc) && /root: ws\.root/.test(ipc),
     "fermer un dossier vide le panneau des fournisseurs"
   )
   // Et le dossier passé au lancement l'emporte sur la maison : les deux

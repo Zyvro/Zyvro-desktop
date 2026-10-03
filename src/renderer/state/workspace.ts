@@ -44,6 +44,26 @@ export type Tab =
 
 export type PanelKey = "explorer" | "search" | "terminal" | "agent" | "git"
 
+/**
+ * L'UI d'un projet mise de côté pendant qu'un autre est au premier plan.
+ *
+ * Onglets, brouillons, panneaux — tout ce que la fenêtre montre pour CE projet.
+ * Un autre projet a la sienne : basculer remplace l'une par l'autre au lieu de
+ * tout fermer. Les shells et les agents, eux, continuent en arrière-plan ; c'est
+ * leur affichage qui se range ici.
+ */
+export type ProjectUi = {
+  tabs: Tab[]
+  activeTabId: string
+  drafts: Record<string, string>
+  closedFiles: string[]
+  split: { ids: string[]; active: string } | null
+  focusedGroup: "main" | "split"
+  panels: Record<PanelKey, boolean>
+  /** Les dossiers dépliés dans l'arbre, relatifs à la racine. */
+  expanded: string[]
+}
+
 // Two ways of working, and they are genuinely two — not a set of panels that
 // happen to be toggled differently.
 //
@@ -85,6 +105,11 @@ export function sidebarView(panels: Record<PanelKey, boolean>): SidebarView | nu
 }
 
 type WorkspaceState = {
+  /**
+   * Les projets ouverts dans cette fenêtre, dans l'ordre des onglets de la
+   * barre de titre. `project` est l'un d'eux — celui qu'on regarde.
+   */
+  projects: { project: string; name: string }[]
   project: OpenResult | null
   /**
    * Où le moteur travaille : le dossier du projet, ou celui d'accueil quand
@@ -121,6 +146,28 @@ type WorkspaceState = {
   mode: Mode
 
   setProject: (project: OpenResult | null) => void
+  /**
+   * Ajouter un projet aux onglets (sans fermer les autres) et le rendre actif.
+   * S'il y est déjà, c'est un basculement.
+   */
+  addProject: (project: OpenResult) => void
+  /**
+   * Basculer vers un projet déjà ouvert. L'UI du sortant est rangée, celle de
+   * l'entrant restaurée — onglets, panneaux, arbre. Rend false s'il n'est pas
+   * dans la liste.
+   */
+  switchProject: (project: OpenResult) => boolean
+  /** Retirer un projet des onglets (son UI rangée disparaît avec lui). */
+  removeProject: (path: string) => void
+  /**
+   * Un nouveau Zyvro : l'écran d'accueil, aucun projet actif, et les projets
+   * ouverts qui restent dans la barre — l'UI de celui qu'on quitte est rangée.
+   */
+  goHome: () => void
+  /** L'UI mise de côté d'un projet, pour que ses panneaux la complètent. */
+  uiOf: (path: string) => ProjectUi | undefined
+  /** Écrire dans l'UI rangée d'un projet (expanded de l'arbre, etc.). */
+  patchUi: (path: string, patch: Partial<ProjectUi>) => void
   setRoot: (root: string | null) => void
   setOpening: (opening: boolean) => void
   setOpenError: (message: string) => void
@@ -169,6 +216,56 @@ type WorkspaceState = {
 }
 
 const WELCOME: Tab = { kind: "welcome", id: "welcome", title: "Welcome" }
+
+// L'UI des projets en arrière-plan, par chemin absolu. Hors du magasin : c'est
+// une réserve, pas quelque chose qu'un composant affiche — le magasin porte
+// toujours l'UI du projet actif, et c'est celle-là que React lit.
+const parkedUi = new Map<string, ProjectUi>()
+
+function defaultPanels(): Record<PanelKey, boolean> {
+  return { explorer: true, search: false, terminal: true, agent: true, git: false }
+}
+
+function defaultUi(): ProjectUi {
+  return {
+    tabs: [],
+    activeTabId: "",
+    drafts: {},
+    closedFiles: [],
+    split: null,
+    focusedGroup: "main",
+    panels: defaultPanels(),
+    expanded: [],
+  }
+}
+
+/** L'UI visible, telle qu'elle sera rangée si on bascule. */
+function captureUi(s: WorkspaceState): ProjectUi {
+  return {
+    tabs: s.tabs,
+    activeTabId: s.activeTabId,
+    drafts: s.drafts,
+    closedFiles: s.closedFiles,
+    split: s.split,
+    focusedGroup: s.focusedGroup,
+    panels: s.panels,
+    // `expanded` est tenu à jour par l'arbre via `patchUi` ; on relit la
+    // dernière valeur connue plutôt que de deviner depuis `panels`.
+    expanded: parkedUi.get(s.project?.project ?? "")?.expanded ?? [],
+  }
+}
+
+function applyUi(ui: ProjectUi): Partial<WorkspaceState> {
+  return {
+    tabs: ui.tabs,
+    activeTabId: ui.activeTabId,
+    drafts: ui.drafts,
+    closedFiles: ui.closedFiles,
+    split: ui.split,
+    focusedGroup: ui.focusedGroup,
+    panels: ui.panels,
+  }
+}
 
 // Les vues de navigateur sont numérotées dans l'ordre où on les ouvre, et le
 // numéro ne se réutilise pas : un agent qui tient « browser:2 » ne doit pas se
@@ -238,6 +335,7 @@ function nextActive(tabs: Tab[], closedIndex: number): string {
 }
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
+  projects: [],
   project: null,
   root: null,
   opening: false,
@@ -250,19 +348,145 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   split: null,
   focusedGroup: "main",
 
-  panels: { explorer: true, search: false, terminal: true, agent: true, git: false },
+  panels: defaultPanels(),
   mode: savedMode(),
 
-  // Opening a project clears the editor area rather than leaving Welcome in it.
-  // Welcome exists to answer "there is no project"; once there is one it is a
-  // page about nothing, sitting where the first file should go, and it has to
-  // be closed by hand before the window looks like an editor.
+  // Ouvrir un projet vide l'éditeur plutôt que de laisser Welcome. Welcome
+  // répond à « il n'y a pas de projet » ; dès qu'il y en a un, c'est une page
+  // sur rien, à la place du premier fichier, et il faut la fermer à la main
+  // pour que la fenêtre ait l'air d'un éditeur.
+  //
+  // Ce `setProject` est le chemin « il n'y a qu'un projet » (démarrage,
+  // remplacement). Le multi-projet passe par `addProject` / `switchProject`.
   setProject: (project) =>
     set(
       project
-        ? { project, root: project.project, openError: "", opening: false, tabs: [], activeTabId: "", drafts: {}, closedFiles: [] }
-        : { project: null, tabs: [WELCOME], activeTabId: WELCOME.id, drafts: {}, closedFiles: [] }
+        ? {
+            projects: [{ project: project.project, name: project.name }],
+            project,
+            root: project.project,
+            openError: "",
+            opening: false,
+            tabs: [],
+            activeTabId: "",
+            drafts: {},
+            closedFiles: [],
+            split: null,
+            focusedGroup: "main",
+            panels: defaultPanels(),
+          }
+        : {
+            projects: [],
+            project: null,
+            tabs: [WELCOME],
+            activeTabId: WELCOME.id,
+            drafts: {},
+            closedFiles: [],
+            split: null,
+            focusedGroup: "main",
+          }
     ),
+
+  addProject: (project) => {
+    const s = get()
+    const deja = s.projects.some((p) => p.project === project.project)
+    if (deja) {
+      get().switchProject(project)
+      return
+    }
+    // Le sortant se range ; l'entrant part d'une UI neuve — on ouvre un
+    // projet pour y travailler, pas pour hériter des onglets d'un autre.
+    if (s.project) parkedUi.set(s.project.project, captureUi(s))
+    parkedUi.set(project.project, defaultUi())
+    set({
+      projects: [...s.projects, { project: project.project, name: project.name }],
+      project,
+      root: project.project,
+      openError: "",
+      opening: false,
+      ...applyUi(defaultUi()),
+    })
+  },
+
+  switchProject: (project) => {
+    const s = get()
+    const cible = s.projects.find((p) => p.project === project.project)
+    if (!cible) return false
+    if (s.project?.project === project.project) {
+      // Déjà actif : on rafraîchit au moins le daemon (un moteur peut avoir
+      // redémarré), sans toucher à l'UI.
+      set({ project })
+      return true
+    }
+    // Le sortant se range — s'il y en a un. Un basculement depuis Welcome
+    // (démarrage) n'a rien à ranger.
+    if (s.project) parkedUi.set(s.project.project, captureUi(s))
+    const ui = parkedUi.get(project.project) ?? defaultUi()
+    parkedUi.set(project.project, ui)
+    set({ project, root: project.project, openError: "", opening: false, ...applyUi(ui) })
+    return true
+  },
+
+  goHome: () => {
+    const s = get()
+    if (s.project) parkedUi.set(s.project.project, captureUi(s))
+    set({
+      project: null,
+      openError: "",
+      opening: false,
+      tabs: [WELCOME],
+      activeTabId: WELCOME.id,
+      drafts: {},
+      closedFiles: [],
+      split: null,
+      focusedGroup: "main",
+      panels: defaultPanels(),
+    })
+  },
+
+  removeProject: (path) => {
+    const s = get()
+    parkedUi.delete(path)
+    const projects = s.projects.filter((p) => p.project !== path)
+    if (s.project?.project !== path) {
+      set({ projects })
+      return
+    }
+    // Le projet actif part : on bascule sur le voisin, ou sur Welcome.
+    const reste = projects[0]
+    if (!reste) {
+      parkedUi.clear()
+      set({
+        projects: [],
+        project: null,
+        tabs: [WELCOME],
+        activeTabId: WELCOME.id,
+        drafts: {},
+        closedFiles: [],
+        split: null,
+        focusedGroup: "main",
+        panels: defaultPanels(),
+      })
+      return
+    }
+    const ui = parkedUi.get(reste.project) ?? defaultUi()
+    parkedUi.set(reste.project, ui)
+    // Le daemon du voisin est déjà celui du principal (on bascule dessus) ;
+    // `lib/project.ts` complète avec `attachDaemon` après nous.
+    set({
+      projects,
+      project: { project: reste.project, name: reste.name, daemon: s.project?.daemon as OpenResult["daemon"] },
+      root: reste.project,
+      ...applyUi(ui),
+    })
+  },
+
+  uiOf: (path) => parkedUi.get(path),
+  patchUi: (path, patch) => {
+    const ui = parkedUi.get(path) ?? defaultUi()
+    parkedUi.set(path, { ...ui, ...patch })
+  },
+
   setRoot: (root) => set({ root }),
   setOpening: (opening) => set({ opening }),
   setOpenError: (openError) => set({ openError, opening: false }),

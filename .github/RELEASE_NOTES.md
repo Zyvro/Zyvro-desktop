@@ -49,6 +49,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.50
+
+**Several projects in one window.** Each project you open gets its own tab in
+the title bar, and switching between them no longer closes anything: every
+project keeps its own local engine, its open files, its shells and its agent
+conversations — a turn still running in a project you switched away from keeps
+going and is there when you come back. Closing a project's tab closes only that
+project; dropping a folder on the window adds it as a tab.
+
+**The + opens a new Zyvro.** The **+** next to the project tabs used to go
+straight to a folder picker. It now opens a fresh Zyvro in the same window —
+the welcome screen, where you create, open or clone a project — while the
+projects you already have stay open in the title bar.
+
+**`npm run dev` no longer kills the terminal that starts it**, and runs beside
+an installed Zyvro Studio instead of quitting.
+
 ## New in alpha.49
 
 **MiMo Code installs from the app, on Windows too.** When MiMo Code is missing,

@@ -57,10 +57,10 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   // Et le `null` ne doit pas non plus être retenu : mémorisé, le retour du
   // chemin passerait pour un changement de projet et remplacerait les sessions
   // quand même — le défaut reviendrait par la porte de derrière.
-  const bloc = panel.slice(panel.indexOf("if (projectDir !== null"), panel.indexOf("if (projectDir !== null") + 400)
+  const bloc = panel.slice(panel.indexOf("if (projectDir !== null"), panel.indexOf("if (projectDir !== null") + 900)
   check(
     "**et un `null` ne s'enregistre pas comme projet courant**",
-    !/setBoundProject\(null\)/.test(panel) && bloc.includes("setBoundProject(projectDir)"),
+    !/setBoundProject\(null\)/.test(panel) && !/boundProject = null/.test(panel) && bloc.includes("boundProject = projectDir"),
     "le retour du même projet serait pris pour un changement"
   )
 
@@ -88,7 +88,9 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
 // ---- qui a le droit de tout fermer d'un coup -----------------------------
 {
   // `disposeAll` ne doit être appelé que par `dispose()` du plan de travail, et
-  // ce plan de travail ne doit être jeté que par trois chemins.
+  // ce plan de travail ne doit être jeté que par trois chemins — plus
+  // `closeProject`, qui ne tue que les shells d'un projet (le multi-projet en
+  // ouvre plusieurs dans la même fenêtre).
   // Le dossier passe avec, depuis le 19/09 : c'est lui qui dit sous quel nom
   // garder le défilement pour la prochaine ouverture.
   check("tout fermer passe par le plan de travail", ipc.includes("this.terminals.disposeAll(this.root ?? undefined)"))
@@ -99,11 +101,12 @@ const terminal = readFileSync(path.join(ROOT, "src/main/terminal.ts"), "utf8")
   // version, première fausse alerte.
   const parLaFenetre = [...index.matchAll(/disposeWorkspace\(win\)/g)].length
   const direct = [...ipc.matchAll(/ws\.dispose\(\)/g)].length
+  const partiel = [...ipc.matchAll(/closeProject\(/g)].length
   check(
-    "**et trois chemins seulement y mènent**",
-    parLaFenetre === 2 && direct === 2,
-    `${parLaFenetre} par la fenêtre (attendu 2 : fermeture et arrêt) et ${direct} dans ipc.ts ` +
-      `(attendu 2 : « project:close » et le corps de disposeWorkspace) — un de plus est un chemin nouveau`
+    "**et trois chemins seulement y mènent (plus closeProject, partiel)**",
+    parLaFenetre === 2 && direct === 1 && partiel >= 1,
+    `${parLaFenetre} par la fenêtre (attendu 2 : fermeture et arrêt), ${direct} ws.dispose() dans ipc.ts ` +
+      `(attendu 1 : le corps de disposeWorkspace), ${partiel} closeProject (projet parmi d'autres)`
   )
   check("la fenêtre qui se ferme", index.includes('win.on("closed"'))
   check("l'application qui quitte", index.includes('app.on("before-quit"'))

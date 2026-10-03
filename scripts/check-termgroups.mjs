@@ -100,9 +100,13 @@ check("un shell fermé depuis ne laisse pas de trou qui gêne", j(t.regroup(["s1
 
 {
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
+  // `allMountedKeys` (et non `sessions`) : le multi-projet garde montés les
+  // shells de TOUS les projets ouverts — les démonter tuerait leurs ptys. Le
+  // critère qui compte est le même : chaque shell est un enfant direct, sous sa
+  // clé, pas emboîter dans un conteneur de groupe.
   check(
     "**chaque shell est un enfant direct, sous sa clé**",
-    /\{sessions\.map\(\(key\) => \{\s*const group = groupOf\(groups, key\)/.test(panneau) &&
+    /\{allMountedKeys\.map\(\(key\) => \{\s*const group = groupOf\(groups, key\)/.test(panneau) &&
       /<TerminalSession sessionKey=\{key\} active=\{visible\} \/>/.test(panneau)
   )
   const pont = readFileSync(path.join(ROOT, "src/renderer/lib/menuBridge.ts"), "utf8")

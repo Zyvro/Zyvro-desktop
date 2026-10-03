@@ -8,10 +8,10 @@ import { useWorkspace } from "~/state/workspace"
 import { engineAttached, engineStarted } from "~/state/engine"
 import { requestCloseTabs } from "./closing"
 
-// Changer de projet ferme tous ses onglets : la même question qu'en les
-// fermant — Save / Don't Save / Cancel pour les fichiers modifiés, et les
-// graphes attendent leur enregistrement. Avant, un brouillon partait sans un
-// mot avec le projet.
+// Changer de projet ne ferme plus les onglets des autres : chacun garde les
+// siens (voir `switchProject`). Fermer un projet, si, demande encore pour les
+// fichiers modifiés — Save / Don't Save / Cancel — et un enregistrement raté ne
+// ferme rien.
 async function lacherLesOnglets(): Promise<boolean> {
   const { tabs } = useWorkspace.getState()
   return requestCloseTabs(tabs.map((t) => t.id))
@@ -21,11 +21,60 @@ async function lacherLesOnglets(): Promise<boolean> {
 // daemon, points the shared API client at it, and gives the file tree a root.
 // It lives here as a plain function, not only as a hook, because the File menu
 // has to be able to trigger it from outside the React tree.
+//
+// Plusieurs projets peuvent être ouverts dans la même fenêtre : `openProject`
+// en AJOUTE un (ou bascule s'il y est déjà) au lieu de remplacer.
 
 export const projectKey = ["project", "current"] as const
+export const projectListKey = ["project", "list"] as const
 export const workflowsKey = ["local", "workflows"] as const
 export const nodesKey = ["local", "nodes"] as const
 export const recentsKey = ["project", "recents"] as const
+
+// adoptOpened : un projet vient de s'ouvrir (ou de redevenir actif). Branche le
+// client API sur son moteur, annonce le moteur, et range l'UI du sortant.
+function adoptOpened(result: OpenResult | null): OpenResult | null {
+  if (result) engineStarted()
+  if (result) attachDaemon(result.daemon.origin, result.daemon.token)
+  if (result) engineAttached()
+  // Pas de `detachDaemon()` ici : fermer un projet ramène le moteur à la
+  // maison, il ne l'éteint pas. Détacher l'adresse rendrait le panneau des
+  // fournisseurs inutilisable pour la seule raison qu'on a fermé un dossier.
+  // Node packs belong to a project. Closing one has to take its nodes with it,
+  // or the palette would go on offering a type the next project cannot run.
+  if (!result) registerPluginKinds([])
+  useWorkspace.getState().setProject(result)
+  return result
+}
+
+// adoptAdded : un projet s'ajoute aux onglets (ou devient actif). Comme
+// adoptOpened, mais sans jeter l'UI des autres projets.
+function adoptAdded(result: OpenResult): OpenResult {
+  engineStarted()
+  attachDaemon(result.daemon.origin, result.daemon.token)
+  engineAttached()
+  useWorkspace.getState().addProject(result)
+  return result
+}
+
+// adoptSwitched : on bascule vers un projet déjà ouvert. L'UI se range toute
+// seule dans `switchProject` ; ici on ne rebranche que le moteur.
+function adoptSwitched(result: OpenResult): OpenResult {
+  engineStarted()
+  attachDaemon(result.daemon.origin, result.daemon.token)
+  engineAttached()
+  useWorkspace.getState().switchProject(result)
+  return result
+}
+
+// Quand le cache des requêtes doit se vider : les listings de fichiers et les
+// workflows d'un projet ne décrivent pas un autre.
+function forgetProjectQueries(): void {
+  queryClient.removeQueries({ queryKey: ["local"] })
+  queryClient.removeQueries({ queryKey: ["files"] })
+  void queryClient.invalidateQueries({ queryKey: recentsKey })
+  void queryClient.invalidateQueries({ queryKey: projectListKey })
+}
 
 // attachHome branche la fenêtre sur le moteur du dossier d'accueil.
 //
@@ -53,21 +102,10 @@ async function attachHome(): Promise<void> {
   }
 }
 
+// adopt : le chemin « il n'y a qu'un projet » (démarrage, fermeture totale).
+// Le multi-projet passe par adoptAdded / adoptSwitched.
 function adopt(result: OpenResult | null): OpenResult | null {
-  // Un projet qui s'ouvre, c'est un démon qui vient de répondre : l'annonce
-  // d'une panne précédente n'a plus lieu d'être. Sans ça, la barre garderait le
-  // souvenir d'un moteur mort réparé depuis.
-  if (result) engineStarted()
-  if (result) attachDaemon(result.daemon.origin, result.daemon.token)
-  if (result) engineAttached()
-  // Pas de `detachDaemon()` ici : fermer un projet ramène le moteur à la
-  // maison, il ne l'éteint pas. Détacher l'adresse rendrait le panneau des
-  // fournisseurs inutilisable pour la seule raison qu'on a fermé un dossier.
-  // Node packs belong to a project. Closing one has to take its nodes with it,
-  // or the palette would go on offering a type the next project cannot run.
-  if (!result) registerPluginKinds([])
-  useWorkspace.getState().setProject(result)
-  return result
+  return adoptOpened(result)
 }
 
 // useNodeCatalogue asks the engine what it can run. The set is no longer fixed:
@@ -98,6 +136,11 @@ export function useNodeCatalogue() {
 
 // openProject opens a folder, or asks for one when given null. It resolves to
 // null when the user cancels the dialog, which is not an error.
+//
+// Plusieurs projets vivent dans la même fenêtre : ce chemin AJOUTE le dossier
+// aux onglets (ou bascule s'il y est déjà) et ne ferme rien de ce qui est
+// ouvert ailleurs. C'est le bouton + de la barre de titre, File › Open, et un
+// dossier lâché sur la fenêtre.
 export async function openProject(dir: string | null): Promise<OpenResult | null> {
   const store = useWorkspace.getState()
   try {
@@ -106,16 +149,17 @@ export async function openProject(dir: string | null): Promise<OpenResult | null
       store.setOpening(false)
       return null
     }
-    if (store.project && store.project.project !== target && !(await lacherLesOnglets())) return null
+    // Déjà ouvert : on bascule, sans redémarrer son moteur ni fermer ses onglets.
+    if (store.projects.some((p) => p.project === target)) {
+      return switchProject(target)
+    }
     store.setOpening(true)
     const result = await window.zyvro.project.open(target)
-    adopt(result)
+    adoptAdded(result)
     queryClient.setQueryData(projectKey, result)
     // The previous project's workflows and file listings must not survive into
     // the new one, or the tree would describe a folder that is no longer open.
-    queryClient.removeQueries({ queryKey: ["local"] })
-    queryClient.removeQueries({ queryKey: ["files"] })
-    void queryClient.invalidateQueries({ queryKey: recentsKey })
+    forgetProjectQueries()
     return result
   } catch (err) {
     store.setOpenError((err as Error).message)
@@ -124,6 +168,49 @@ export async function openProject(dir: string | null): Promise<OpenResult | null
     // les fournisseurs et l'agent restent joignables après un échec.
     await attachHome()
     return null
+  }
+}
+
+// switchProject bascule vers un projet déjà ouvert dans la fenêtre. C'est ce
+// que fait un clic sur un onglet de projet dans la barre de titre.
+export async function switchProject(dir: string): Promise<OpenResult | null> {
+  const store = useWorkspace.getState()
+  if (store.project?.project === dir) return store.project
+  if (!store.projects.some((p) => p.project === dir)) return openProject(dir)
+  try {
+    const result = await window.zyvro.project.switch(dir)
+    if (!result) return null
+    adoptSwitched(result)
+    queryClient.setQueryData(projectKey, result)
+    forgetProjectQueries()
+    return result
+  } catch (err) {
+    store.setOpenError((err as Error).message)
+    return null
+  }
+}
+
+// newZyvro : le « + » de la barre de titre. Un Zyvro neuf dans cette fenêtre —
+// l'écran d'accueil, d'où l'on crée, ouvre ou clone un projet — et pas un
+// sélecteur de dossier d'emblée. Les projets ouverts restent ouverts, leurs
+// moteurs et leurs shells continuent, et un clic sur leur onglet les reprend.
+export async function newZyvro(): Promise<void> {
+  const store = useWorkspace.getState()
+  if (!store.project) return
+  try {
+    const { root, daemon } = await window.zyvro.project.home()
+    store.goHome()
+    if (daemon) {
+      engineStarted()
+      attachDaemon(daemon.origin, daemon.token)
+      engineAttached()
+    }
+    store.setRoot(root)
+    registerPluginKinds([])
+    queryClient.setQueryData(projectKey, null)
+    forgetProjectQueries()
+  } catch (err) {
+    store.setOpenError((err as Error).message)
   }
 }
 
@@ -158,21 +245,34 @@ export async function forgetRecents(): Promise<void> {
 }
 
 export async function closeProject(): Promise<void> {
+  // Seuls les onglets du projet qu'on ferme partent ; les autres projets
+  // gardent les leurs. `requestCloseTabs` demande pour les fichiers modifiés.
+  const store = useWorkspace.getState()
+  const partant = store.project?.project ?? null
   if (!(await lacherLesOnglets())) return
-  const { root, daemon } = await window.zyvro.project.close()
-  adopt(null)
-  queryClient.setQueryData(projectKey, null)
-  queryClient.removeQueries({ queryKey: ["local"] })
-  queryClient.removeQueries({ queryKey: ["files"] })
-  // Fermer un projet ne ferme pas le moteur : il revient à la maison, et les
-  // fournisseurs, l'agent et les shells y continuent. Rebranché tout de suite,
-  // sinon le panneau des fournisseurs se viderait le temps qu'on pense à le
-  // redemander.
-  if (daemon) {
-    attachDaemon(daemon.origin, daemon.token)
-    engineAttached()
+  const { root, daemon, active } = await window.zyvro.project.close()
+  // Le principal a déjà basculé (ou revenu à la maison) ; on aligne le rendu.
+  if (partant) useWorkspace.getState().removeProject(partant)
+  if (active && active.project !== partant) {
+    const result = await window.zyvro.project.switch(active.project).catch(() => null)
+    if (result) {
+      adoptSwitched(result)
+      queryClient.setQueryData(projectKey, result)
+    }
+  } else if (!active) {
+    adoptOpened(null)
+    queryClient.setQueryData(projectKey, null)
+    // Fermer un projet ne ferme pas le moteur : il revient à la maison, et les
+    // fournisseurs, l'agent et les shells y continuent. Rebranché tout de suite,
+    // sinon le panneau des fournisseurs se viderait le temps qu'on pense à le
+    // redemander.
+    if (daemon) {
+      attachDaemon(daemon.origin, daemon.token)
+      engineAttached()
+    }
+    useWorkspace.getState().setRoot(root)
   }
-  useWorkspace.getState().setRoot(root)
+  forgetProjectQueries()
 }
 
 // createWorkflow is here rather than in the list panel for the same reason:
@@ -190,7 +290,27 @@ export function useCurrentProject() {
   return useQuery({
     queryKey: projectKey,
     queryFn: async () => {
-      const current = adopt(await window.zyvro.project.current())
+      const current = adoptOpened(await window.zyvro.project.current())
+      // Au démarrage, les autres projets déjà ouverts (rechargement du rendu)
+      // rejoignent les onglets sans voler le premier plan.
+      try {
+        const listed = await window.zyvro.project.list()
+        const store = useWorkspace.getState()
+        for (const p of listed.projects) {
+          if (!store.projects.some((x) => x.project === p.project)) {
+            store.patchUi(p.project, {})
+          }
+        }
+        if (listed.projects.length > 0 && current) {
+          // `setProject` (via adoptOpened) a réinitialisé la liste sur le seul
+          // projet actif : on remet les autres à côté.
+          useWorkspace.setState({
+            projects: listed.projects.map((p) => ({ project: p.project, name: p.name })),
+          })
+        }
+      } catch {
+        // La liste est un confort ; l'ouverture a déjà réussi sans elle.
+      }
       // Aucun projet ouvert : on branche quand même un moteur, celui de la
       // maison. Fait ici plutôt que dans un effet — la doctrine du dépôt — et
       // c'est le bon endroit : « qu'est-ce qui est ouvert » et « alors branche
@@ -204,6 +324,10 @@ export function useCurrentProject() {
 
 export function useOpenProject() {
   return useMutation({ mutationFn: (dir: string | null) => openProject(dir) })
+}
+
+export function useSwitchProject() {
+  return useMutation({ mutationFn: (dir: string) => switchProject(dir) })
 }
 
 export function useCreateProject() {

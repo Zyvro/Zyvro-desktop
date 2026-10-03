@@ -1,11 +1,15 @@
-import { Code2, FolderOpen, PanelBottom, PanelLeft, PanelRight, Sparkles } from "lucide-react"
+import { Code2, FolderOpen, PanelBottom, PanelLeft, PanelRight, Plus, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Mode } from "~/state/workspace"
-import { useOpenProject } from "~/lib/project"
+import { closeProject, newZyvro, openProject, switchProject } from "~/lib/project"
 
 // The native title bar is hidden so the window reads as an editor. That makes
 // this strip responsible for two things the OS normally handles: giving the
 // user somewhere to drag, and leaving room for the traffic lights on macOS.
+//
+// Les projets ouverts y sont des onglets : cliquer bascule, le + en ouvre un
+// de plus dans la même fenêtre, et chaque projet garde ses onglets de fichiers,
+// ses panneaux et ses shells — voir `state/workspace` (ProjectUi).
 
 function ToggleButton({
   active,
@@ -69,29 +73,112 @@ function ModeSwitch() {
   )
 }
 
+/**
+ * Un onglet de projet : son nom, et une croix pour le fermer.
+ *
+ * Cliquer bascule vers ce projet — ses onglets de fichiers, ses panneaux, ses
+ * shells reprennent où ils en étaient. La croix ferme CE projet (avec la
+ * question Save pour ses fichiers modifiés) et laisse les autres.
+ */
+function ProjectChip({
+  name,
+  path,
+  active,
+}: {
+  name: string
+  path: string
+  active: boolean
+}) {
+  return (
+    <div
+      className={cn(
+        "zy-nodrag group flex h-7 max-w-[180px] items-center gap-1 rounded-md pl-2 pr-1 text-[13px]",
+        active
+          ? "bg-white/[0.09] text-foreground"
+          : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground/90"
+      )}
+    >
+      <button
+        className="flex min-w-0 items-center gap-1.5 truncate"
+        onClick={() => void switchProject(path)}
+        title={path}
+      >
+        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{name}</span>
+      </button>
+      <button
+        className={cn(
+          "rounded p-0.5 transition-opacity hover:bg-white/[0.08]",
+          active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
+        )}
+        title={`Close ${name}`}
+        onClick={() => void closeProject()}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  )
+}
+
 export function TitleBar() {
   const project = useWorkspace((s) => s.project)
+  const projects = useWorkspace((s) => s.projects)
   const panels = useWorkspace((s) => s.panels)
   const mode = useWorkspace((s) => s.mode)
   const togglePanel = useWorkspace((s) => s.togglePanel)
-  const open = useOpenProject()
   const isMac = window.zyvro.platform === "darwin"
 
   return (
     <header
       className={cn(
-        "zy-drag flex h-11 shrink-0 items-center gap-2 border-b border-white/[0.06] bg-background pr-2",
+        "zy-drag flex h-11 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-background pr-2",
         isMac ? "pl-[86px]" : "pl-2"
       )}
     >
+      {projects.length === 0 ? (
+        <button
+          className="zy-nodrag flex items-center gap-2 rounded-md px-2 py-1 text-[13px] text-foreground/90 hover:bg-white/[0.06]"
+          onClick={() => void openProject(null)}
+          title="Open a project folder"
+        >
+          <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
+          <span className="max-w-[240px] truncate">Open a project…</span>
+        </button>
+      ) : (
+        <div className="zy-nodrag flex min-w-0 items-center gap-1 overflow-x-auto">
+          {projects.map((p) => (
+            <ProjectChip
+              key={p.project}
+              name={p.name}
+              path={p.project}
+              active={project?.project === p.project}
+            />
+          ))}
+          {/* Le Zyvro neuf ouvert par le « + », tant qu'on y est : l'accueil,
+              qui n'est aucun des projets ci-contre. */}
+          {!project && (
+            <span className="flex h-7 shrink-0 items-center rounded-md bg-white/[0.09] px-2.5 text-[13px] text-foreground">
+              New Zyvro
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Le + : un nouveau Zyvro dans cette fenêtre — l'écran d'accueil, d'où
+          l'on crée, ouvre ou clone un projet. Pas un sélecteur de dossier
+          d'emblée : demander « quel dossier ? » avant de montrer quoi que ce
+          soit suppose qu'on sait déjà ce qu'on veut ouvrir. Les projets
+          ouverts restent dans la barre. Caché tant qu'on est déjà sur ce
+          Zyvro neuf : un second ne montrerait que le même accueil. */}
+      {project && (
       <button
-        className="zy-nodrag flex items-center gap-2 rounded-md px-2 py-1 text-[13px] text-foreground/90 hover:bg-white/[0.06]"
-        onClick={() => open.mutate(null)}
-        title="Open a project folder"
+        className="zy-nodrag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
+        onClick={() => void newZyvro()}
+        title="New Zyvro — open the welcome screen without closing your projects"
       >
-        <FolderOpen className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="max-w-[240px] truncate">{project?.name ?? "Open a project…"}</span>
+        <Plus className="h-4 w-4" />
       </button>
+      )}
 
       <div className="flex-1" />
 

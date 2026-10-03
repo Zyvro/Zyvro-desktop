@@ -192,8 +192,20 @@ const api = {
     choose: (): Promise<string | null> => invoke("project:choose"),
     create: (): Promise<string | null> => invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),
+    /** Un nouveau Zyvro : l'accueil, sur le moteur de la maison, les projets ouverts restant ouverts. */
+    home: (): Promise<{ root: string | null; daemon: DaemonInfo | null }> => invoke("project:home"),
+    /** Basculer vers un projet déjà ouvert dans cette fenêtre. */
+    switch: (dir: string): Promise<OpenResult | null> => invoke("project:switch", dir),
+    /** Les projets ouverts dans cette fenêtre, et lequel est actif. */
+    list: (): Promise<{ projects: { project: string; name: string }[]; active: { project: string; name: string } | null }> =>
+      invoke("project:list"),
     current: (): Promise<OpenResult | null> => invoke("project:current"),
-    close: (): Promise<{ root: string | null; daemon: DaemonInfo | null }> => invoke("project:close"),
+    close: (): Promise<{
+      root: string | null
+      daemon: DaemonInfo | null
+      projects: { project: string; name: string }[]
+      active: { project: string; name: string } | null
+    }> => invoke("project:close"),
     recents: (): Promise<Recent[]> => invoke("project:recents"),
     forgetRecents: (): Promise<Recent[]> => invoke("project:forget-recents"),
     /** Le fichier regardé, retenu pour Open Recent et ⌘P. */

@@ -16,7 +16,6 @@
 // fois, au chargement, sans effet React.
 
 import { useWorkspace } from "~/state/workspace"
-import { askConfirm } from "~/state/prompt"
 import { openProject } from "./project"
 
 function porteDesFichiers(event: DragEvent): boolean {
@@ -55,21 +54,12 @@ async function agir(lus: { dossier: boolean; chemin: string; file: File | null }
   const store = useWorkspace.getState()
 
   // Un seul dossier : c'est un projet à ouvrir. Plusieurs, on ne devine pas
-  // lequel — l'application n'ouvre qu'un projet par fenêtre.
+  // lequel. Plusieurs projets vivent dans la même fenêtre : un dossier lâché
+  // s'AJOUTE aux onglets (ou bascule s'il y est déjà) au lieu de remplacer.
   const dossiers = lus.filter((lu) => lu.dossier)
   if (dossiers.length === 1 && lus.length === 1) {
     const cible = dossiers[0].chemin
     if (store.project?.project === cible) return
-    if (store.project) {
-      // Remplacer le projet ouvert ferme ses onglets ; les fichiers modifiés
-      // sont demandés ensuite, un par un ou tous ensemble (openProject).
-      const oui = await askConfirm({
-        title: `Open ${cible.split(/[\\/]/).pop()}?`,
-        label: "It replaces the open project in this window.",
-        confirmLabel: "Open folder",
-      })
-      if (!oui) return
-    }
     await openProject(cible)
     return
   }
