@@ -49,6 +49,21 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.47
+
+**MiMo Code, signed in on your machine.** If you use Xiaomi's MiMo Code CLI,
+Providers now has *MiMo Code (local CLI)*: text nodes run through the `mimo`
+you already installed and signed in, the way the Claude and Codex CLIs do — no
+key is pasted into Zyvro. It runs MiMo Code's read-only `plan` agent, so a node
+answers without touching your files, and the prompt goes over stdin, never the
+command line. Leave the node's model empty for MiMo Code's default, or name one
+such as `xiaomi/mimo-v2.6-pro`. MiMo Code is found even when the app was opened
+from the Dock and does not see the PATH your `.zshrc` sets. To install it:
+`curl -fsSL https://mimo.xiaomi.com/install | bash`, then `mimo providers login`.
+
+A text node's **Provider** menu now offers both MiMo entries — the API from
+alpha.45 and the local CLI. The API one was missing from that menu until now.
+
 ## New in alpha.46
 
 **Install a missing agent from the app.** When the harness a session uses is

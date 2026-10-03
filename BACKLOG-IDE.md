@@ -196,3 +196,7 @@ Petits correctifs repérés en passant :
   saisie et pastilles de la barre d'état ; `npm install -g` du paquet de la
   table (`npmPackage`) dans un onglet du terminal à lui (`agent:install-shell`),
   jamais tapé dans le shell ouvert. `helpOf` ne garde plus « absent » en cache.
+- **0.1.0-alpha.47 — MiMo Code en local.** Le moteur a un fournisseur
+  `mimo-cli` (`mimo run --format json --agent plan`, l'erreur lue dans le flux
+  puisque le code de sortie est 0, repli sur `~/.mimocode/bin`) ; le menu des
+  fournisseurs d'un nœud de texte propose les deux MiMo.
