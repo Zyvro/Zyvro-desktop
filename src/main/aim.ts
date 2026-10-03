@@ -9,7 +9,7 @@
 // deuxième idée de « où est LM Studio » serait celle qui a tort le jour où le
 // port change. On la lui demande.
 
-import { type Aim, type ModelChoices, MIMO_DEFAULT_MODEL, MIMO_PROVIDER, splitAimed } from "../shared/harness"
+import { type Aim, type ModelChoices, splitAimed } from "../shared/harness"
 
 type ProviderRow = { id?: unknown; endpoint?: unknown; endpoint_url?: unknown }
 
@@ -137,22 +137,3 @@ export async function aimableModels(
   }
 }
 
-// mimoAim : où le harnais MiMo parle, et avec quelle clef — le fournisseur
-// `mimo` réglé dans le panneau des fournisseurs.
-//
-// Une erreur et pas null, au contraire d'`aimFor` : un tour sans visée y
-// partirait sur le compte OpenAI de codex, sous l'étiquette « MiMo ». Mieux
-// vaut une phrase qui dit où mettre la clef.
-export async function mimoAim(
-  model: string | null,
-  daemon: { origin?: string; token?: string } | null | undefined
-): Promise<Aim> {
-  const asked = model?.trim() ? model.trim().replace(new RegExp(`^${MIMO_PROVIDER}/`), "") : MIMO_DEFAULT_MODEL
-  const aim = await aimFor(`${MIMO_PROVIDER}/${asked}`, daemon)
-  if (!aim || !aim.key) {
-    throw new Error(
-      "Xiaomi MiMo is not connected. Open Providers, choose Xiaomi MiMo and paste your MiMo API key (sk-… or a Token Plan tp-… key with its address)."
-    )
-  }
-  return aim
-}

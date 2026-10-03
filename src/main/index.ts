@@ -521,7 +521,7 @@ if (!app.requestSingleInstanceLock()) {
     // the system PATH and nothing else, so the local engine, the shells, the
     // agent and the commit-message CLI would all be looking in the wrong places
     // — and every one of them inherits this environment the moment it starts.
-    await prepareCliPath(["claude", "codex"])
+    await prepareCliPath(["claude", "codex", "mimo"])
 
     // The dock reads its icon separately from the window's, and in development
     // there is no bundle for it to read one from.

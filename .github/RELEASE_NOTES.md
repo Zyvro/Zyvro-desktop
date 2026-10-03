@@ -49,6 +49,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.48
+
+**The mimo harness is MiMo Code.** Choosing *mimo* in the agent panel now runs
+Xiaomi's own MiMo Code CLI — the `mimo` you installed and signed in — instead
+of Codex pointed at the MiMo API. No key is asked for: it uses your MiMo
+account, its models (`mimo models`, so `mimo/mimo-auto`,
+`xiaomi/mimo-v2.6-pro`, …) are the ones in the model picker, and the session
+picks up where it left off. Its tools show the way the other harnesses' do —
+*Read note.txt*, *Ran echo hi* — and what each turn cost appears under the
+answer. Zyvro's own tools reach it over MCP, through its environment. *Read
+only* runs MiMo Code's `plan` agent; *YOLO* approves everything. Both terminal
+buttons open it in full-auto mode (`--dangerously-skip-permissions --trust`).
+If it is missing, the Install button runs Xiaomi's installer in a terminal tab.
+
+The MiMo API key from alpha.45 still works: its models appear as `mimo/…` in
+the claude, codex and qwen model menus, and text nodes can use it.
+
 ## New in alpha.47
 
 **MiMo Code, signed in on your machine.** If you use Xiaomi's MiMo Code CLI,

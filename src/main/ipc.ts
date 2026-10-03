@@ -4,14 +4,14 @@ import { randomUUID } from "node:crypto"
 import { Daemon, DaemonError, homeWorkspace, type DaemonInfo } from "./daemon"
 import { Terminals } from "./terminal"
 import { AgentRunner, type AgentContext, type AgentKind } from "./agent"
-import { AGENT_KINDS, harness, interactiveCommand, isAgentKind, MIMO_MODELS, MIMO_PROVIDER } from "../shared/harness"
+import { AGENT_KINDS, harness, interactiveCommand, isAgentKind } from "../shared/harness"
 import { isAbsolutePath } from "../shared/external"
 import { cleanSynthesis, isSynthesisMode, synthesisPrompt } from "../shared/synthesize"
-import { aimFor, aimableModels, mimoAim } from "./aim"
+import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
-import { helpOf, installed, locate } from "./cli"
+import { helpOf, installed, locate, outputOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import * as textSearch from "./search"
@@ -911,12 +911,7 @@ export function registerIpc(onRecents?: () => void): void {
       // qu'on peut demander au moteur quels serveurs ce projet a allumés — et
       // null quand il n'y a rien à viser, ce qui laisse le harnais sur son
       // propre compte plutôt que d'échouer.
-      const aim =
-        kind === "mimo"
-          ? await mimoAim(pinned, ws.daemon.current)
-          : harness(kind).aimable
-            ? await aimFor(pinned, ws.daemon.current)
-            : null
+      const aim = harness(kind).aimable ? await aimFor(pinned, ws.daemon.current) : null
 
       // codex ne sait poster que sur l'API Responses : il passe par la
       // passerelle de cette fenêtre, qui traduit vers le Chat Completions que
@@ -927,7 +922,7 @@ export function registerIpc(onRecents?: () => void): void {
       // La route est le modèle épinglé lui-même, « lmstudio/qwen3-coder-next » :
       // codex le renvoie mot pour mot dans sa requête, et c'est par là que la
       // passerelle sait à quel serveur parler.
-      if (aim && pinned && kind !== "mimo") await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
+      if (aim && pinned) await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
 
       return ws.agent.send(
         event.sender,
@@ -1093,14 +1088,24 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("agent:install-shell", async (event, kind: string, cols: number, rows: number) => {
     const { ws } = requireWorkspace(event)
     if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
-    const npm = locate("npm")
-    if (!npm) {
-      throw new Error("npm was not found on this machine. Install Node.js from https://nodejs.org, then try again.")
+    const table = harness(kind)
+    let command: { file: string; args: string[] }
+    if (table.npmPackage) {
+      const npm = locate("npm")
+      if (!npm) {
+        throw new Error("npm was not found on this machine. Install Node.js from https://nodejs.org, then try again.")
+      }
+      const args = ["install", "-g", table.npmPackage]
+      command = npm.needsShell
+        ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", npm.file, ...args] }
+        : { file: npm.file, args }
+    } else if (table.installScript && process.platform !== "win32") {
+      // Le script de l'éditeur, tel que sa documentation le donne — MiMo Code
+      // n'est pas sur npm. Le texte vient de la table, jamais de la fenêtre.
+      command = { file: "/bin/sh", args: ["-c", table.installScript] }
+    } else {
+      throw new Error(`${table.bin} cannot be installed from here. Install it with: ${table.install}`)
     }
-    const args = ["install", "-g", harness(kind).npmPackage]
-    const command = npm.needsShell
-      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", npm.file, ...args] }
-      : { file: npm.file, args }
     return ws.terminals.create(
       event.sender,
       ws.root ?? app.getPath("home"),
@@ -1112,13 +1117,11 @@ export function registerIpc(onRecents?: () => void): void {
   })
 
   ipcMain.handle("agent:models", async (event, kind: AgentKind) => {
-    // MiMo : ses modèles à lui, demandés au moteur qui connaît la clef, et la
-    // liste documentée quand il ne répond pas.
+    // MiMo Code : ses modèles à lui, tels que `mimo models` les liste —
+    // « xiaomi/mimo-v2.6-pro — window 1.05M… ». Demandé au binaire plutôt que
+    // recopié : ce qui est disponible dépend du compte de la personne.
     if (kind === "mimo") {
-      const { ws } = requireWorkspace(event)
-      const vises = await aimableModels(ws.daemon.current)
-      const siens = vises.models.filter((m) => m.startsWith(`${MIMO_PROVIDER}/`)).map((m) => m.slice(MIMO_PROVIDER.length + 1))
-      return { models: siens.length > 0 ? siens : [...MIMO_MODELS], trouble: vises.trouble.filter((t) => t.provider === MIMO_PROVIDER) }
+      return { models: agentModule.mimoModelsFrom(outputOf("mimo", ["models"])), trouble: [] }
     }
     // Un harnais visable ne choisit pas parmi SES modèles : il choisit parmi
     // ceux des serveurs que ce projet a allumés. C'est la liste que la personne
@@ -1176,7 +1179,7 @@ export function registerIpc(onRecents?: () => void): void {
     }
 
     const pinned = typeof model === "string" && model.trim() ? model.trim() : null
-    const aim = kind === "mimo" ? await mimoAim(pinned, ws.daemon.current) : await aimFor(pinned, ws.daemon.current)
+    const aim = table.aimable ? await aimFor(pinned, ws.daemon.current) : null
     // La conversation du panneau à reprendre, quand le shell la continue. Son
     // identifiant de session part sur la ligne de commande : lettres, chiffres
     // et tirets, ou rien.
@@ -1186,12 +1189,16 @@ export function registerIpc(onRecents?: () => void): void {
     // quelque chose — exactement comme pour un tour du panneau, et c'est la
     // même passerelle : elle route sur le nom du modèle, donc deux shells visant
     // deux fournisseurs ne peuvent pas se marcher dessus.
-    if (aim && pinned && kind !== "mimo") await ws.agent.openGateway(kind, aim, pinned)
+    if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
     const passerelle = ws.agent.gatewayAim()
 
     const env: Record<string, string> = {}
     if (aim && kind === "qwen") Object.assign(env, agentModule.aimEnv(aim))
-    if (aim && kind === "mimo") env[agentModule.MIMO_KEY_VAR] = aim.key
+    // MiMo Code : les serveurs MCP du projet, par son environnement.
+    if (kind === "mimo") {
+      const config = agentModule.mimoConfig({ daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token })
+      if (config) env.MIMOCODE_CONFIG_CONTENT = config
+    }
     if (aim && passerelle && table.gateway) {
       env[agentModule.GATEWAY_KEY_VAR] = passerelle.token
       if (kind === "claude") Object.assign(env, agentModule.claudeAimEnv(passerelle.origin, passerelle.token))

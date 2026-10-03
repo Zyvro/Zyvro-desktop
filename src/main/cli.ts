@@ -245,10 +245,12 @@ function ask(command: string, args: string[]): string {
 // `brew` know where they put things, and a hardcoded /opt/homebrew is wrong on
 // an Intel Mac.
 //
-// The two that are not asked for — ~/.local/bin and ~/.bun/bin — are
-// conventions rather than answers, and they are here because that is where the
-// installer scripts for these two CLIs actually put them. That is a short list
-// of two, written down because there is nobody to ask.
+// The ones that are not asked for — ~/.local/bin, ~/.bun/bin and
+// ~/.mimocode/bin — are conventions rather than answers, and they are here
+// because that is where the installer scripts for these CLIs actually put them.
+// MiMo Code's installer adds its folder to PATH from .zshrc only, which an app
+// opened from the Dock never reads. A short list, written down because there is
+// nobody to ask.
 function installRoots(): string[] {
   const home = os.homedir()
   const roots: string[] = []
@@ -259,7 +261,7 @@ function installRoots(): string[] {
   if (!isWindows) {
     const brewPrefix = ask("brew", ["--prefix"])
     if (brewPrefix) roots.push(path.join(brewPrefix, "bin"))
-    roots.push(path.join(home, ".local", "bin"), path.join(home, ".bun", "bin"))
+    roots.push(path.join(home, ".local", "bin"), path.join(home, ".bun", "bin"), path.join(home, ".mimocode", "bin"))
   } else {
     // npm's global bin on Windows when the prefix could not be asked for, and
     // the directory `winget` and most installers use.
@@ -392,5 +394,28 @@ export function helpOf(name: string): string {
   // common enough not to be treated as a failure.
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`
   helpCache.set(name, text)
+  return text
+}
+
+// outputOf runs a tool with arguments and hands back what it printed — for the
+// lists a CLI states about itself (`mimo models`). Cached like helpOf, except
+// an empty answer: a tool that was missing or not yet signed in can be fixed
+// while the app runs.
+const outputCache = new Map<string, string>()
+
+export function outputOf(name: string, args: string[]): string {
+  const key = `${name}\0${args.join("\0")}`
+  const cached = outputCache.get(key)
+  if (cached !== undefined) return cached
+  const found = locate(name)
+  if (!found) return ""
+  const result = spawnSync(found.file, args, {
+    encoding: "utf8",
+    timeout: TIMEOUT_MS * 3,
+    shell: found.needsShell,
+    cwd: os.tmpdir(),
+  })
+  const text = result.status === 0 ? `${result.stdout ?? ""}` : ""
+  if (text.trim()) outputCache.set(key, text)
   return text
 }

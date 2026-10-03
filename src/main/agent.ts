@@ -9,7 +9,7 @@ import { startGateway, type GatewayHandle } from "./responses"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
 import type { WebContents } from "electron"
-import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect } from "./mcp"
+import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect, type McpTarget } from "./mcp"
 import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
 import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO, speaksCodex } from "../shared/harness"
@@ -177,6 +177,22 @@ export function argsFor(
     ]
   }
 
+  if (kind === "mimo") {
+    // MiMo Code : `mimo run`, son mode non interactif. Le flux d'opencode en
+    // JSON, la question sur stdin (préambule compris, il n'a pas de drapeau de
+    // prompt système), la session reprise par `--session`, les images jointes
+    // par `--file`, une par occurrence.
+    return [
+      "run",
+      "--format",
+      "json",
+      ...mimoPermission(ctx.permission ?? DEFAULT_PERMISSION),
+      ...(pinned ? ["--model", pinned] : []),
+      ...(resume ? ["--session", resume] : []),
+      ...images.flatMap((file) => ["--file", file]),
+    ]
+  }
+
   return [
     "exec",
     ...(resume ? ["resume"] : []),
@@ -184,12 +200,11 @@ export function argsFor(
     "--skip-git-repo-check",
     // Le pendant côté codex, dans son vocabulaire à lui : un bac à sable.
     ...codexPermission(ctx.permission ?? DEFAULT_PERMISSION),
-    ...(kind === "mimo" && aim ? mimoArgs(aim) : aim && gateway ? codexAimArgs(gateway) : []),
+    ...(aim && gateway ? codexAimArgs(gateway) : []),
     // Le modèle épinglé est aussi la route de la passerelle : « lmstudio/
     // qwen3-coder-next » nomme le serveur et le modèle, et codex le renvoie
     // tel quel dans son corps de requête. C'est par là qu'elle sait où aller.
-    // MiMo, lui, n'a pas de passerelle : son modèle est celui de sa visée.
-    ...(kind === "mimo" && aim ? ["--model", aim.model] : pinned ? ["--model", pinned] : []),
+    ...(pinned ? ["--model", pinned] : []),
     // -i takes one path per occurrence. Several paths after a single -i would
     // be swallowed as one argument by some shells and as the prompt by codex.
     ...images.flatMap((file) => ["-i", file]),
@@ -368,40 +383,112 @@ export function codexAimArgs(gateway: GatewayAim): string[] {
   ]
 }
 
-/**
- * La variable par laquelle codex lit la clef MiMo. `env_key` plutôt que
- * l'`experimental_bearer_token` de la documentation de Xiaomi : celui-ci
- * mettrait la clef sur la ligne de commande, lisible dans `ps`.
- */
-export const MIMO_KEY_VAR = "MIMO_API_KEY"
+// mimoPermission : le même choix, dit à MiMo Code.
+//
+// Son agent `plan` est en lecture seule ; son agent par défaut, `build`,
+// autorise tout dans le dossier et demande pour ce qui en sort — et en mode
+// `run` personne ne peut répondre, donc ce qui demanderait est refusé. C'est
+// la promesse de « project » et de « ask » à la fois : rien ne sort du projet.
+// « yolo » lève tout, comme chez les autres.
+export function mimoPermission(permission: Permission): string[] {
+  switch (permission) {
+    case "read":
+      return ["--agent", "plan"]
+    case "yolo":
+      return ["--dangerously-skip-permissions"]
+    default:
+      return []
+  }
+}
 
 /**
- * mimoArgs : codex branché sur Xiaomi MiMo, tel que Xiaomi le documente —
- * https://mimo.mi.com/docs/en-US/tokenplan/integration/codex-configuration —
- * mais par `-c`, sans toucher `~/.codex/config.toml` : lancer codex à la main
- * continue de parler au compte de la personne.
+ * mimoConfig : ce que MiMo Code lit dans `MIMOCODE_CONFIG_CONTENT` — les
+ * serveurs MCP de ce projet, au format d'opencode.
  *
- * L'adresse vient du panneau des fournisseurs : celle du paiement à l'usage par
- * défaut, celle du Token Plan si on l'y a mise. `wire_api = "responses"` est ce
- * que MiMo sert, donc pas de passerelle.
+ * Par l'environnement et pas par un fichier ni la ligne de commande : elle
+ * porte le jeton du démon. Vérifié sur le binaire : `mimo mcp list` lit cette
+ * variable et tente de joindre le serveur qu'elle déclare. Elle se fond dans la
+ * configuration de la personne sans la remplacer.
  */
-export function mimoArgs(aim: Aim): string[] {
-  return [
-    "-c",
-    `model_providers.mimo={name="mimo",base_url="${aim.url}",wire_api="responses",env_key="${MIMO_KEY_VAR}"}`,
-    "-c",
-    "model_provider=mimo",
-    "-c",
-    'model_reasoning_effort="high"',
-    "-c",
-    "model_supports_reasoning_summaries=true",
-    "-c",
-    'model_reasoning_summary="none"',
-    "-c",
-    "model_context_window=1048576",
-    "-c",
-    'web_search="disabled"',
-  ]
+export function mimoConfig(ctx: McpTarget): string | null {
+  const servers = mcpServers(ctx)
+  const names = Object.keys(servers)
+  if (names.length === 0) return null
+  return JSON.stringify({
+    mcp: Object.fromEntries(
+      names.map((name) => [
+        name,
+        { type: "remote", url: servers[name].url, headers: servers[name].headers, enabled: true },
+      ])
+    ),
+  })
+}
+
+// Les outils de MiMo Code s'appellent comme ceux d'opencode, en minuscules.
+// Traduits vers les noms que le panneau sait déjà raconter — « Ran echo hi »
+// plutôt que « Ran bash ».
+const MIMO_TOOLS: Record<string, string> = {
+  bash: "Bash",
+  read: "Read",
+  write: "Write",
+  edit: "Edit",
+  multiedit: "MultiEdit",
+  grep: "Grep",
+  glob: "Glob",
+  webfetch: "WebFetch",
+  websearch: "WebSearch",
+  todowrite: "TodoWrite",
+  task: "Task",
+}
+
+// mimoModelsFrom lit `mimo models` : une ligne par modèle, « fournisseur/modèle
+// — window 1.05M, compacts at 944K ». Seul le nom compte ; les couleurs du
+// terminal, s'il y en a, sont retirées avant.
+export function mimoModelsFrom(text: string): string[] {
+  const seen = new Set<string>()
+  for (const raw of text.replace(/\x1b\[[0-9;]*m/g, "").split("\n")) {
+    const name = /^\s*([A-Za-z0-9._-]+\/[A-Za-z0-9._:\[\]-]+)(?:\s|$)/.exec(raw)?.[1]
+    if (name) seen.add(name)
+  }
+  return [...seen]
+}
+
+export function mimoToolName(tool: string): string {
+  return MIMO_TOOLS[tool] ?? tool
+}
+
+/**
+ * mimoUsageIn : ce qu'une étape a coûté, dans `step_finish`.
+ *
+ * Relevé sur le binaire : `{"tokens":{"input":71,"output":50,"reasoning":22,
+ * "cache":{"read":25536,"write":0}},"cost":0.0001016}`. Comme chez claude,
+ * `input` est l'entrée neuve et le cache est compté à part ; le raisonnement,
+ * lui, n'est pas dans `output`. Un tour fait de plusieurs étapes les additionne
+ * — c'est l'appelant qui cumule.
+ */
+export function mimoUsageIn(event: Record<string, unknown>): Spent | null {
+  const part = event.part as { tokens?: Record<string, unknown>; cost?: unknown } | undefined
+  const tokens = part?.tokens
+  if (!tokens || typeof tokens !== "object") return null
+  const cache = (tokens.cache && typeof tokens.cache === "object" ? tokens.cache : {}) as Record<string, unknown>
+  const cacheRead = count(cache.read)
+  const cacheWrite = count(cache.write)
+  const input = count(tokens.input) + cacheRead + cacheWrite
+  const output = count(tokens.output) + count(tokens.reasoning)
+  if (input + output === 0) return null
+  const cost = typeof part?.cost === "number" && Number.isFinite(part.cost) ? part.cost : null
+  return { input, output, cacheRead, cacheWrite, costUsd: cost }
+}
+
+export function addSpent(a: Spent | null, b: Spent): Spent {
+  if (!a) return b
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheWrite: a.cacheWrite + b.cacheWrite,
+    costUsd: a.costUsd === null && b.costUsd === null ? null : (a.costUsd ?? 0) + (b.costUsd ?? 0),
+  }
 }
 
 // aimArgs pointe Qwen Code sur un serveur que ce projet connaît déjà.
@@ -475,12 +562,15 @@ export function shellArgsFor(
   if (kind === "qwen") {
     return [...(aim ? aimArgs(aim) : pinned ? ["-m", pinned] : []), ...(resume ? ["--resume", resume] : [])]
   }
-  // codex, et MiMo qui est codex : `codex resume [OPTIONS] [SESSION_ID]`.
+  if (kind === "mimo") {
+    return [...SHELL_YOLO.mimo, ...(pinned ? ["--model", pinned] : []), ...(resume ? ["--session", resume] : [])]
+  }
+  // codex : `codex resume [OPTIONS] [SESSION_ID]`.
   return [
     ...(resume ? ["resume"] : []),
     ...SHELL_YOLO.codex,
-    ...(kind === "mimo" && aim ? mimoArgs(aim) : aim && gateway ? codexAimArgs(gateway) : []),
-    ...(kind === "mimo" && aim ? ["--model", aim.model] : pinned ? ["--model", pinned] : []),
+    ...(aim && gateway ? codexAimArgs(gateway) : []),
+    ...(pinned ? ["--model", pinned] : []),
     ...(resume ? [resume] : []),
   ]
 }
@@ -690,7 +780,8 @@ export function aliasesFrom(help: string): string[] {
 // costs nothing visible: resume simply never happens, and the agent is
 // amnesiac again with no error to explain it.
 export function sessionIn(event: Record<string, unknown>): string | null {
-  const value = event.session_id ?? event.thread_id
+  // MiMo Code, comme opencode : `sessionID`, sur chaque événement.
+  const value = event.session_id ?? event.thread_id ?? event.sessionID
   return typeof value === "string" && value ? value : null
 }
 
@@ -702,6 +793,8 @@ const REPLAY_MAX_BYTES = 2 * 1024 * 1024
 type Turn = {
   id: string
   conversationId: string
+  /** Ce que les étapes du tour ont coûté jusqu'ici — MiMo Code les compte une à une. */
+  spent?: Spent | null
   /**
    * Ce qui a été demandé, mot pour mot.
    *
@@ -909,8 +1002,6 @@ export class AgentRunner {
       Object.assign(env, claudeAimEnv(this.gateway.origin, this.gateway.token))
     }
     if (passerelle && this.gateway) env[GATEWAY_KEY_VAR] = this.gateway.token
-    // MiMo : sa clef, par l'environnement, sous le nom que `mimoArgs` déclare.
-    if (kind === "mimo" && aim) env[MIMO_KEY_VAR] = aim.key
 
     if (mcpAvailable(ctx)) {
       if (kind === "claude") {
@@ -955,6 +1046,11 @@ export class AgentRunner {
           "--allowed-tools",
           ...servers.map((name) => `mcp__${name}`)
         )
+      } else if (kind === "mimo") {
+        // MiMo Code lit ses serveurs MCP dans son environnement — jeton
+        // compris, et donc hors de la table des processus.
+        const config = mimoConfig(ctx)
+        if (config) env.MIMOCODE_CONFIG_CONTENT = config
       } else {
         // Codex reads the token from the environment rather than from a flag,
         // which keeps it out of the process table.
@@ -966,7 +1062,9 @@ export class AgentRunner {
     if (speaksCodex(kind)) args.push("-")
 
     const withImages = promptWith(kind, prompt, images)
-    const text = speaksCodex(kind) ? `${preamble(ctx)}\n\n---\n\n${withImages}` : withImages
+    // Ni codex ni MiMo Code n'ont de drapeau de prompt système : le préambule
+    // ouvre la question.
+    const text = harness(kind).envelope !== "claude" ? `${preamble(ctx)}\n\n---\n\n${withImages}` : withImages
 
     // launch rather than spawn: it resolves the real file, which on Windows
     // carries an extension and may be a .cmd that Node refuses to start
@@ -1322,6 +1420,48 @@ export class AgentRunner {
         }
         // Le tour est fini : c'est maintenant qu'on tient ce qu'il a demandé.
         if (turn) this.honorWake(turn)
+        return
+      }
+      return
+    }
+
+    // MiMo Code — l'enveloppe d'opencode, relevée sur le binaire 0.1.15.
+    //
+    // Un outil arrive en un seul événement, `tool_use`, qui porte à la fois
+    // l'appel et son résultat : le panneau reçoit les deux d'un coup. Une
+    // erreur arrive en événement et le processus sort quand même avec 0 — le
+    // flux, pas le code de sortie, dit qu'il n'y a pas de réponse.
+    if (harness(kind).envelope === "opencode") {
+      const part = parsed.part as
+        | { text?: string; tool?: string; callID?: string; id?: string; state?: { status?: string; input?: unknown; output?: unknown; error?: unknown } }
+        | undefined
+      if (parsed.type === "text" && part?.text) {
+        send(part.text)
+        return
+      }
+      if (parsed.type === "tool_use" && part?.tool) {
+        const callId = part.callID ?? part.id ?? part.tool
+        started(callId, mimoToolName(part.tool), part.state?.input)
+        const status = part.state?.status
+        if (status === "completed" || status === "error") {
+          finished(callId, status === "error" ? (part.state?.error ?? part.state?.output) : part.state?.output, status === "error")
+        }
+        return
+      }
+      if (parsed.type === "step_finish") {
+        const spent = mimoUsageIn(parsed)
+        if (spent && turn) {
+          // Le panneau remplace la dépense d'un message à chaque envoi : on lui
+          // donne le cumul des étapes, pas la dernière.
+          turn.spent = addSpent(turn.spent ?? null, spent)
+          target.send("agent:usage", { id, ...turn.spent })
+        }
+        return
+      }
+      if (parsed.type === "error") {
+        const err = parsed.error as { name?: string; message?: string; data?: { message?: string } } | undefined
+        const message = err?.data?.message || err?.message || err?.name || "MiMo Code reported an error."
+        target.send("agent:error", { id, message })
         return
       }
       return

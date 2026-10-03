@@ -22,7 +22,10 @@ export type AgentKind = "claude" | "codex" | "qwen" | "mimo"
 // installés, pas supposé : ce sont les mêmes octets aux noms près.
 //
 // Codex a la sienne, faite d'`item.completed` et de `thread.started`.
-export type Envelope = "claude" | "codex"
+// MiMo Code imprime celle d'opencode, dont il est un fork : `text`, `tool_use`
+// (l'appel et son résultat dans un seul événement), `step_finish` et son
+// compte de jetons, `error`, et `sessionID` partout.
+export type Envelope = "claude" | "codex" | "opencode"
 
 export type Harness = {
   kind: AgentKind
@@ -34,7 +37,13 @@ export type Harness = {
    * Le paquet npm qui l'apporte. Le bouton « Install » le lance tel quel :
    * `npm install -g <paquet>`, et rien que le principal ne compose.
    */
-  npmPackage: string
+  npmPackage?: string
+  /**
+   * Ou, pour un harnais qui ne passe pas par npm, le script d'installation de
+   * son éditeur — lancé par `/bin/sh -c` dans un onglet du terminal. Absent
+   * sous Windows, où le bouton renvoie à la commande à taper.
+   */
+  installScript?: string
   /** La forme de sa sortie, donc quel analyseur la lit. */
   envelope: Envelope
   /**
@@ -71,16 +80,6 @@ export type Harness = {
    * à retrouver ailleurs.
    */
   gateway: boolean
-  /**
-   * Le fournisseur du moteur sur lequel ce harnais est branché à demeure.
-   *
-   * MiMo n'a pas de CLI à lui : Xiaomi documente codex pointé sur son API
-   * Responses. Le harnais `mimo` est donc codex — même binaire, même enveloppe
-   * — avec l'adresse et la clef réglées dans le panneau des fournisseurs, sous
-   * `mimo`. Il ne vise rien d'autre et ne tombe jamais sur le compte OpenAI de
-   * la personne : sans clef MiMo, il refuse de partir.
-   */
-  provider?: string
 }
 
 /**
@@ -124,27 +123,25 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     aimable: true,
     gateway: false,
   },
+  // MiMo Code, le CLI de Xiaomi, déjà connecté au compte MiMo de la personne.
+  // Ce n'est pas codex sous un autre nom : c'est son propre harnais, avec son
+  // propre flux (celui d'opencode, dont il est un fork) — relevé sur le binaire
+  // 0.1.15 plutôt que supposé.
   mimo: {
     kind: "mimo",
-    bin: "codex",
-    install: "npm install -g @openai/codex",
-    npmPackage: "@openai/codex",
-    envelope: "codex",
+    bin: "mimo",
+    install: "curl -fsSL https://mimo.xiaomi.com/install | bash",
+    installScript: "curl -fsSL https://mimo.xiaomi.com/install | bash",
+    envelope: "opencode",
     aimable: false,
     gateway: false,
-    provider: "mimo",
   },
 }
 
-// Xiaomi MiMo : le fournisseur du moteur, son modèle documenté et sa variante
-// à un million de jetons de contexte.
-export const MIMO_PROVIDER = "mimo"
-export const MIMO_DEFAULT_MODEL = "mimo-v2.6-pro"
-export const MIMO_MODELS = ["mimo-v2.6-pro", "mimo-v2.6-pro[1m]"]
-
-// speaksCodex : ce harnais est-il codex sous un autre nom ? Ce qui dépend du
-// binaire — la sous-commande `resume`, la question sur stdin, le bac à sable —
-// se demande ici plutôt qu'à `kind === "codex"`, qui oubliait MiMo.
+// speaksCodex : ce harnais est-il codex ? Ce qui dépend du binaire — la
+// sous-commande `resume`, la question sur stdin, le bac à sable — se demande
+// ici plutôt qu'à `kind === "codex"`, pour qu'un harnais bâti sur codex en
+// hérite sans qu'on ait à le retrouver partout.
 export function speaksCodex(kind: AgentKind | string): boolean {
   return harness(kind).bin === "codex"
 }
@@ -204,8 +201,11 @@ export function joinAimed(provider: string, model: string): string {
  *
  * Les guillemets doubles de codex sont du TOML pour `-c`, pas du shell.
  */
-export const SHELL_YOLO: Record<"claude" | "codex", readonly string[]> = {
+export const SHELL_YOLO: Record<"claude" | "codex" | "mimo", readonly string[]> = {
   claude: ["--permission-mode=bypassPermissions", "--allow-dangerously-skip-permissions"],
+  // MiMo Code : tout approuver, et ne pas s'arrêter sur la question « faites-
+  // vous confiance à ce dossier ? » — le shell a été ouvert dans le projet.
+  mimo: ["--dangerously-skip-permissions", "--trust"],
   codex: ["-c", 'model_reasoning_effort="high"', "--dangerously-bypass-approvals-and-sandbox"],
 }
 
@@ -229,7 +229,12 @@ export function interactiveCommand(kind: AgentKind, sessionId: string | null): s
   // autre caractère est refusé plutôt que cité — il part dans un shell.
   const id = sessionId && /^[A-Za-z0-9_-]+$/.test(sessionId) ? sessionId : null
   const bin = HARNESSES[kind].bin
-  const yolo = kind === "claude" ? SHELL_YOLO.claude.map(forShell) : speaksCodex(kind) ? SHELL_YOLO.codex.map(forShell) : []
+  const yolo =
+    kind === "claude" || kind === "mimo"
+      ? SHELL_YOLO[kind].map(forShell)
+      : speaksCodex(kind)
+        ? SHELL_YOLO.codex.map(forShell)
+        : []
   // `codex resume` prend ses options après la sous-commande, comme `--help`
   // les liste ; l'identifiant reste le dernier mot.
   const parts =
@@ -237,6 +242,8 @@ export function interactiveCommand(kind: AgentKind, sessionId: string | null): s
       ? id
         ? [bin, "resume", ...yolo, id]
         : [bin, ...yolo]
-      : [bin, ...yolo, ...(id ? ["--resume", id] : [])]
+      : kind === "mimo"
+        ? [bin, ...yolo, ...(id ? ["--session", id] : [])]
+        : [bin, ...yolo, ...(id ? ["--resume", id] : [])]
   return parts.join(" ")
 }

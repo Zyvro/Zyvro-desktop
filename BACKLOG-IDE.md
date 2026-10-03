@@ -200,3 +200,8 @@ Petits correctifs repérés en passant :
   `mimo-cli` (`mimo run --format json --agent plan`, l'erreur lue dans le flux
   puisque le code de sortie est 0, repli sur `~/.mimocode/bin`) ; le menu des
   fournisseurs d'un nœud de texte propose les deux MiMo.
+- **0.1.0-alpha.48 — le harnais mimo est MiMo Code.** Plus codex sur l'API :
+  `mimo run --format json` (enveloppe `opencode`, relevée sur le binaire
+  0.1.15), session par `--session`, outils traduits (`mimoToolName`), dépense
+  cumulée par étape, MCP par `MIMOCODE_CONFIG_CONTENT`, modèles lus dans
+  `mimo models`, installation par le script de Xiaomi.

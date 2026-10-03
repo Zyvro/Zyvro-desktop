@@ -38,7 +38,7 @@ mkdirSync(dir, { recursive: true })
 const from = (rel) => path.join(ROOT, rel).replace(/\\/g, "/")
 writeFileSync(
   path.join(dir, "h.ts"),
-  `export { shellArgsFor, argsFor, claudeAimEnv, aimEnv, GATEWAY_KEY_VAR, SHELL_YOLO, MIMO_KEY_VAR, mimoArgs } from "${from("src/main/agent")}"\n` +
+  `export { shellArgsFor, argsFor, claudeAimEnv, aimEnv, GATEWAY_KEY_VAR, SHELL_YOLO } from "${from("src/main/agent")}"\n` +
     `export { AGENT_KINDS, harness } from "${from("src/shared/harness")}"\n`
 )
 await build({
@@ -161,24 +161,22 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
   check("et il vient en dernier, donc il gagne", /\.\.\.extra, \.\.\.command\?\.env/.test(term))
 }
 
-// ---- MiMo : codex branché sur Xiaomi ------------------------------------
+// ---- MiMo Code : le CLI de Xiaomi, dans son interface ---------------------
 {
-  const mimo = { provider: "mimo", url: "https://api.xiaomimimo.com/v1", key: "tp-tres-secrete", model: "mimo-v2.6-pro" }
-  const shell = mod.shellArgsFor("mimo", null, mimo, null).join(" ")
-  check("**MiMo part en YOLO, comme codex**", shell.startsWith(mod.SHELL_YOLO.codex.join(" ")), shell)
-  check(
-    "**et sur le fournisseur mimo, en API Responses**",
-    shell.includes('base_url="https://api.xiaomimimo.com/v1"') && shell.includes('wire_api="responses"') && shell.includes("model_provider=mimo"),
-    shell
-  )
-  check("**sa clef passe par l'environnement, pas par la ligne**", !shell.includes(mimo.key) && shell.includes(`env_key="${mod.MIMO_KEY_VAR}"`), shell)
-  check("le modèle est celui de la visée", shell.endsWith("--model mimo-v2.6-pro"), shell)
-  const reprise = mod.shellArgsFor("mimo", null, mimo, null, "abc-123")
-  check("**une conversation reprise passe par `codex resume`, identifiant en dernier**", reprise[0] === "resume" && reprise.at(-1) === "abc-123", reprise.join(" "))
+  const shell = mod.shellArgsFor("mimo", "xiaomi/mimo-v2.6-pro").join(" ")
+  check("**MiMo Code part en YOLO, sans la question de confiance**", shell.startsWith("--dangerously-skip-permissions --trust"), shell)
+  check("et avec son modèle", shell.endsWith("--model xiaomi/mimo-v2.6-pro"), shell)
+  const reprise = mod.shellArgsFor("mimo", null, null, null, "ses_abc")
+  check("**une conversation reprise passe par `--session`**", reprise.join(" ").endsWith("--session ses_abc"), reprise.join(" "))
   const ctx = { projectDir: "/tmp/projet", workflows: [], permission: "project" }
-  const tour = mod.argsFor("mimo", ctx, null, null, [], mimo, null).join(" ")
-  check("**un tour du panneau est un `codex exec` sur MiMo**", tour.startsWith("exec") && tour.includes("model_provider=mimo") && !tour.includes(mimo.key), tour)
-  check("et il ne passe pas par la passerelle", !tour.includes("model_provider=zyvro"), tour)
+  const tour = mod.argsFor("mimo", ctx, "ses_abc", "xiaomi/mimo-v2.6-flash", ["/tmp/a.png"], null, null).join(" ")
+  check(
+    "**un tour du panneau est un `mimo run` en JSON, repris par sa session**",
+    tour === "run --format json --model xiaomi/mimo-v2.6-flash --session ses_abc --file /tmp/a.png",
+    tour
+  )
+  check("en lecture seule, l'agent `plan`", mod.argsFor("mimo", { ...ctx, permission: "read" }, null, null).join(" ").includes("--agent plan"))
+  check("en yolo, tout approuvé", mod.argsFor("mimo", { ...ctx, permission: "yolo" }, null, null).includes("--dangerously-skip-permissions"))
 }
 
 // ---- ce que la fenêtre a le droit de demander ----------------------------

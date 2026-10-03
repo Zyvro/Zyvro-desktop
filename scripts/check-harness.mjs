@@ -73,13 +73,12 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 // ---- une seule liste -----------------------------------------------------
 {
   check("**quatre harnais**", mod.AGENT_KINDS.join(",") === "claude,codex,qwen,mimo", mod.AGENT_KINDS.join(","))
-  // MiMo n'a pas de binaire à lui : c'est codex, branché à demeure sur le
-  // fournisseur `mimo`. Une table qui lui donnerait `bin: "mimo"` chercherait
-  // un programme qui n'existe pas.
+  // MiMo, c'est MiMo Code : son binaire à lui, `mimo`, et l'enveloppe
+  // d'opencode dont il est un fork. Pas codex.
   const mimo = mod.harness("mimo")
   check(
-    "**MiMo est codex sur le fournisseur mimo**",
-    mimo.bin === "codex" && mimo.envelope === "codex" && mimo.provider === "mimo" && !mimo.gateway && !mimo.aimable,
+    "**MiMo est MiMo Code, le CLI de Xiaomi**",
+    mimo.bin === "mimo" && mimo.envelope === "opencode" && !mimo.gateway && mimo.installScript === "curl -fsSL https://mimo.xiaomi.com/install | bash",
     JSON.stringify(mimo)
   )
 
@@ -363,7 +362,12 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 {
   for (const kind of mod.AGENT_KINDS) {
     const h = mod.harness(kind)
-    check(`${kind} sait comment on l'installe`, /^npm install -g \S+/.test(h.install), h.install)
+    // npm pour trois d'entre eux ; MiMo Code, lui, a le script de Xiaomi.
+    check(
+      `${kind} sait comment on l'installe`,
+      /^npm install -g \S+/.test(h.install) || /^curl -fsSL https:\/\/\S+ \| bash$/.test(h.install),
+      h.install
+    )
   }
 
   let message = ""
@@ -567,7 +571,7 @@ await appServer?.stop?.()
   check("sans session encore : le harnais, en YOLO", ic("claude", null) === `claude ${CLAUDE_YOLO}`, ic("claude", null))
   check("et codex aussi", ic("codex", null) === `codex ${CODEX_YOLO}`, ic("codex", null))
   check("**un identifiant qui n'en est pas un ne part pas dans le shell**", ic("claude", "x; rm -rf ~") === `claude ${CLAUDE_YOLO}`)
-  check("**MiMo tapé dans un shell est codex, en YOLO**", ic("mimo", null) === `codex ${CODEX_YOLO}`, ic("mimo", null))
+  check("**MiMo Code tapé dans un shell, en YOLO et sur sa session**", ic("mimo", "ses_1") === "mimo --dangerously-skip-permissions --trust --session ses_1", ic("mimo", "ses_1"))
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
   check("le panneau a le bouton", /openInTerminal\(kind, thread\.id, thread\.model\)/.test(panneau))
 }
@@ -583,15 +587,15 @@ await appServer?.stop?.()
   for (const kind of mod.AGENT_KINDS) {
     const h = mod.harness(kind)
     check(
-      `**le paquet de ${kind} est celui que la phrase d'installation nomme**`,
-      typeof h.npmPackage === "string" && h.npmPackage !== "" && h.install === `npm install -g ${h.npmPackage}`,
-      `${h.install} / ${h.npmPackage}`
+      `**ce que le bouton lance pour ${kind} est ce que la phrase d'installation nomme**`,
+      h.npmPackage ? h.install === `npm install -g ${h.npmPackage}` : Boolean(h.installScript) && h.install === h.installScript,
+      `${h.install} / ${h.npmPackage ?? h.installScript}`
     )
   }
   const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
   const bloc = ipc.slice(ipc.indexOf('ipcMain.handle("agent:install-shell"'), ipc.indexOf('ipcMain.handle("agent:models"'))
   check("**le harnais à installer est vérifié**", /if \(!isAgentKind\(kind\)\)/.test(bloc))
-  check("**et c'est la table qui nomme le paquet, pas la fenêtre**", /\["install", "-g", harness\(kind\)\.npmPackage\]/.test(bloc), bloc.slice(0, 400))
+  check("**et c'est la table qui nomme le paquet, pas la fenêtre**", /\["install", "-g", table\.npmPackage\]/.test(bloc), bloc.slice(0, 400))
   check("sans npm, la phrase dit d'où le prendre", /npm was not found on this machine\. Install Node\.js/.test(bloc))
   check("**l'installation a son onglet à elle**", /ws\.terminals\.create\(/.test(bloc) && /label: `install \$\{harness\(kind\)\.bin\}`/.test(bloc))
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")

@@ -435,12 +435,11 @@ function finishTurn(id: string): void {
 // connaître l'identifiant de session de la CLI — tapée dans le terminal, que
 // l'on ouvre s'il est replié. Le shell a déjà les outils MCP de ce projet.
 //
-// Sauf pour un harnais branché sur un fournisseur — MiMo : sa clef ne peut pas
-// être tapée dans un shell qui la garderait dans son historique. Il s'ouvre
-// dans un onglet à lui, qui la reçoit par l'environnement, et reprend la même
-// conversation.
+// MiMo Code a besoin des serveurs MCP du projet dans son environnement, qu'une
+// ligne tapée ne peut pas lui donner : il s'ouvre dans un onglet à lui, qui les
+// reçoit, et reprend la même conversation.
 async function openInTerminal(kind: AgentKind, threadId: string, model: string | null): Promise<void> {
-  if (harness(kind).provider) {
+  if (kind === "mimo") {
     useWorkspace.getState().setPanel("terminal", true)
     askHarness(kind, model, threadId)
     return
@@ -1179,17 +1178,29 @@ function grow(node: HTMLTextAreaElement): void {
 function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.Element {
   const table = harness(kind)
   const via = kind === table.bin ? "" : ` (${kind} runs on ${table.bin})`
+  // MiMo Code s'installe par le script de Xiaomi, pas par npm. Sous Windows il
+  // n'y a pas de script à lancer : la phrase donne la commande.
+  const script = !table.npmPackage && Boolean(table.installScript) && window.zyvro.platform !== "win32"
+  if (!table.npmPackage && !script) {
+    return (
+      <div className="mb-1.5 rounded border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1.5 text-[11px] text-amber-200/90">
+        <span className="font-mono">{table.bin}</span> is not installed on this machine. Install it with{" "}
+        <span className="font-mono">{table.install}</span>.
+      </div>
+    )
+  }
+  const runnable = script || npm
   return (
     <div className="mb-1.5 flex items-center gap-2 rounded border border-amber-400/25 bg-amber-400/[0.07] px-2 py-1.5 text-[11px] text-amber-200/90">
       <span className="min-w-0 flex-1">
         <span className="font-mono">{table.bin}</span> is not installed on this machine{via}.
-        {!npm && " Installing it needs npm, which comes with Node.js."}
+        {!runnable && " Installing it needs npm, which comes with Node.js."}
       </span>
-      {npm ? (
+      {runnable ? (
         <button
           type="button"
           onClick={() => installHarness(kind)}
-          title={`Runs npm install -g ${table.npmPackage} in a terminal tab`}
+          title={`Runs ${table.install} in a terminal tab`}
           className="flex shrink-0 items-center gap-1 rounded bg-amber-400/15 px-2 py-0.5 font-medium text-amber-100 transition-colors hover:bg-amber-400/25"
         >
           <Download className="h-3 w-3" />
