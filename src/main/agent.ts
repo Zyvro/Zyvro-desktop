@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn, spawnSync } from "node:child_process"
 import { CODEX_QUESTIONS_FEATURE, codexInput, codexServerPolicy, CodexServerTurn } from "./codexserver"
 import { askIn } from "./asks"
+import { recordIncident } from "./bugreport"
 import { installed as cliInstalled, launchPiped } from "./cli"
 import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
@@ -1246,7 +1247,7 @@ export class AgentRunner {
       disposeConfig?.()
       disposeConfig = null
       if (!target.isDestroyed()) {
-        if (message) target.send("agent:error", { id, message })
+        if (message) this.sendError(target, { id, message })
         else target.send("agent:done", { id })
       }
     }
@@ -1678,7 +1679,7 @@ export class AgentRunner {
         if (spent) target.send("agent:usage", { id, ...spent })
         const result = parsed.result
         if (parsed.is_error && typeof result === "string") {
-          target.send("agent:error", { id, message: result })
+          this.sendError(target, { id, message: result })
         }
         // L'entrée de Claude reste ouverte tant qu'un message glissé n'a pas
         // été repris : arrivé trop tard pour ce tour-ci, il en ouvre un second
@@ -1750,7 +1751,7 @@ export class AgentRunner {
       if (parsed.type === "error") {
         const err = parsed.error as { name?: string; message?: string; data?: { message?: string } } | undefined
         const message = err?.data?.message || err?.message || err?.name || "MiMo Code reported an error."
-        target.send("agent:error", { id, message })
+        this.sendError(target, { id, message })
         return
       }
       return
@@ -1781,7 +1782,7 @@ export class AgentRunner {
       return
     }
     if (parsed.type === "zyvro.failed") {
-      target.send("agent:error", { id, message: typeof parsed.message === "string" ? parsed.message : "Codex reported an error." })
+      this.sendError(target, { id, message: typeof parsed.message === "string" ? parsed.message : "Codex reported an error." })
       return
     }
     if (parsed.type === "item.started" && codexItem?.type === "command_execution") {
@@ -1824,6 +1825,52 @@ export class AgentRunner {
     const turn = this.turns.get(id)
     if (!turn) return
     turn.cancel?.()
+  }
+
+  // sendError : l'échec d'un tour, à la fenêtre et au journal du bouton bug.
+  private sendError(target: WebContents, payload: { id: string; message: string }): void {
+    const turn = this.turns.get(payload.id)
+    recordIncident(`agent:${turn?.kind ?? "turn"}`, payload.message)
+    target.send("agent:error", payload)
+  }
+
+  /**
+   * Ce que ce processus tient de chaque tour, pour un rapport de bug.
+   *
+   * C'est la moitié qui manque quand l'écran reste sur « Writing… » : le
+   * panneau croit un tour en cours, et seul ce côté sait si le processus de la
+   * CLI vit encore, s'il a fini, ce qu'il a imprimé en dernier.
+   */
+  debugSnapshot(): Record<string, unknown> {
+    const now = Date.now()
+    return {
+      turns: [...this.turns.values()].map((turn) => ({
+        id: turn.id,
+        conversationId: turn.conversationId,
+        kind: turn.kind,
+        projectDir: turn.projectDir,
+        startedAt: turn.startedAt,
+        ageSeconds: Math.round((now - turn.startedAt) / 1000),
+        prompt: turn.prompt.slice(0, 2000),
+        bytes: turn.bytes,
+        sentText: turn.sentText,
+        steerable: Boolean(turn.steer),
+        live: turn.live ? { pending: turn.live.pending, replays: turn.live.replays, closing: turn.live.closer !== null } : null,
+        wake: turn.wake,
+        process: {
+          pid: turn.child.pid ?? null,
+          exitCode: turn.child.exitCode,
+          signalCode: turn.child.signalCode,
+          killed: turn.child.killed,
+          stdinEnded: turn.child.stdin?.writableEnded ?? null,
+        },
+        lineCount: turn.lines.length,
+        // Les dernières lignes brutes de la CLI : c'est là que se lit un tour
+        // qui s'est arrêté sans le dire.
+        lines: turn.lines.slice(-40).map((line) => line.slice(0, 4000)),
+      })),
+      scheduled: [...this.repeats.keys()],
+    }
   }
 
   // cancelAll : la fenêtre s'en va, tout s'arrête avec elle.

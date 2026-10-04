@@ -583,6 +583,16 @@ const api = {
     /** Lancer une capture (image) ou un enregistrement (vidéo), sans l'icône. */
     start: (kind: "image" | "video"): Promise<boolean> => invoke("capture:start", kind),
   },
+  // Le bouton bug : envoyer un rapport, et savoir s'il y a des erreurs à dire.
+  bug: {
+    /** Envoie la description et l'état du rendu ; rend l'identifiant du rapport. */
+    report: (kind: "manual" | "crash", description: string, renderer: unknown): Promise<string> =>
+      invoke("bug:report", kind, description, renderer),
+    /** Une erreur vue par le rendu, au journal. */
+    incident: (source: string, message: string): Promise<boolean> => invoke("bug:incident", source, message),
+    unreported: (): Promise<number> => invoke("bug:unreported"),
+    onIncidents: (cb: (count: number) => void): Unsubscribe => on("bug:incidents", cb),
+  },
   account: {
     current: (): Promise<Account | null> => invoke("account:current"),
     signIn: (email: string, password: string): Promise<Account> =>

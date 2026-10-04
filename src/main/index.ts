@@ -12,6 +12,7 @@ import { trackZoom, zoomBy } from "./zoom"
 import { lastWindowClosed, launchedInBackground, startCapture } from "./capture"
 import { studioWindows } from "./windows"
 import { handleMedia, registerMediaScheme } from "./media"
+import { recordIncident, watchContents } from "./bugreport"
 
 const isDev = !app.isPackaged
 
@@ -154,6 +155,8 @@ function createWindow(): BrowserWindow {
   win.webContents.on("render-process-gone", (_event, details) => {
     console.error(`[renderer gone] ${details.reason} (exit code ${details.exitCode})`)
   })
+  // Et au journal du bouton bug, pour le rapport qu'on enverra après.
+  watchContents(win.webContents, "studio")
 
   win.webContents.on("preload-error", (_event, preloadPath, error) => {
     console.error(`[preload error] ${preloadPath}: ${error.message}`)
@@ -545,6 +548,21 @@ if (!app.requestSingleInstanceLock()) {
   // Le schéma des vidéos et des sons doit être déclaré avant que l'app soit
   // prête ; il est servi juste après.
   registerMediaScheme()
+
+  // Les plantages du processus principal, au journal du bouton bug.
+  //
+  // `uncaughtExceptionMonitor` et pas `uncaughtException` : le second, dès
+  // qu'on l'écoute, remplace le comportement par défaut — l'erreur ne ferait
+  // plus tomber le processus. Le moniteur regarde passer sans rien changer.
+  process.on("uncaughtExceptionMonitor", (err) => recordIncident("main:exception", err?.stack ?? String(err)))
+  process.on("unhandledRejection", (reason) => {
+    const text = reason instanceof Error ? reason.stack ?? reason.message : String(reason)
+    console.error(`[unhandled rejection] ${text}`)
+    recordIncident("main:rejection", text)
+  })
+  app.on("child-process-gone", (_event, details) => {
+    if (details.reason !== "clean-exit") recordIncident(`child:${details.type}`, `${details.reason} (exit code ${details.exitCode})${details.name ? ` ${details.name}` : ""}`)
+  })
 
   void app.whenReady().then(async () => {
     handleMedia()

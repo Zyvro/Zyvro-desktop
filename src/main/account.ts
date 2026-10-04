@@ -203,6 +203,24 @@ export async function anonymous(pathname: string): Promise<unknown> {
   return call(pathname)
 }
 
+// reportBug envoie un rapport de bug, avec la clé si on en a une et sans sinon.
+//
+// Un plantage mérite d'être entendu de quelqu'un qui n'a pas de compte, donc la
+// clé est facultative. Et une clé refusée ne doit ni perdre le rapport ni
+// déconnecter la personne au passage : on renvoie sans elle, et c'est tout.
+export async function reportBug(body: string): Promise<unknown> {
+  const stored = await read()
+  const init = { method: "POST", body }
+  if (stored) {
+    try {
+      return await call("/api/bug-reports", init, stored.key)
+    } catch (err) {
+      if (!(err instanceof StoreError && err.status === 401)) throw err
+    }
+  }
+  return call("/api/bug-reports", init)
+}
+
 // kdfParamsFor asks the server how this account's password is derived.
 //
 // Exported because signing in is no longer the only thing that needs it: the

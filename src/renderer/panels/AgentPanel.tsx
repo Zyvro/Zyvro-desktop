@@ -64,6 +64,8 @@ import { SynthesisPicker } from "~/panels/SynthesisPicker"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { synthesisSettings } from "~/state/synthesis"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
+import { BugButton } from "~/panels/BugReportDialog"
+import { reportIncident } from "~/state/bugReport"
 import { QuestionCard } from "~/panels/QuestionCard"
 import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
 import type { Goal, Pending } from "../../preload"
@@ -1428,6 +1430,96 @@ function markCancelled(turnId: string): void {
   cancelled.add(turnId)
 }
 
+// releaseThread : le dernier recours de Stop.
+//
+// Le bouton Stop est montré tant que la conversation est occupée, mais il ne
+// savait arrêter qu'un tour dont il connaissait l'identifiant. Un tour qui ne
+// l'a jamais reçu — l'envoi n'a jamais répondu —, ou dont le lien s'est perdu
+// en chemin, laissait « Writing… » à l'écran, et Stop ne faisait rien. Ici,
+// ce que l'écran croit en cours s'arrête, quoi qu'il arrive au processus : un
+// panneau qu'on peut toujours débloquer vaut mieux qu'un panneau exact.
+//
+// Ça ne devrait jamais servir. Quand ça sert, c'est un bug : il entre au
+// journal du bouton bug, avec de quoi le retrouver.
+function releaseThread(threadId: string, why: string): void {
+  const thread = threadById(threadId)
+  if (!thread) return
+  reportIncident(
+    "stuck-turn",
+    `${why} — thread ${threadId}, turnId ${thread.turnId ?? "none"}, busy ${thread.busy}, streaming ${thread.messages.filter((m) => m.streaming).length}`
+  )
+  for (const [turnId, bound] of turnToMessage) if (bound.threadId === threadId) turnToMessage.delete(turnId)
+  mapThread(threadId, (t) => ({
+    ...t,
+    turnId: null,
+    busy: false,
+    messages: t.messages.map((m) => (m.streaming ? ended(m) : m)),
+  }))
+  persist(threadId)
+}
+
+// stuck : l'écran croit encore cette conversation en cours.
+function stuck(threadId: string, turnId: string | null): boolean {
+  const thread = threadById(threadId)
+  if (!thread) return false
+  if (turnId !== null && thread.turnId === turnId) return true
+  return thread.turnId === null && (thread.busy || thread.messages.some((m) => m.streaming))
+}
+
+// chatSnapshot : tout ce que le panneau croit, pour un rapport de bug.
+//
+// Les conversations telles qu'à l'écran, et les tables qui relient un tour à
+// son message — c'est entre les deux que se perd un tour bloqué sur
+// « Writing… ».
+export function chatSnapshot(): Record<string, unknown> {
+  return {
+    activeId: state.activeId,
+    asks: state.asks.map((ask) => ({ id: ask.id, tool: ask.tool, questions: ask.questions?.length ?? 0 })),
+    threads: state.threads.map((t) => ({
+      id: t.id,
+      title: t.title,
+      kind: t.kind,
+      model: t.model,
+      ranWith: t.ranWith,
+      turnId: t.turnId,
+      busy: t.busy,
+      advancedSkills: t.advancedSkills,
+      goal: t.goal,
+      context: t.context,
+      queued: t.queued.map((q) => ({ id: q.id, text: q.text, steering: q.steering, images: q.images.length })),
+      messages: t.messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        streaming: m.streaming,
+        startedAt: m.startedAt,
+        endedAt: m.endedAt,
+        error: m.error,
+        spent: m.spent,
+        images: m.images?.length ?? 0,
+        parts: m.parts.map((part) =>
+          part.kind === "text"
+            ? { kind: "text", text: part.text }
+            : {
+                kind: "tool",
+                callId: part.call.callId,
+                running: part.call.running,
+                done: part.call.done,
+                finished: part.call.finished,
+                isError: part.call.isError,
+                detail: part.call.detail.slice(0, 2000),
+                output: part.call.output.slice(0, 4000),
+              }
+        ),
+      })),
+    })),
+    turnToMessage: [...turnToMessage.entries()].map(([turnId, bound]) => ({ turnId, ...bound })),
+    orphans: [...orphans.entries()].map(([turnId, o]) => ({ turnId, parts: o.parts.length, error: o.error, done: o.done })),
+    cancelled: [...cancelled],
+    compacting: [...compacting],
+    listenersAttached: attached,
+  }
+}
+
 // Closing the project clears the panel: what is on screen belongs to a project,
 // and leaving it there would show one project's conversations over another's.
 function resetChat(): void {
@@ -1737,12 +1829,32 @@ export function AgentPanel(): JSX.Element {
 
   const stop = (): void => {
     const turnId = thread.turnId
-    if (turnId === null) return
-    markCancelled(turnId)
-    void window.zyvro.agent.cancel(turnId).then(() => {
-      // Also recover a stale UI whose process has already disappeared.
-      if (turnToMessage.has(turnId)) finishTurn(turnId)
-    })
+    const threadId = thread.id
+    if (turnId === null) {
+      // Occupé sans tour connu : on arrête ce que le principal fait tourner
+      // pour cette conversation, puis on rend la main quoi qu'il réponde.
+      void window.zyvro.agent
+        .running()
+        .catch(() => [])
+        .then(async (running) => {
+          for (const r of running.filter((r) => r.conversationId === threadId)) {
+            markCancelled(r.id)
+            await window.zyvro.agent.cancel(r.id).catch(() => {})
+          }
+          if (stuck(threadId, null)) releaseThread(threadId, "Stop with no turn id")
+        })
+    } else {
+      markCancelled(turnId)
+      void window.zyvro.agent
+        .cancel(turnId)
+        .catch(() => {})
+        .then(() => {
+          // Also recover a stale UI whose process has already disappeared.
+          if (turnToMessage.has(turnId)) finishTurn(turnId)
+          // Et si l'écran y croit encore, il cesse d'y croire.
+          if (stuck(threadId, turnId)) releaseThread(threadId, "Stop did not end the turn")
+        })
+    }
 
     // « Stop » vide la file, et rend ce qu'elle contenait.
     //
@@ -1796,7 +1908,7 @@ export function AgentPanel(): JSX.Element {
     // Ctrl+C arrête l'agent qui travaille, comme dans son terminal. Seulement
     // sans sélection : sous Windows et Linux, Ctrl+C copie, et un texte
     // sélectionné doit rester copiable (sur Mac, copier est ⌘C).
-    if (isStopKey(event, thread.turnId !== null)) {
+    if (isStopKey(event, thread.busy)) {
       event.preventDefault()
       stop()
       return
@@ -2491,6 +2603,17 @@ export function AgentPanel(): JSX.Element {
                 mapThread(thread.id, (t) => ({ ...t, context: null, images: [] }))
                 void dispatch(thread.id, "/compact", [])
               }}
+            />
+            {/* Signaler un bug, là où il arrive : l'état complet part avec la
+                description. Jamais grisé — c'est justement quand le panneau
+                est bloqué qu'on en a besoin. */}
+            <BugButton
+              snapshot={() => ({
+                chat: chatSnapshot(),
+                root: useWorkspace.getState().root,
+                permission: agentPermission(),
+                agentSettings: getSettings().agent,
+              })}
             />
             <button
               type="button"

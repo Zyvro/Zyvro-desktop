@@ -96,7 +96,10 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
 // ---- « Stop » veut dire stop ---------------------------------------------
 {
   const arret = panel.slice(panel.indexOf("const stop = (): void =>"))
-  const corps = arret.slice(0, 1400)
+  // Jusqu'au menu de la barre oblique, qui suit : Stop a grandi depuis qu'il
+  // sait débloquer un tour sans identifiant, et une longueur fixe coupait
+  // la vidange de la file.
+  const corps = arret.slice(0, arret.indexOf("// ---- le menu de la barre oblique"))
   check(
     "**arrêter vide la file**",
     /mapThread\(thread\.id, \(t\) => \(\{ \.\.\.t, queued: \[\]/.test(corps),

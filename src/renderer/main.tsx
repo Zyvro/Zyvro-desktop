@@ -5,6 +5,7 @@ import { registerHost } from "@/lib/host"
 import { installCompletion } from "./lib/completion"
 import { installDaemonFetch } from "./lib/daemon"
 import { queryClient } from "./lib/queryClient"
+import { installIncidentCapture } from "./state/bugReport"
 import App from "./App"
 import "./styles.css"
 
@@ -16,6 +17,10 @@ installDaemonFetch()
 // Elle ne part que si elle est allumée — l'interrupteur est dans la barre du
 // bas — et son adresse passe par le même interception que le reste.
 installCompletion()
+
+// Les erreurs de la fenêtre entrent au journal du bouton bug dès le départ :
+// celle qui casse le premier rendu est justement celle qu'on veut lire.
+installIncidentCapture()
 
 // Tell the shared builder what this host can do. Browsing for a file needs a
 // real dialog and an open project, so the web app registers nothing and its

@@ -22,7 +22,8 @@ import * as persistent from "./persistent"
 import { createWatcher, type Watcher } from "./watch"
 import { forgetRecents, loadRecents, recentFiles, rememberFile, rememberRecent } from "./recents"
 import { choose as chooseShell, shells as machineShells } from "./shell"
-import { authorized, currentAccount, signIn, signOut } from "./account"
+import { authorized, currentAccount, reportBug, signIn, signOut } from "./account"
+import { onIncident, recordIncident, sendBugReport, unreportedIncidents } from "./bugreport"
 import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type AskHost, type BrowserHost } from "./shots"
 import { answerAsk, askIn } from "./asks"
@@ -414,6 +415,11 @@ let onRecentsChanged: (() => void) | null = null
 
 export function registerIpc(onRecents?: () => void): void {
   onRecentsChanged = onRecents ?? null
+
+  // Le bouton bug rougit quand une erreur entre au journal.
+  onIncident((count) => {
+    for (const win of studioWindows()) if (!win.isDestroyed()) win.webContents.send("bug:incidents", count)
+  })
 
   ipcMain.handle("project:choose", async (event) => {
     const { win } = requireWorkspace(event)
@@ -1595,6 +1601,33 @@ export function registerIpc(onRecents?: () => void): void {
 
   // The account lives in the main process. The renderer can ask who is signed
   // in and ask for a publish, but is never handed the credential.
+  // ---------- le bouton bug ----------
+  //
+  // Le rendu envoie sa description et son propre état ; ce côté y ajoute ce
+  // que lui seul tient — les tours de CHAQUE fenêtre, la machine, le journal
+  // des erreurs — masque les secrets connus, et envoie.
+  ipcMain.handle("bug:report", async (event, kind: unknown, description: unknown, renderer: unknown) => {
+    requireWorkspace(event)
+    const windows = studioWindows().map((win) => {
+      const ws = workspaces.get(win)
+      return { windowId: win.id, focused: win.isFocused(), root: ws?.root ?? null, agent: ws?.agent.debugSnapshot() ?? null }
+    })
+    const own = windows.find((w) => w.windowId === BrowserWindow.fromWebContents(event.sender)?.id)
+    return await sendBugReport(
+      { kind: kind === "crash" ? "crash" : "manual", description: typeof description === "string" ? description : "", renderer },
+      // `turns` à la racine, pour que la réduction de taille les trouve.
+      { turns: (own?.agent as { turns?: unknown[] } | null)?.turns ?? [], windows },
+      reportBug
+    )
+  })
+  // Une erreur vue par le rendu : elle entre au même journal.
+  ipcMain.handle("bug:incident", async (event, source: unknown, message: unknown) => {
+    requireWorkspace(event)
+    recordIncident(`renderer:${String(source).slice(0, 40)}`, String(message))
+    return true
+  })
+  ipcMain.handle("bug:unreported", async () => unreportedIncidents())
+
   ipcMain.handle("account:current", async () => currentAccount())
   ipcMain.handle("account:sign-in", async (_event, email: string, password: string) =>
     signIn(String(email), String(password))
