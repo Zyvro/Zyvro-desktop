@@ -95,7 +95,7 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
 
 // ---- « Stop » veut dire stop ---------------------------------------------
 {
-  const arret = panel.slice(panel.indexOf("const stop = (): void =>"))
+  const arret = panel.slice(panel.indexOf("const stop = (sendQueued = false): void =>"))
   // Jusqu'au menu de la barre oblique, qui suit : Stop a grandi depuis qu'il
   // sait débloquer un tour sans identifiant, et une longueur fixe coupait
   // la vidange de la file.
@@ -105,6 +105,23 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
     /mapThread\(thread\.id, \(t\) => \(\{ \.\.\.t, queued: \[\]/.test(corps),
     "le message suivant partirait juste après qu'on a cliqué sur Stop"
   )
+  // Ctrl+C avec des messages en attente : comme dans le terminal d'un agent,
+  // on l'interrompt pour lui dire la suite. Le tour s'arrête et le premier
+  // message en attente part, au lieu de revenir dans la boîte.
+  check(
+    "**Ctrl+C avec une file : le tour s'arrête et le message en attente part**",
+    /stop\(thread\.queued\.length > 0\)/.test(panel) && /if \(sendQueued && !stuck\(threadId, null\)\) advance\(threadId, true\)/.test(corps),
+    "le message attendait derrière un tour qu'on venait d'interrompre pour lui"
+  )
+  check(
+    "et la file n'est pas vidée dans ce cas",
+    corps.indexOf("if (sendQueued) return") > -1 && corps.indexOf("if (sendQueued) return") < corps.indexOf("queued: []")
+  )
+  check(
+    "**elle part une seule fois, après l'arrêt — pas depuis la fin du tour arrêté**",
+    /advance\(bound\.threadId, !arrete && !fini\?\.error\)/.test(panel) && (corps.match(/relancer\(\)/g) ?? []).length === 2
+  )
+  check("le bouton Stop, lui, arrête tout", /onClick=\{\(\) => stop\(\)\}/.test(panel))
   // Mais sans perdre ce qui était écrit : la boîte est vide à ce moment-là.
   check(
     "**sans perdre ce qui était écrit**",

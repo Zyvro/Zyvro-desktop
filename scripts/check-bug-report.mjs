@@ -156,7 +156,7 @@ const check = (name, ok, detail = "") => {
 // ---- le Stop et le bouton --------------------------------------------------------
 {
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
-  const stop = panel.slice(panel.indexOf("const stop = (): void => {"), panel.indexOf("// « Stop » vide la file"))
+  const stop = panel.slice(panel.indexOf("const stop = (sendQueued = false): void => {"), panel.indexOf("// « Stop » vide la file"))
   check("**Stop sans identifiant de tour ne sort plus sans rien faire**", !/if \(turnId === null\) return/.test(stop) && /releaseThread\(threadId, "Stop with no turn id"\)/.test(stop))
   check("il arrête ce que le principal fait tourner pour cette conversation", /r\.conversationId === threadId/.test(stop) && /agent\.cancel\(r\.id\)/.test(stop))
   check("**et si l'écran croit encore le tour en cours, il cesse d'y croire**", /stuck\(threadId, turnId\)\) releaseThread/.test(stop))

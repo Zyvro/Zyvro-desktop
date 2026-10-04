@@ -249,7 +249,7 @@ check(
     "**Ctrl+C dans la boîte arrête l'agent qui travaille**",
     // Dès que la conversation est occupée, comme le bouton Stop : un tour qui
     // n'a pas encore son identifiant se laissait voir sans se laisser arrêter.
-    /if \(isStopKey\(event, thread\.busy\)\) \{\s*event\.preventDefault\(\)\s*stop\(\)/.test(panel)
+    /if \(isStopKey\(event, thread\.busy\)\) \{\s*event\.preventDefault\(\)\s*stop\(thread\.queued\.length > 0\)/.test(panel)
   )
   check(
     "**mais pas quand du texte est sélectionné (Ctrl+C copie sous Windows)**",

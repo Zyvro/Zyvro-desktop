@@ -1827,9 +1827,22 @@ export function AgentPanel(): JSX.Element {
     setReecriture((r) => ({ ...r, original: text, sortie }))
   }
 
-  const stop = (): void => {
+  // `sendQueued` : Ctrl+C avec des messages en attente. Comme dans le terminal
+  // d'un agent, on interrompt ce qu'il fait pour lui dire la suite : le tour
+  // s'arrête et le premier message en attente part aussitôt, au lieu de
+  // revenir dans la boîte. Le bouton Stop, lui, arrête tout.
+  const stop = (sendQueued = false): void => {
     const turnId = thread.turnId
     const threadId = thread.id
+    // La file part d'ici, une seule fois, quand l'arrêt est réglé — tour fini
+    // ou débloqué à la main. Pas depuis `endTurn` : un tour arrêté n'y fait
+    // jamais avancer la file, et sa fin peut arriver avant comme après la
+    // réponse de `cancel`. Partir de là-bas ferait voir à la vérification
+    // « encore en cours ? » le message suivant, et le prendrait pour le tour
+    // bloqué.
+    const relancer = (): void => {
+      if (sendQueued && !stuck(threadId, null)) advance(threadId, true)
+    }
     if (turnId === null) {
       // Occupé sans tour connu : on arrête ce que le principal fait tourner
       // pour cette conversation, puis on rend la main quoi qu'il réponde.
@@ -1842,6 +1855,7 @@ export function AgentPanel(): JSX.Element {
             await window.zyvro.agent.cancel(r.id).catch(() => {})
           }
           if (stuck(threadId, null)) releaseThread(threadId, "Stop with no turn id")
+          relancer()
         })
     } else {
       markCancelled(turnId)
@@ -1853,8 +1867,10 @@ export function AgentPanel(): JSX.Element {
           if (turnToMessage.has(turnId)) finishTurn(turnId)
           // Et si l'écran y croit encore, il cesse d'y croire.
           if (stuck(threadId, turnId)) releaseThread(threadId, "Stop did not end the turn")
+          relancer()
         })
     }
+    if (sendQueued) return
 
     // « Stop » vide la file, et rend ce qu'elle contenait.
     //
@@ -1910,7 +1926,7 @@ export function AgentPanel(): JSX.Element {
     // sélectionné doit rester copiable (sur Mac, copier est ⌘C).
     if (isStopKey(event, thread.busy)) {
       event.preventDefault()
-      stop()
+      stop(thread.queued.length > 0)
       return
     }
     if (menuOuvert) {
@@ -2630,7 +2646,7 @@ export function AgentPanel(): JSX.Element {
             {thread.busy ? (
               <button
                 type="button"
-                onClick={stop}
+                onClick={() => stop()}
                 title="Stop (Ctrl+C)"
                 className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12]"
               >
