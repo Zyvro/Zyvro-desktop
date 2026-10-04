@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import * as nodeFs from "node:fs"
 import path from "node:path"
 import { spawn } from "node:child_process"
+import { startUpdateHelper } from "./update-helper"
 import { checksumFrom, compareVersions, newestRelease, pickUpdate, type PackageKind, type Release } from "../shared/update"
 
 // Les mises à jour de l'application.
@@ -21,7 +22,7 @@ import { checksumFrom, compareVersions, newestRelease, pickUpdate, type PackageK
 // Téléchargements — l'image disque à ouvrir soi-même, comme avant.
 //
 // **Quand ça s'applique.** Au moment où l'application quitte vraiment : le
-// script part sur `will-quit`, après que les fenêtres ont demandé quoi faire
+// remplacement est autorisé sur `will-quit`, après que les fenêtres ont demandé quoi faire
 // des fichiers modifiés. Annuler la fermeture n'applique rien ; la mise à jour
 // attend la prochaine.
 //
@@ -136,6 +137,7 @@ export async function downloadUpdate(
   info: UpdateInfo,
   target: WebContents
 ): Promise<{ file: string; verified: boolean }> {
+  if (enAttente) throw new Error("An update is already prepared. Quit the app to finish installing it.")
   if (!info.asset) throw new Error("There is no installer for this computer in that release.")
   const { name, url, size, sha256 } = info.asset
   // Le nom vient de GitHub : on n'en garde que le dernier segment.
@@ -240,51 +242,75 @@ relancer
 
 // Le même sous Windows, en PowerShell, présent partout depuis Windows 7. Le
 // dossier `resources` ne se renomme pas tant qu'un fichier y est ouvert : le
-// moteur (`resources\\bin\\zyvrod.exe`) peut mettre un instant à s'arrêter, et
-// s'il traîne, on l'arrête — le sien seulement, pas celui d'une autre copie.
-export const WIN_SCRIPT = `param([int]$ProcId, [string]$InstallDir, [string]$Stage, [string]$Exe, [string]$Version, [string]$Log)
+// moteur et les auxiliaires de terminal peuvent survivre au processus principal.
+// On arrête ceux de cette installation seulement, après sa fermeture.
+export const WIN_SCRIPT = `param([int]$ProcId, [string]$InstallDir, [string]$Stage, [string]$Exe, [string]$Version, [string]$Log, [string]$Ready, [string]$Commit, [string]$Installer)
+$ErrorActionPreference = 'Stop'
 function Note($m) { Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) $m" }
+function StopLeftovers {
+  $resourcesPrefix = (Join-Path $InstallDir 'resources').TrimEnd('\\') + '\\'
+  Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $location = $_.Path
+    $_.Id -ne $PID -and $location -and ($location -eq $Exe -or $location.StartsWith($resourcesPrefix, [StringComparison]::OrdinalIgnoreCase))
+  } | Stop-Process -Force -ErrorAction SilentlyContinue
+}
 Note "mise à jour de $InstallDir vers $Version"
+# Started BEFORE quitting, from the updates folder (never inside resources).
+# A canceled close must not install anything, even if the app later crashes.
+if ($Ready) {
+  Set-Content -LiteralPath $Ready -Value 'ready'
+  while (-not (Test-Path -LiteralPath $Commit)) {
+    if (-not (Get-Process -Id $ProcId -ErrorAction SilentlyContinue)) { Note 'fermeture sans confirmation'; exit 1 }
+    Start-Sleep -Milliseconds 100
+  }
+}
 $p = Get-Process -Id $ProcId -ErrorAction SilentlyContinue
 if ($p) { $p.WaitForExit(300000) | Out-Null }
 if (Get-Process -Id $ProcId -ErrorAction SilentlyContinue) { Note "toujours ouverte, rien n'est touché"; exit 1 }
 $res = Join-Path $InstallDir 'resources'; $new = "$res.new"; $old = "$res.old"
-Remove-Item -LiteralPath $new, $old -Recurse -Force -ErrorAction SilentlyContinue
+$moved = $false
 try {
-  Copy-Item -LiteralPath (Join-Path $Stage 'resources') -Destination $new -Recurse -Force -ErrorAction Stop
-} catch {
-  Note "copie ratée : $_"; Remove-Item -LiteralPath $new -Recurse -Force -ErrorAction SilentlyContinue
-  Start-Process -FilePath $Exe; exit 1
-}
-$ok = $false
-for ($i = 0; $i -lt 50 -and -not $ok; $i++) {
-  try { Rename-Item -LiteralPath $res -NewName 'resources.old' -ErrorAction Stop; $ok = $true }
-  catch {
-    if ($i -eq 10) {
-      Get-Process zyvrod -ErrorAction SilentlyContinue | Where-Object { $_.Path -like "$InstallDir*" } | Stop-Process -Force -ErrorAction SilentlyContinue
+  StopLeftovers
+  if ($Installer) {
+    # NSIS requires /D last, without quotes, including for paths with spaces.
+    $setup = Start-Process -FilePath $Installer -ArgumentList "/S --updated /D=$InstallDir" -WorkingDirectory (Split-Path -Parent $Log) -Wait -PassThru
+    if ($setup.ExitCode -ne 0) { throw "installer exited ($($setup.ExitCode))" }
+    Note 'fait (installeur)'
+  } else {
+    # Preserve a backup if an earlier attempt was interrupted between renames.
+    if (-not (Test-Path -LiteralPath $res) -and (Test-Path -LiteralPath $old)) {
+      Rename-Item -LiteralPath $old -NewName 'resources'
     }
-    Start-Sleep -Milliseconds 300
-  }
-}
-if ($ok) {
-  try {
-    Rename-Item -LiteralPath $new -NewName 'resources' -ErrorAction Stop
+    Remove-Item -LiteralPath $new, $old -Recurse -Force -ErrorAction SilentlyContinue
+    Copy-Item -LiteralPath (Join-Path $Stage 'resources') -Destination $new -Recurse -Force
+    for ($i = 0; $i -lt 50 -and -not $moved; $i++) {
+      try { Rename-Item -LiteralPath $res -NewName 'resources.old'; $moved = $true }
+      catch { if ($i -eq 49) { throw }; Start-Sleep -Milliseconds 300 }
+    }
+    Rename-Item -LiteralPath $new -NewName 'resources'
+    $moved = $false
     Remove-Item -LiteralPath $old -Recurse -Force -ErrorAction SilentlyContinue
-    # « Applications installées » lit la version dans le registre : la suivre.
+    Note 'fait'
+    # Registry metadata must never turn a successful swap into a rollback.
     Get-ChildItem 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall' -ErrorAction SilentlyContinue |
-      Where-Object { ((Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).InstallLocation -as [string]).TrimEnd('\\') -eq $InstallDir.TrimEnd('\\') } |
+      Where-Object { ([string](Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).InstallLocation).TrimEnd('\\') -eq $InstallDir.TrimEnd('\\') } |
       ForEach-Object { Set-ItemProperty $_.PSPath -Name DisplayVersion -Value $Version -ErrorAction SilentlyContinue }
-    Note "fait"
-  } catch {
-    Note "échange raté, retour à l'ancienne : $_"
-    Rename-Item -LiteralPath $old -NewName 'resources' -ErrorAction SilentlyContinue
   }
-} else {
-  Note "resources reste ouvert, rien n'est touché"
+} catch {
+  Note "mise à jour ratée : $_"
+  if ($moved -and -not (Test-Path -LiteralPath $res)) {
+    Rename-Item -LiteralPath $old -NewName 'resources' -ErrorAction Continue
+    Note "ancienne version restaurée"
+  }
+} finally {
   Remove-Item -LiteralPath $new -Recurse -Force -ErrorAction SilentlyContinue
+  if ($Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue }
+  try {
+    Start-Process -FilePath $Exe -WorkingDirectory $InstallDir
+    Note 'application relancée'
+  } catch { Note "relancement impossible : $_" }
+  if ($Ready) { Remove-Item -LiteralPath $Ready, $Commit -Force -ErrorAction SilentlyContinue }
 }
-Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
-Start-Process -FilePath $Exe
 `
 
 function lancer(cmd: string, args: string[], cwd?: string): Promise<void> {
@@ -341,6 +367,7 @@ let enAttente = false
 // dans le dossier de mises à jour, et nulle part ailleurs — la fenêtre ne
 // choisit pas ce qu'on exécute.
 export async function installUpdate(file: string, info: UpdateInfo): Promise<"quitting" | "opened"> {
+  if (enAttente) { app.quit(); return "quitting" }
   const dir = dossierMaj()
   const resolved = path.resolve(file)
   if (path.dirname(resolved) !== path.resolve(dir)) throw new Error("Refused to install from outside the updates folder.")
@@ -354,11 +381,7 @@ export async function installUpdate(file: string, info: UpdateInfo): Promise<"qu
 
   const journal = path.join(dir, JOURNAL)
   let partir: () => void
-  if (process.platform === "win32" && /\.exe$/i.test(resolved)) {
-    // L'installeur complet, sans questions, dans le dossier de la fois
-    // précédente, et qui relance l'application à la fin.
-    partir = () => spawn(resolved, ["/S", "--updated", "--force-run"], { detached: true, stdio: "ignore" }).unref()
-  } else if (process.platform === "darwin") {
+  if (process.platform === "darwin") {
     const bundle = bundleMac()
     if (!bundle) throw new Error("This app is not running from an application bundle.")
     const stage = await deplier(resolved, info.kind)
@@ -367,8 +390,13 @@ export async function installUpdate(file: string, info: UpdateInfo): Promise<"qu
     partir = () =>
       spawn("/bin/bash", [script, String(process.pid), bundle, stage, journal], { detached: true, stdio: "ignore" }).unref()
   } else if (process.platform === "win32") {
-    const stage = await deplier(resolved, info.kind)
+    const installer = /\.exe$/i.test(resolved)
+    const stage = installer ? "" : await deplier(resolved, info.kind)
     const script = path.join(dir, "apply.ps1")
+    const ready = path.join(dir, "apply.ready")
+    const commit = path.join(dir, "apply.commit")
+    await fs.rm(ready, { force: true })
+    await fs.rm(commit, { force: true })
     // Avec sa marque d'ordre des octets : PowerShell 5 lirait sinon les accents
     // de ses messages en ANSI.
     await fs.writeFile(script, "\uFEFF" + WIN_SCRIPT, "utf8")
@@ -384,16 +412,19 @@ export async function installUpdate(file: string, info: UpdateInfo): Promise<"qu
       String(process.pid),
       "-InstallDir",
       path.dirname(process.execPath),
-      "-Stage",
-      stage,
+      ...(installer ? ["-Installer", resolved] : ["-Stage", stage]),
       "-Exe",
       process.execPath,
       "-Version",
       info.latest,
       "-Log",
       journal,
+      "-Ready", ready,
+      "-Commit", commit,
     ]
-    partir = () => spawn("powershell.exe", args, { detached: true, stdio: "ignore", windowsHide: true }).unref()
+    const powershell = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+    await startUpdateHelper(powershell, args, dir, ready, path.join(dir, "apply-bootstrap.log"))
+    partir = () => fsBrut().writeFileSync(commit, "quit")
   } else {
     throw new Error("Updates install by themselves on macOS and Windows only.")
   }

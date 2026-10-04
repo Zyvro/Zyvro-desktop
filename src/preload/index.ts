@@ -445,6 +445,8 @@ const api = {
      * serveurs MCP, et le modèle choisi — visé chez un fournisseur local s'il
      * l'est.
      */
+    loginShell: (kind: AgentKind, cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
+      invoke("agent:login-shell", kind, cols, rows),
     shell: (
       kind: AgentKind,
       model: string | null,

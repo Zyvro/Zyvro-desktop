@@ -27,8 +27,8 @@
 //
 //     node scripts/check-update.mjs
 import { build } from "esbuild"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { spawnSync } from "node:child_process"
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { spawn, spawnSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import path from "node:path"
 import { createRequire } from "node:module"
@@ -256,6 +256,18 @@ if (process.platform === "win32") {
     mkdirSync(path.join(stage, "resources", "bin"), { recursive: true })
     writeFileSync(path.join(stage, "resources", "app.asar"), "v2")
     writeFileSync(path.join(stage, "resources", "bin", "zyvrod.exe"), "moteur")
+    // A surviving terminal helper runs from resources and locks that folder.
+    // A neighboring installation with the same prefix must stay untouched.
+    const helperExe = path.join(install, "resources", "bin", "terminal-helper.exe")
+    copyFileSync(process.execPath, helperExe)
+    const otherInstall = `${install}-other`
+    mkdirSync(otherInstall)
+    const otherExe = path.join(otherInstall, "terminal-helper.exe")
+    copyFileSync(process.execPath, otherExe)
+    const lingering = spawn(helperExe, ["-e", "console.log('ready'); setTimeout(() => {}, 30000)"], { stdio: ["ignore", "pipe", "ignore"] })
+    const neighbor = spawn(otherExe, ["-e", "console.log('ready'); setTimeout(() => {}, 30000)"], { stdio: ["ignore", "pipe", "ignore"] })
+    await Promise.all([lingering, neighbor].map((p) => new Promise((resolve, reject) => { p.once("error", reject); p.stdout.once("data", resolve) })))
+    const lingeringExit = new Promise((resolve) => lingering.once("exit", resolve))
     const mort = spawnSync(process.execPath, ["-e", "0"]).pid
     const journal = path.join(racine, "apply.log")
     const exe = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "HOSTNAME.EXE")
@@ -265,11 +277,43 @@ if (process.platform === "win32") {
       { encoding: "utf8" }
     )
     const lire = (p) => (existsSync(p) ? readFileSync(p, "utf8") : null)
+    let neighborAlive = true
+    try { process.kill(neighbor.pid, 0) } catch { neighborAlive = false }
+    check("Windows : l'installation voisine n'est pas arrêtée", neighborAlive)
+    const neighborExit = new Promise((resolve) => neighbor.once("exit", resolve))
+    neighbor.kill()
+    await neighborExit
+    await lingeringExit
+    check("Windows : l'auxiliaire de terminal verrouillant resources est arrêté", !existsSync(helperExe))
     check("**Windows : le correctif remplace resources**", r.status === 0 && lire(path.join(install, "resources", "app.asar")) === "v2", `${r.stderr}\n${lire(journal)}`)
     check("Windows : le moteur neuf est là, l'ancien fichier parti", lire(path.join(install, "resources", "bin", "zyvrod.exe")) === "moteur" && !existsSync(path.join(install, "resources", "vieux-fichier")))
     check("Windows : l'exécutable n'est pas touché", lire(path.join(install, "Zyvro Studio.exe")) === "electron")
     check("Windows : rien ne traîne", !existsSync(path.join(install, "resources.old")) && !existsSync(path.join(install, "resources.new")) && !existsSync(stage))
     check("Windows : le journal dit « fait »", /fait/.test(lire(journal) ?? ""), lire(journal))
+    check("Windows : l'application est relancée", /application relancée/.test(lire(journal) ?? ""), lire(journal))
+
+    // Exercise rollback after the first rename, with actual filesystem moves.
+    // Only the second rename fails; the wrapper leaves rollback operational.
+    const wrapper = path.join(racine, "fail-swap.ps1")
+    writeFileSync(wrapper, `function Rename-Item {
+      param([string]$LiteralPath, [string]$NewName)
+      if ($LiteralPath.EndsWith('resources.new')) { throw 'injected second rename failure' }
+      Microsoft.PowerShell.Management\\Rename-Item -LiteralPath $LiteralPath -NewName $NewName -ErrorAction Stop
+    }
+    & '${script.replace(/'/g, "''")}' @args
+    `)
+    mkdirSync(path.join(stage, "resources"), { recursive: true })
+    writeFileSync(path.join(stage, "resources", "app.asar"), "v3")
+    const rollback = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper, "-ProcId", String(mort), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "10.0.0", "-Log", journal], { encoding: "utf8", timeout: 30000 })
+    check("Windows : échange raté restaure l'ancienne version", lire(path.join(install, "resources", "app.asar")) === "v2" && /ancienne version restaurée/.test(lire(journal) ?? ""), `${rollback.stderr}\n${lire(journal)}`)
+    check("Windows : rollback relance l'application", /application relancée/.test((lire(journal) ?? "").split("injected second rename failure").at(-1)), lire(journal))
+
+    // Missing staged files must keep the installed app and still restart it.
+    rmSync(journal, { force: true })
+    const missing = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcId", String(mort), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "10.0.0", "-Log", journal], { encoding: "utf8", timeout: 30000 })
+    check("Windows : copie ratée garde l'application", lire(path.join(install, "resources", "app.asar")) === "v2" && /mise à jour ratée/.test(lire(journal) ?? ""), `${missing.stderr}\n${lire(journal)}`)
+    check("Windows : copie ratée relance quand même", /application relancée/.test(lire(journal) ?? ""), lire(journal))
+
   } finally {
     rmSync(racine, { recursive: true, force: true })
   }

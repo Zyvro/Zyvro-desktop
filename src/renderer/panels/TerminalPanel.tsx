@@ -59,6 +59,7 @@ type SessionStatus = {
   harnais?: { nom: AgentKind; model: string | null; conversation?: string | null }
   /** Le harnais que ce shell installe : `npm install -g`, dans son onglet. */
   installation?: AgentKind
+  connexion?: AgentKind
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -70,6 +71,7 @@ const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation
 function nomOnglet(key: string, index: number): string {
   const statut = readStatus(key)
   if (statut.persistent !== undefined) return statut.persistent
+  if (statut.connexion) return `login ${harness(statut.connexion).bin}`
   if (statut.installation) return `install ${harness(statut.installation).bin}`
   const harnais = statut.harnais
   if (harnais) return harnais.model ? `${harnais.nom} · ${harnais.model}` : harnais.nom
@@ -364,8 +366,11 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const persiste = readStatus(key).persistent
   const harnais = readStatus(key).harnais
   const installation = readStatus(key).installation
+  const connexion = readStatus(key).connexion
   const ouvrir = dejaLa
     ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
+    : connexion !== undefined
+      ? window.zyvro.agent.loginShell(connexion, term.cols, term.rows).then((session) => ({ ...session, reprise: false }))
     : installation !== undefined
       ? // npm qui installe un harnais : l'onglet se termine avec lui, et ce
         // qu'il a dit reste à l'écran.
@@ -765,6 +770,8 @@ export function TerminalPanel(): JSX.Element {
         key,
         ordre.sorte === "persistante"
           ? { persistent: ordre.label }
+          : ordre.sorte === "connexion"
+            ? { connexion: ordre.harnais }
           : ordre.sorte === "installation"
             ? { installation: ordre.harnais }
             : { harnais: { nom: ordre.harnais, model: ordre.model, conversation: ordre.conversation } }

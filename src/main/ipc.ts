@@ -12,7 +12,8 @@ import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
-import { adoptHomeBins, helpOf, installed, locate, outputOf } from "./cli"
+import { loginArgs } from "../shared/login"
+import { adoptHomeBins, direct, helpOf, installed, locate, outputOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import { mediaUrlFor } from "./media"
@@ -1482,6 +1483,23 @@ export function registerIpc(onRecents?: () => void): void {
    * même démon, la même visée. Ce qu'il n'a pas, c'est la permission décidée
    * d'avance — dans une interface interactive, c'est la CLI qui demande.
    */
+  ipcMain.handle("agent:login-shell", async (event, kind: string, cols: number, rows: number) => {
+    const { ws } = requireWorkspace(event)
+    if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
+    const table = harness(kind)
+    const found = locate(table.bin)
+    if (!found) throw new Error(`"${table.bin}" was not found on this machine. Install it with: ${table.install}`)
+    const how = direct(found)
+    const args = [...how.prefix, ...loginArgs(kind)]
+    const command = how.shell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", how.file, ...args] }
+      : { file: how.file, args }
+    // No gateway, model, MCP or permission overrides during authentication.
+    // Inherit the same HOME/config environment as the panel's agent process.
+    const session = ws.terminals.create(event.sender, requireRoot(ws), cols || 80, rows || 24, null, { command, label: `login ${kind}` })
+    return { ...session, banner: `Sign in with ${table.bin} below. Once the CLI confirms sign-in, return to the agent panel and send your message.\r\n` }
+  })
+
   ipcMain.handle("agent:shell", async (event, kind: string, model: string | null, cols: number, rows: number, conversationId?: string | null) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)

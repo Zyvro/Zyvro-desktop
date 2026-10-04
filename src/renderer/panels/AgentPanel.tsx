@@ -29,7 +29,8 @@ import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { clockTime, formatDuration } from "~/lib/duration"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
-import { askHarness } from "~/state/persistent"
+import { isLoginCommand } from "../../shared/login"
+import { askLogin, askHarness } from "~/state/persistent"
 import { askConfirm } from "~/state/prompt"
 import {
   blankKey,
@@ -1623,6 +1624,15 @@ export function AgentPanel(): JSX.Element {
     if (text === "" && thread.images.length === 0) return
     const threadId = thread.id
     const images = thread.images
+    if (isLoginCommand(text)) {
+      rememberPrompt(prompt)
+      leaveHistory(threadId)
+      setDraft("")
+      if (composer.current) composer.current.style.height = ""
+      useWorkspace.getState().setPanel("terminal", true)
+      askLogin(kind)
+      return
+    }
 
     // `/compact` tapé à la main ouvre le même cadran que le bouton : la
     // taille réelle n'est connue qu'au tour suivant, on ne la devine pas.
@@ -1705,7 +1715,7 @@ export function AgentPanel(): JSX.Element {
     const { mode, autoSend } = synthesisSettings()
     const text = prompt.trim()
     if (reecriture.busy) return
-    if (mode === "off" || text === "" || text === reecriture.sortie) {
+    if (isLoginCommand(text) || mode === "off" || text === "" || text === reecriture.sortie) {
       setReecriture((r) => ({ ...r, original: null, sortie: null }))
       await send(prompt)
       return
