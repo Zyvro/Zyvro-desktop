@@ -247,6 +247,15 @@ if (process.platform === "win32") {
   try {
     const script = path.join(racine, "apply.ps1")
     writeFileSync(script, "\uFEFF" + texte, "utf8")
+    // The production app is a GUI executable. Our hostname fixture is a
+    // console program: wait for it without leaving a separate conhost window
+    // holding the fixture directory open after the assertion.
+    const launchFixture = `function Start-Process {
+      param([string]$FilePath, [string]$WorkingDirectory)
+      Microsoft.PowerShell.Management\\Start-Process -FilePath $FilePath -WorkingDirectory $WorkingDirectory -NoNewWindow -Wait
+    }`
+    const driver = path.join(racine, "driver.ps1")
+    writeFileSync(driver, `${launchFixture}\n& '${script.replace(/'/g, "''")}' @args`)
     const install = path.join(racine, "Zyvro Studio")
     mkdirSync(path.join(install, "resources", "bin"), { recursive: true })
     writeFileSync(path.join(install, "resources", "app.asar"), "v1")
@@ -273,7 +282,7 @@ if (process.platform === "win32") {
     const exe = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "HOSTNAME.EXE")
     const r = spawnSync(
       "powershell.exe",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcId", String(mort), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "9.9.9", "-Log", journal],
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", driver, "-ProcId", String(mort), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "9.9.9", "-Log", journal],
       { encoding: "utf8" }
     )
     const lire = (p) => (existsSync(p) ? readFileSync(p, "utf8") : null)
@@ -295,7 +304,7 @@ if (process.platform === "win32") {
     // Exercise rollback after the first rename, with actual filesystem moves.
     // Only the second rename fails; the wrapper leaves rollback operational.
     const wrapper = path.join(racine, "fail-swap.ps1")
-    writeFileSync(wrapper, `function Rename-Item {
+    writeFileSync(wrapper, `${launchFixture}\nfunction Rename-Item {
       param([string]$LiteralPath, [string]$NewName)
       if ($LiteralPath.EndsWith('resources.new')) { throw 'injected second rename failure' }
       Microsoft.PowerShell.Management\\Rename-Item -LiteralPath $LiteralPath -NewName $NewName -ErrorAction Stop
@@ -310,7 +319,7 @@ if (process.platform === "win32") {
 
     // Missing staged files must keep the installed app and still restart it.
     rmSync(journal, { force: true })
-    const missing = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-ProcId", String(mort), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "10.0.0", "-Log", journal], { encoding: "utf8", timeout: 30000 })
+    const missing = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", driver, "-ProcId", String(mort), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "10.0.0", "-Log", journal], { encoding: "utf8", timeout: 30000 })
     check("Windows : copie ratée garde l'application", lire(path.join(install, "resources", "app.asar")) === "v2" && /mise à jour ratée/.test(lire(journal) ?? ""), `${missing.stderr}\n${lire(journal)}`)
     check("Windows : copie ratée relance quand même", /application relancée/.test(lire(journal) ?? ""), lire(journal))
 
