@@ -323,6 +323,37 @@ if (process.platform === "win32") {
     check("Windows : copie ratée garde l'application", lire(path.join(install, "resources", "app.asar")) === "v2" && /mise à jour ratée/.test(lire(journal) ?? ""), `${missing.stderr}\n${lire(journal)}`)
     check("Windows : copie ratée relance quand même", /application relancée/.test(lire(journal) ?? ""), lire(journal))
 
+    // Real readiness + quit gate: a prepared helper cannot touch the install
+    // while the app is alive, even after the user confirms the restart.
+    mkdirSync(path.join(stage, "resources"), { recursive: true })
+    writeFileSync(path.join(stage, "resources", "app.asar"), "v4")
+    const ready = path.join(racine, "apply.ready")
+    const commit = path.join(racine, "apply.commit")
+    const fakeApp = spawn(process.execPath, ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" })
+    const fakeAppExit = new Promise((resolve) => fakeApp.once("exit", resolve))
+    const helper = spawn("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", driver, "-ProcId", String(fakeApp.pid), "-InstallDir", install, "-Stage", stage, "-Exe", exe, "-Version", "11.0.0", "-Log", journal, "-Ready", ready, "-Commit", commit], { stdio: "ignore" })
+    const helperExit = new Promise((resolve) => helper.once("exit", resolve))
+    try {
+      const deadline = Date.now() + 15000
+      while (!existsSync(ready) && Date.now() < deadline && helper.exitCode === null) await new Promise((r) => setTimeout(r, 50))
+      check("Windows : le programme signale son démarrage", existsSync(ready), lire(journal))
+      check("Windows : prêt ne veut pas dire installer", lire(path.join(install, "resources", "app.asar")) === "v2")
+      writeFileSync(commit, "quit")
+      await new Promise((r) => setTimeout(r, 200))
+      check("Windows : le remplacement attend la sortie de l'application", lire(path.join(install, "resources", "app.asar")) === "v2")
+      fakeApp.kill()
+      await fakeAppExit
+      let timeout
+      const code = await Promise.race([helperExit, new Promise((resolve) => { timeout = setTimeout(() => resolve("timeout"), 15000) })])
+      clearTimeout(timeout)
+      check("Windows : fermeture confirmée applique le correctif", code === 0 && lire(path.join(install, "resources", "app.asar")) === "v4", lire(journal))
+    } finally {
+      if (fakeApp.exitCode === null) fakeApp.kill()
+      if (helper.exitCode === null) helper.kill()
+      await Promise.all([fakeAppExit, helperExit])
+    }
+
+
   } finally {
     rmSync(racine, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }

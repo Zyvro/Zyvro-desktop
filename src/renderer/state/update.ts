@@ -14,6 +14,7 @@ export type UpdateState =
   | { phase: "available"; info: UpdateInfo }
   | { phase: "downloading"; info: UpdateInfo; received: number; total: number }
   | { phase: "ready"; info: UpdateInfo; verified: boolean }
+  | { phase: "installing"; info: UpdateInfo; verified: boolean }
   | { phase: "error"; message: string; info?: UpdateInfo }
 
 let etat: UpdateState = { phase: "idle" }
@@ -46,7 +47,7 @@ export function setUpdateDialog(open: boolean): void {
  */
 export async function checkForUpdate(quiet: boolean): Promise<void> {
   // Un téléchargement en cours ou prêt n'est pas à recommencer.
-  if (etat.phase === "downloading" || etat.phase === "ready") {
+  if (etat.phase === "downloading" || etat.phase === "ready" || etat.phase === "installing") {
     if (!quiet) setUpdateDialog(true)
     return
   }
@@ -86,8 +87,15 @@ export async function downloadUpdate(): Promise<void> {
 }
 
 export async function installUpdate(): Promise<"quitting" | "opened" | null> {
+  if (etat.phase !== "ready") return null
+  const ready = etat
+  poser({ ...ready, phase: "installing" })
   try {
-    return await window.zyvro.update.install()
+    const result = await window.zyvro.update.install()
+    // A dirty editor may cancel app.quit(). Keep Restart available in that
+    // case; the main process retains the already prepared update.
+    poser(ready)
+    return result
   } catch (err) {
     poser({ phase: "error", message: (err as Error).message, info: "info" in etat ? etat.info : undefined })
     return null

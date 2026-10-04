@@ -137,7 +137,7 @@ export async function downloadUpdate(
   info: UpdateInfo,
   target: WebContents
 ): Promise<{ file: string; verified: boolean }> {
-  if (enAttente) throw new Error("An update is already prepared. Quit the app to finish installing it.")
+  if (enAttente || preparing) throw new Error("An update is already prepared. Quit the app to finish installing it.")
   if (!info.asset) throw new Error("There is no installer for this computer in that release.")
   const { name, url, size, sha256 } = info.asset
   // Le nom vient de GitHub : on n'en garde que le dernier segment.
@@ -362,11 +362,19 @@ export async function deplier(file: string, kind: PackageKind): Promise<string> 
 }
 
 let enAttente = false
+let preparing = false
 
 // install : poser le paquet téléchargé. Le chemin est revérifié : il doit être
 // dans le dossier de mises à jour, et nulle part ailleurs — la fenêtre ne
 // choisit pas ce qu'on exécute.
 export async function installUpdate(file: string, info: UpdateInfo): Promise<"quitting" | "opened"> {
+  if (preparing) throw new Error("The update is already being prepared. Please wait.")
+  preparing = true
+  try { return await prepareUpdate(file, info) }
+  finally { preparing = false }
+}
+
+async function prepareUpdate(file: string, info: UpdateInfo): Promise<"quitting" | "opened"> {
   if (enAttente) { app.quit(); return "quitting" }
   const dir = dossierMaj()
   const resolved = path.resolve(file)
