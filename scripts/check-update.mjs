@@ -228,7 +228,7 @@ if (process.platform !== "win32") {
       check("**l'application toujours ouverte : rien n'est touché**", r.status !== 0 && lire(path.join(app, "Contents/Resources/app.asar")) === "v1")
     }
   } finally {
-    rmSync(racine, { recursive: true, force: true })
+    rmSync(racine, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 }
 
@@ -315,7 +315,7 @@ if (process.platform === "win32") {
     check("Windows : copie ratée relance quand même", /application relancée/.test(lire(journal) ?? ""), lire(journal))
 
   } finally {
-    rmSync(racine, { recursive: true, force: true })
+    rmSync(racine, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 })
   }
 }
 

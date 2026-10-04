@@ -246,7 +246,7 @@ relancer
 // On arrête ceux de cette installation seulement, après sa fermeture.
 export const WIN_SCRIPT = `param([int]$ProcId, [string]$InstallDir, [string]$Stage, [string]$Exe, [string]$Version, [string]$Log, [string]$Ready, [string]$Commit, [string]$Installer)
 $ErrorActionPreference = 'Stop'
-function Note($m) { Add-Content -LiteralPath $Log -Value "$(Get-Date -Format o) $m" }
+function Note($m) { Add-Content -LiteralPath $Log -Encoding UTF8 -Value "$(Get-Date -Format o) $m" }
 function StopLeftovers {
   $resourcesPrefix = (Join-Path $InstallDir 'resources').TrimEnd('\\') + '\\'
   Get-Process -ErrorAction SilentlyContinue | Where-Object {
