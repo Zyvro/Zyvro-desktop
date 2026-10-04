@@ -29,6 +29,7 @@ for (const kind of ["claude", "codex", "qwen", "mimo"]) {
     const no = () => { throw new Error("Login reached the model/queue/image mutation path") }
     const ctx = vm.createContext({
       kind, thread: { id: "thread", busy, images: [{ id: "keep" }] }, isLoginCommand,
+      threadById: () => ({ id: "thread", busy, images: [{ id: "keep" }] }),
       composer: { current: { style: {} } }, reecriture: { busy: false },
       synthesisSettings: () => ({ mode: "detailed", autoSend: true }),
       setReecriture: () => {}, rememberPrompt: () => {}, leaveHistory: () => {}, setDraft: (s) => calls.push(["draft", s]),

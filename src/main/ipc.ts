@@ -877,21 +877,24 @@ export function registerIpc(onRecents?: () => void): void {
   // « télécharge », pas « télécharge cette adresse » — elle ne choisit ni ce
   // qu'on télécharge ni ce qu'on exécute.
   let proposee: updater.UpdateInfo | null = null
-  let telecharge: string | null = null
+  let telecharge: { file: string; info: updater.UpdateInfo } | null = null
   ipcMain.handle("update:check", async () => {
     proposee = await updater.checkForUpdate()
     return proposee
   })
   ipcMain.handle("update:download", async (event) => {
     if (!proposee) throw new Error("There is no update to download.")
-    const r = await updater.downloadUpdate(proposee, event.sender)
-    telecharge = r.file
+    const info = proposee
+    telecharge = null
+    const r = await updater.downloadUpdate(info, event.sender)
+    telecharge = { file: r.file, info }
     return r
   })
   ipcMain.handle("update:install", async () => {
     if (!telecharge) throw new Error("Download the update first.")
-    if (!proposee) throw new Error("There is no update to install.")
-    return updater.installUpdate(telecharge, proposee)
+    // Another window may have checked for a newer release meanwhile. Install
+    // the version that belongs to these verified bytes, not the latest check.
+    return updater.installUpdate(telecharge.file, telecharge.info)
   })
 
   // La palette de commandes lit le menu, et passe par lui pour agir : une
@@ -1550,9 +1553,11 @@ export function registerIpc(onRecents?: () => void): void {
     // Sous Windows, `claude` est `claude.cmd` : un script pour l'interpréteur
     // de commandes, que rien ne lance directement. `cli.ts` le signale, et ici
     // la réponse est de lancer l'interpréteur avec lui.
-    const command = found.needsShell
-      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", found.file, ...args], env }
-      : { file: found.file, args, env }
+    const how = direct(found)
+    const nativeArgs = [...how.prefix, ...args]
+    const command = how.shell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", how.file, ...nativeArgs], env }
+      : { file: how.file, args: nativeArgs, env }
 
     return ws.terminals.create(
       event.sender,

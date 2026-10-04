@@ -73,6 +73,18 @@ app.whenReady().then(async () => {
     // Une seconde fois : le reste de la première doit s'effacer.
     const encore = await u.deplier(fichier, "patch")
     r.redeplie = ofs.existsSync(path.join(encore, ${JSON.stringify(mac ? "Resources" : "resources")}, "app.asar"))
+    // Electron's net.fetch must interoperate with Node's stream pipeline,
+    // not just the Node Response fixture used by check-update-download.
+    const payload = Buffer.from("download fixture")
+    const server = require("node:http").createServer((_req, response) => response.end(payload))
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+    try {
+      const sha256 = require("node:crypto").createHash("sha256").update(payload).digest("hex")
+      const url = "http://127.0.0.1:" + server.address().port + "/update"
+      const downloaded = await u.downloadUpdate({ kind: "patch", latest: "9.9.9", asset: { name: "download.tar.gz", url, size: payload.length, sha256 } }, { isDestroyed: () => true })
+      r.telecharge = downloaded.verified && ofs.readFileSync(downloaded.file).equals(payload)
+    } finally { await new Promise((resolve) => server.close(resolve)) }
+
   } catch (e) { r.erreur = e.message }
   console.log("RESULTAT " + JSON.stringify(r))
   app.exit(0)
@@ -94,6 +106,7 @@ app.whenReady().then(async () => {
   }
   check("**dans Electron, le correctif déplié est reconnu, app.asar compris**", res.deplie === true, res.erreur)
   check("**et ce qu'il a déplié s'efface pour recommencer**", res.redeplie === true, res.erreur)
+  check("Electron télécharge et vérifie les octets par le pipeline", res.telecharge === true, res.erreur)
   if (failures) {
     console.log(`\n${failures} échec(s)`)
     process.exit(1)

@@ -261,7 +261,7 @@ const codexParams = {
   check("Submit envoie les réponses, Skip refuse", /onSubmit=\{\(answers\) => answerAsk\(ask\.id, true, answers\)\}/.test(panel) && /onSkip=\{\(\) => answerAsk\(ask\.id, false\)\}/.test(panel))
   check("une demande retirée quitte l'écran", /onPermissionGone\(/.test(panel))
   const card = readFileSync(path.join(ROOT, "src/renderer/panels/QuestionCard.tsx"), "utf8")
-  check("**Submit attend que chaque question ait une réponse**", /disabled=\{!complete\}/.test(card))
+  check("**Submit attend que chaque question ait une réponse**", /disabled=\{!complete \|\| pending\}/.test(card))
 }
 
 console.log(

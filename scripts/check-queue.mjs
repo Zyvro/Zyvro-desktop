@@ -80,11 +80,11 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   )
   check(
     "**ce qu'on écrit pendant un tour est mis en file**",
-    /if \(thread\.busy\) \{[\s\S]{0,300}?queued: \[\.\.\.t\.queued,/.test(corps),
+    /if \(target\.busy\) \{[\s\S]{0,300}?queued: \[\.\.\.t\.queued,/.test(corps),
     "le message est perdu ou refusé"
   )
   // La boîte se vide dans les deux cas : sinon on ne sait pas si c'est parti.
-  check("et la boîte se vide dans les deux cas", corps.indexOf('setDraft("")') < corps.indexOf("if (thread.busy)"))
+  check("et la boîte se vide dans les deux cas", corps.indexOf('setDraft("")') < corps.indexOf("if (target.busy)"))
   // Les images suivent le message qu'elles accompagnaient, pas le suivant.
   check(
     "**les images partent avec le message qu'elles accompagnaient**",

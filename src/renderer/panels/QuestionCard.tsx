@@ -25,10 +25,14 @@ export function QuestionCard({
   questions,
   onSubmit,
   onSkip,
+  pending = false,
+  error,
 }: {
   questions: AgentQuestion[]
   onSubmit: (answers: QuestionAnswers) => void
   onSkip: () => void
+  pending?: boolean
+  error?: string
 }): JSX.Element {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({})
   const draftOf = (q: AgentQuestion): Draft => drafts[q.id] ?? { picked: [], other: "" }
@@ -52,12 +56,13 @@ export function QuestionCard({
 
   const complete = questions.every((q) => answerOf(q, draftOf(q)).length > 0)
   const submit = () => {
-    if (!complete) return
+    if (!complete || pending) return
     const answers: QuestionAnswers = {}
     for (const q of questions) answers[q.id] = answerOf(q, draftOf(q))
     onSubmit(answers)
   }
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault()
       submit()
@@ -90,6 +95,7 @@ export function QuestionCard({
                         key={option.label}
                         type="button"
                         aria-pressed={on}
+                        disabled={pending}
                         onClick={() => pick(q, option.label)}
                         className={cn(
                           "flex items-start gap-2 rounded-md border px-2 py-1 text-left",
@@ -116,6 +122,8 @@ export function QuestionCard({
                 <input
                   type={q.secret ? "password" : "text"}
                   value={draft.other}
+                  disabled={pending}
+                  aria-label={q.question}
                   onChange={(event) => write(q, event.target.value)}
                   onKeyDown={onKey}
                   placeholder={q.options.length > 0 ? "Other…" : "Your answer…"}
@@ -126,17 +134,19 @@ export function QuestionCard({
           )
         })}
       </div>
-      <div className="mt-2.5 flex items-center gap-2">
+      {error && <p role="alert" className="mt-2 text-xs text-destructive">{error}</p>}
+      <div className="mt-2.5 flex items-center gap-2" aria-busy={pending}>
         <button
           type="button"
-          disabled={!complete}
+          disabled={!complete || pending}
           onClick={submit}
           className="rounded-md bg-sky-400/90 px-2.5 py-1 text-[12px] font-medium text-black hover:bg-sky-300 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Submit
+          {pending ? "Sending…" : "Submit"}
         </button>
         <button
           type="button"
+          disabled={pending}
           onClick={onSkip}
           className="rounded-md border border-white/[0.12] px-2.5 py-1 text-[12px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
         >

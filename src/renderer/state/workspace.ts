@@ -747,13 +747,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
         renamed.set(t.id, id)
         return { ...t, id, path, title: t.kind === "preview" ? `Preview ${basename(path)}` : basename(path) }
       })
-      if (renamed.size === 0) return s
+      const closedFiles = s.closedFiles.map((p) => retarget(p, from, to) ?? p)
+      if (renamed.size === 0 && closedFiles.every((p, i) => p === s.closedFiles[i])) return s
       const drafts: Record<string, string> = {}
       for (const [id, text] of Object.entries(s.drafts)) drafts[renamed.get(id) ?? id] = text
       const split = s.split
         ? { ids: s.split.ids.map((id) => renamed.get(id) ?? id), active: renamed.get(s.split.active) ?? s.split.active }
         : null
-      return { tabs, drafts, split, activeTabId: renamed.get(s.activeTabId) ?? s.activeTabId }
+      return { tabs, drafts, split, closedFiles, activeTabId: renamed.get(s.activeTabId) ?? s.activeTabId }
     }),
 
   splitEditor: (id) =>

@@ -425,6 +425,10 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+Shift+A",
           click: (_item, win) => send(win as BrowserWindow, "menu:toggle-agent"),
         },
+        { label: "Focus Agent Input", click: (_item, win) => send(win as BrowserWindow, "menu:agent-action", "focus") },
+        { label: "New Agent Session", click: (_item, win) => send(win as BrowserWindow, "menu:agent-action", "new") },
+        { label: "Find Agent Session", click: (_item, win) => send(win as BrowserWindow, "menu:agent-action", "sessions") },
+        { label: "Sign In to Agent", click: (_item, win) => send(win as BrowserWindow, "menu:agent-action", "login") },
         {
           // La même commande que celle qu'un agent déclenche : l'onglet
           // navigateur n'appartient pas à l'agent, c'est l'onglet de la

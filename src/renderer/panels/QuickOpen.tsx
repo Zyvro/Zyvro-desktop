@@ -147,7 +147,7 @@ function QuickOpenDialog() {
   }, [commandes, query, recents, liste.data])
 
   const total = commandes ? trouvees.length : resultats.length
-  const index = Math.min(choisi, Math.max(0, total - 1))
+  const index = Math.max(0, Math.min(choisi, total - 1))
 
   const executer = (id: string) => {
     fermer()
@@ -179,10 +179,16 @@ function QuickOpenDialog() {
           className="panel fixed left-1/2 top-[12%] z-50 flex max-h-[60vh] w-[600px] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden p-0"
           onOpenAutoFocus={(event) => event.preventDefault()}
         >
-          <Dialog.Title className="sr-only">Go to File</Dialog.Title>
-          <Dialog.Description className="sr-only">Type part of a file name to open it.</Dialog.Description>
+          <Dialog.Title className="sr-only">{commandes ? "Command Palette" : "Go to File"}</Dialog.Title>
+          <Dialog.Description className="sr-only">{commandes ? "Search commands, then press Enter to run one." : "Type part of a file name to open it."}</Dialog.Description>
           <input
             ref={focusInput}
+            role="combobox"
+            aria-label={commandes ? "Search commands" : "Search files"}
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-controls="quick-open-results"
+            aria-activedescendant={total > 0 ? `quick-open-result-${index}` : undefined}
             className="h-10 w-full border-b border-white/10 bg-transparent px-3 text-sm outline-none"
             placeholder={
               commandes ? "Type a command" : "Search files by name (append :line to go to a line, or start with > for commands)"
@@ -193,12 +199,13 @@ function QuickOpenDialog() {
               setChoisi(0)
             }}
             onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return
               if (event.key === "ArrowDown") {
                 event.preventDefault()
-                setChoisi((i) => Math.min(i + 1, total - 1))
+                setChoisi(Math.min(index + 1, Math.max(0, total - 1)))
               } else if (event.key === "ArrowUp") {
                 event.preventDefault()
-                setChoisi((i) => Math.max(i - 1, 0))
+                setChoisi(Math.max(index - 1, 0))
               } else if (event.key === "Enter") {
                 event.preventDefault()
                 if (commandes) {
@@ -211,13 +218,23 @@ function QuickOpenDialog() {
               }
             }}
           />
-          <div className="zy-scroll min-h-0 flex-1 overflow-y-auto py-1">
-            {commandes && !menu.isLoading && trouvees.length === 0 && (
+          {(commandes ? menu.isError : liste.isError) && (
+            <p role="alert" className="flex items-center justify-between gap-3 border-b border-white/10 px-3 py-2 text-xs text-destructive">
+              {commandes ? "Could not load commands." : "Could not list project files."}
+              <button type="button" className="shrink-0 underline" onClick={() => void (commandes ? menu.refetch() : liste.refetch())}>Retry</button>
+            </p>
+          )}
+          <div id="quick-open-results" role="listbox" aria-label={commandes ? "Commands" : "Files"} className="zy-scroll min-h-0 flex-1 overflow-y-auto py-1">
+            {commandes && !menu.isLoading && !menu.isError && trouvees.length === 0 && (
               <p className="px-3 py-2 text-[12px] text-muted-foreground">No matching commands.</p>
             )}
             {trouvees.map((c, i) => (
               <button
                 key={c.id}
+                id={`quick-open-result-${i}`}
+                role="option"
+                aria-selected={i === index}
+                tabIndex={-1}
                 ref={i === index ? suivre : undefined}
                 className={cn(
                   "flex w-full items-center gap-2 px-3 py-1 text-left text-[13px]",
@@ -243,7 +260,7 @@ function QuickOpenDialog() {
                 <Loader2 className="h-3 w-3 zy-spin" /> Listing the project…
               </p>
             )}
-            {!commandes && !liste.isLoading && resultats.length === 0 && (
+            {!commandes && !liste.isLoading && !liste.isError && resultats.length === 0 && (
               <p className="px-3 py-2 text-[12px] text-muted-foreground">
                 {query === "" ? "Type to search the project's files." : "No matching files."}
               </p>
@@ -256,6 +273,10 @@ function QuickOpenDialog() {
               return (
                 <button
                   key={r.path}
+                  id={`quick-open-result-${i}`}
+                  role="option"
+                  aria-selected={i === index}
+                  tabIndex={-1}
                   ref={i === index ? suivre : undefined}
                   className={cn(
                     "flex w-full items-center gap-2 px-3 py-1 text-left text-[13px]",
@@ -274,7 +295,7 @@ function QuickOpenDialog() {
                 </button>
               )
             })}
-            {liste.data?.truncated && (
+            {!commandes && liste.data?.truncated && (
               <p className="px-3 py-1 text-[11px] text-muted-foreground">
                 This project is large: only the first {liste.data.files.length.toLocaleString()} files are searched.
               </p>

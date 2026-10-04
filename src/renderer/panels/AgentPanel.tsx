@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 // L'instance de module : `dispatch` envoie hors de tout composant, donc il ne
 // peut pas demander la sienne à un crochet. C'est la même, celle que la
@@ -9,6 +9,8 @@ import {
   Download,
   Image as ImageIcon,
   MessageSquarePlus,
+  List,
+  Pencil,
   Paperclip,
   Repeat,
   Square,
@@ -31,7 +33,9 @@ import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { isLoginCommand } from "../../shared/login"
 import { askLogin, askHarness } from "~/state/persistent"
-import { askConfirm } from "~/state/prompt"
+import { agentActionToken, subscribeAgentActions, takeAgentAction } from "~/state/agentActions"
+import { AgentSessions } from "./AgentSessions"
+import { askName, askConfirm } from "~/state/prompt"
 import {
   blankKey,
   cancelHistory,
@@ -253,7 +257,7 @@ export function canSteer(
 //
 // `questions` présent : ce n'est pas une permission mais les questions de
 // l'agent, et la carte est un formulaire (QuestionCard).
-type Ask = { id: string; tool: string; input: Record<string, unknown>; questions?: AgentQuestion[] }
+type Ask = { id: string; tool: string; input: Record<string, unknown>; questions?: AgentQuestion[]; answering?: boolean; error?: string }
 
 type ChatState = {
   threads: Thread[]
@@ -607,22 +611,12 @@ function finishTurn(id: string): void {
 // Tout ce dont un envoi a besoin vit déjà au niveau du module : l'état des
 // conversations, le client de requêtes, le projet, la permission. Il ne restait
 // dans le composant que ce qui touche à la zone de saisie.
-// openInTerminal : la commande que le principal compose — il est le seul à
-// connaître l'identifiant de session de la CLI — tapée dans le terminal, que
-// l'on ouvre s'il est replié. Le shell a déjà les outils MCP de ce projet.
-//
-// MiMo Code a besoin des serveurs MCP du projet dans son environnement, qu'une
-// ligne tapée ne peut pas lui donner : il s'ouvre dans un onglet à lui, qui les
-// reçoit, et reprend la même conversation.
+// Continue this session in a dedicated terminal. Writing a command into the
+// current terminal could feed it to an already running process, and bypassed
+// the selected model/provider. agent:shell owns native arguments and resume.
 async function openInTerminal(kind: AgentKind, threadId: string, model: string | null): Promise<void> {
-  if (kind === "mimo") {
-    useWorkspace.getState().setPanel("terminal", true)
-    askHarness(kind, model, threadId)
-    return
-  }
-  const commande = await window.zyvro.agent.interactiveCommand(kind, threadId)
   useWorkspace.getState().setPanel("terminal", true)
-  handTo("terminal", `${commande}\n`)
+  askHarness(kind, model, threadId)
 }
 
 async function dispatch(threadId: string, text: string, images: Attached[]): Promise<void> {
@@ -760,7 +754,7 @@ useWorkspace.subscribe((workspace) => {
   }
   const range = chatByProject.get(project)
   if (range) {
-    commit(range)
+    commit({ ...range, asks: state.asks })
     return
   }
   // Première arrivée sur ce projet : un chat vide TOUT DE SUITE, puis ses
@@ -917,7 +911,7 @@ function persist(threadId: string): void {
     }))
   if (messages.length === 0) return
 
-  const stamp = JSON.stringify({ messages, advancedSkills: thread.advancedSkills })
+  const stamp = JSON.stringify({ messages, advancedSkills: thread.advancedSkills, title: thread.title, kind: thread.kind, model: thread.model, models: thread.models, ranWith: thread.ranWith, goal: thread.goal })
   if (stamp === thread.saved) return
   mapThread(threadId, (t) => ({ ...t, saved: stamp }))
 
@@ -1221,16 +1215,19 @@ function AskCard({ ask }: { ask: Ask }): JSX.Element {
           {summarise(ask.input)}
         </pre>
       )}
-      <div className="mt-2 flex items-center gap-2">
+      {ask.error && <p role="alert" className="mt-2 text-xs text-destructive">{ask.error}</p>}
+      <div className="mt-2 flex items-center gap-2" aria-busy={ask.answering}>
         <button
           type="button"
+          disabled={ask.answering}
           onClick={() => answerAsk(ask.id, true)}
           className="rounded-md bg-amber-400/90 px-2.5 py-1 text-[12px] font-medium text-black hover:bg-amber-300"
         >
-          Allow
+          {ask.answering ? "Sending…" : "Allow"}
         </button>
         <button
           type="button"
+          disabled={ask.answering}
           onClick={() => answerAsk(ask.id, false)}
           className="rounded-md border border-white/[0.12] px-2.5 py-1 text-[12px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
         >
@@ -1323,12 +1320,19 @@ function setKind(threadId: string, kind: AgentKind): void {
   })
 }
 
-// answerAsk : la réponse part, la demande quitte l'écran. Les deux ensemble,
-// sinon on peut cliquer deux fois sur « Allow » et la seconde réponse n'a plus
-// personne à qui parler.
-function answerAsk(id: string, allow: boolean, answers?: QuestionAnswers): void {
-  commit({ ...state, asks: state.asks.filter((ask) => ask.id !== id) })
-  void window.zyvro.agent.answerPermission(id, allow, answers)
+// Keep the form (and its entered answers) until delivery is acknowledged.
+// A failed IPC must not leave the CLI waiting behind a vanished question.
+async function answerAsk(id: string, allow: boolean, answers?: QuestionAnswers): Promise<void> {
+  const ask = state.asks.find((a) => a.id === id)
+  if (!ask || ask.answering) return
+  commit({ ...state, asks: state.asks.map((a) => a.id === id ? { ...a, answering: true, error: undefined } : a) })
+  try {
+    await window.zyvro.agent.answerPermission(id, allow, answers)
+    commit({ ...state, asks: state.asks.filter((a) => a.id !== id) })
+  } catch (error) {
+    // If the agent withdrew the request while sending, do not resurrect it.
+    commit({ ...state, asks: state.asks.map((a) => a.id === id ? { ...a, answering: false, error: `Could not send your answer. Try again. ${error instanceof Error ? error.message : String(error)}` } : a) })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1343,6 +1347,16 @@ function answerAsk(id: string, allow: boolean, answers?: QuestionAnswers): void 
 function openThread(): void {
   const thread = blankThread()
   commit({ threads: [...state.threads, thread], activeId: thread.id, asks: state.asks })
+}
+
+export async function renameThread(id: string): Promise<void> {
+  const thread = threadById(id)
+  if (!thread || thread.messages.length === 0) return
+  const project = restoredFor
+  const title = await askName({ title: "Rename session", label: "Choose a name that helps you find this work later.", initial: thread.title, confirmLabel: "Rename" })
+  if (!title || project !== restoredFor || !threadById(id)) return
+  mapThread(id, (t) => ({ ...t, title }))
+  persist(id)
 }
 
 function selectThread(id: string): void {
@@ -1527,6 +1541,7 @@ function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.El
 }
 
 export function AgentPanel(): JSX.Element {
+  const [sessionsOpen, setSessionsOpen] = useState(false)
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const project = useWorkspace((workspace) => workspace.project)
   // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
@@ -1592,6 +1607,17 @@ export function AgentPanel(): JSX.Element {
       if (composer.current) grow(composer.current)
     })
   }
+  const actionToken = useSyncExternalStore(subscribeAgentActions, agentActionToken, () => 0)
+  useEffect(() => {
+    const action = takeAgentAction()
+    if (!action) return
+    if (action === "new") openThread()
+    if (action === "sessions") setSessionsOpen(true)
+    else if (action === "login") {
+      useWorkspace.getState().setPanel("terminal", true)
+      askLogin(activeThread().kind)
+    } else requestAnimationFrame(() => composer.current?.focus())
+  }, [actionToken])
   const scrollTeardown = useRef<(() => void) | null>(null)
 
   // React 18 ignores a value returned from a callback ref, so the teardown is
@@ -1615,15 +1641,17 @@ export function AgentPanel(): JSX.Element {
   })
 
   const send = async (prompt: string): Promise<void> => {
+    const target = threadById(thread.id)
+    if (!target) return
     const text = prompt.trim()
     // An image on its own is a message: "what is wrong with this?" is often the
     // whole question, and refusing it because the box is empty would be
     // pedantry.
     // Pas de condition de projet : sans projet, l'agent travaille sur le
     // dossier d'accueil (voir `dispatch`).
-    if (text === "" && thread.images.length === 0) return
-    const threadId = thread.id
-    const images = thread.images
+    if (text === "" && target.images.length === 0) return
+    const threadId = target.id
+    const images = target.images
     if (isLoginCommand(text)) {
       rememberPrompt(prompt)
       leaveHistory(threadId)
@@ -1667,16 +1695,16 @@ export function AgentPanel(): JSX.Element {
     // jusqu'à ce que l'agent le prenne (agent:steered), puis prend sa place dans
     // le fil. Refusé (tour fini entre-temps, harnais trop ancien), il redevient
     // un message en attente ordinaire.
-    if (thread.busy) {
+    if (target.busy) {
       const qid = nextMessageId()
-      const glisse = canSteer(thread, text, images)
+      const glisse = canSteer(target, text, images)
       mapThread(threadId, (t) => ({
         ...t,
         queued: [...t.queued, { id: qid, text, images, ...(glisse ? { steering: true } : {}) }],
       }))
-      if (glisse && thread.turnId) {
+      if (glisse && target.turnId) {
         void window.zyvro.agent
-          .steer(thread.turnId, text)
+          .steer(target.turnId, text)
           .catch(() => false)
           .then((ok) => {
             if (ok) return
@@ -1711,6 +1739,18 @@ export function AgentPanel(): JSX.Element {
       setReecriture((r) => ({ ...r, busy: false }))
     }
   }
+  const canApplyRewrite = (original: string): boolean => {
+    const sameSession = activeThread().id === thread.id && useWorkspace.getState().root === ouRoot
+    const sameDraft = draftShown(thread.id, blank).trim() === original
+    if (sameSession && sameDraft) return true
+    setReecriture((r) => ({
+      ...r, original: null, sortie: null,
+      erreur: sameSession
+        ? "Your draft changed while rewriting. Your new text was kept; send again when ready."
+        : "Not sent: the session changed while rewriting. Your original draft was kept.",
+    }))
+    return false
+  }
   const envoyer = async (prompt: string): Promise<void> => {
     const { mode, autoSend } = synthesisSettings()
     const text = prompt.trim()
@@ -1721,7 +1761,7 @@ export function AgentPanel(): JSX.Element {
       return
     }
     const sortie = await reecrire(text)
-    if (sortie === null) return
+    if (sortie === null || !canApplyRewrite(text)) return
     if (autoSend) {
       setReecriture((r) => ({ ...r, original: null, sortie: null }))
       await send(sortie)
@@ -1738,7 +1778,7 @@ export function AgentPanel(): JSX.Element {
     const text = draft.trim()
     if (!text || synthesisSettings().mode === "off") return
     const sortie = await reecrire(text)
-    if (sortie === null) return
+    if (sortie === null || !canApplyRewrite(text)) return
     setDraft(sortie)
     setReecriture((r) => ({ ...r, original: text, sortie }))
   }
@@ -1801,6 +1841,8 @@ export function AgentPanel(): JSX.Element {
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Enter confirms an IME candidate before it can submit a message.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     // Ctrl+C arrête l'agent qui travaille, comme dans son terminal. Seulement
     // sans sélection : sous Windows et Linux, Ctrl+C copie, et un texte
     // sélectionné doit rester copiable (sur Mac, copier est ⌘C).
@@ -2102,15 +2144,22 @@ export function AgentPanel(): JSX.Element {
         >
           <SquareTerminal className="h-3.5 w-3.5" />
         </button>
+        {started && <button type="button" onClick={() => void renameThread(thread.id)} title="Rename session" aria-label="Rename session" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>}
+        <button type="button" onClick={() => setSessionsOpen(true)} title="Find an agent session" aria-label="Find an agent session" className="shrink-0 rounded p-1 text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"><List className="h-3.5 w-3.5" /></button>
         <button
           type="button"
-          onClick={openThread}
+          onClick={() => { openThread(); requestAnimationFrame(() => composer.current?.focus()) }}
           title="New session"
           className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
           <MessageSquarePlus className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {sessionsOpen && <AgentSessions sessions={chat.threads} activeId={chat.activeId}
+        onClose={() => setSessionsOpen(false)}
+        onSelect={(id) => { selectThread(id); setSessionsOpen(false); requestAnimationFrame(() => composer.current?.focus()) }}
+        onNew={() => { openThread(); setSessionsOpen(false); requestAnimationFrame(() => composer.current?.focus()) }} />}
 
       {/* One row of tabs, and only when there is more than one: a tab strip
           above a single conversation is furniture. Each tab shows a dot while
@@ -2129,7 +2178,9 @@ export function AgentPanel(): JSX.Element {
               <button
                 type="button"
                 className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 text-left"
-                title={t.title}
+                title={`${t.title} · ${t.kind}${t.busy ? " · Running" : ""}`}
+                aria-current={t.id === chat.activeId ? "page" : undefined}
+                onDoubleClick={() => void renameThread(t.id)}
                 onClick={() => selectThread(t.id)}
               >
                 {t.busy && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
@@ -2138,7 +2189,7 @@ export function AgentPanel(): JSX.Element {
               <button
                 type="button"
                 title="Close this conversation"
-                className="shrink-0 rounded p-0.5 opacity-0 hover:bg-white/[0.1] group-hover:opacity-100"
+                className="shrink-0 rounded p-0.5 opacity-0 hover:bg-white/[0.1] group-hover:opacity-100 focus-visible:opacity-100 group-focus-within:opacity-100"
                 onClick={() => void requestCloseThread(t.id)}
               >
                 <X className="h-3 w-3" />
@@ -2332,6 +2383,8 @@ export function AgentPanel(): JSX.Element {
             <QuestionCard
               key={ask.id}
               questions={ask.questions}
+              pending={ask.answering}
+              error={ask.error}
               onSubmit={(answers) => answerAsk(ask.id, true, answers)}
               onSkip={() => answerAsk(ask.id, false)}
             />
@@ -2525,7 +2578,7 @@ export function AgentPanel(): JSX.Element {
               <button
                 type="button"
                 onClick={() => void envoyer(draft)}
-                disabled={disabled || draft.trim() === ""}
+                disabled={disabled || reecriture.busy || (draft.trim() === "" && thread.images.length === 0)}
                 title="Send"
                 className="shrink-0 rounded-md bg-white/[0.08] p-1.5 text-foreground transition-colors hover:bg-white/[0.12] disabled:opacity-30"
               >

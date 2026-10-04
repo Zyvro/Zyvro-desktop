@@ -3,6 +3,8 @@ import { createHash } from "node:crypto"
 import * as nodeFs from "node:fs"
 import path from "node:path"
 import { spawn } from "node:child_process"
+import { Readable } from "node:stream"
+import { pipeline } from "node:stream/promises"
 import { startUpdateHelper } from "./update-helper"
 import { checksumFrom, compareVersions, newestRelease, pickUpdate, type PackageKind, type Release } from "../shared/update"
 
@@ -137,6 +139,13 @@ export async function downloadUpdate(
   info: UpdateInfo,
   target: WebContents
 ): Promise<{ file: string; verified: boolean }> {
+  if (downloading) throw new Error("An update is already downloading in another window. Please wait.")
+  downloading = true
+  try { return await fetchUpdate(info, target) }
+  finally { downloading = false }
+}
+
+async function fetchUpdate(info: UpdateInfo, target: WebContents): Promise<{ file: string; verified: boolean }> {
   if (enAttente || preparing) throw new Error("An update is already prepared. Quit the app to finish installing it.")
   if (!info.asset) throw new Error("There is no installer for this computer in that release.")
   const { name, url, size, sha256 } = info.asset
@@ -155,26 +164,30 @@ export async function downloadUpdate(
   const res = await net.fetch(url, { headers: { "User-Agent": "Zyvro-Studio" } })
   if (!res.ok || !res.body) throw new Error(`The download failed (${res.status}).`)
   const hash = createHash("sha256")
-  const out = createWriteStream(file)
   let recu = 0
   let annonce = 0
-  const reader = res.body.getReader()
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      hash.update(value)
-      recu += value.length
-      if (!out.write(value)) await new Promise<void>((r) => out.once("drain", () => r()))
-      // Une annonce par pour-cent, pas une par paquet réseau.
-      const pourcent = size > 0 ? Math.floor((recu / size) * 100) : 0
-      if (pourcent !== annonce && !target.isDestroyed()) {
-        annonce = pourcent
-        target.send("update:progress", { received: recu, total: size })
-      }
-    }
-  } finally {
-    await new Promise<void>((r) => out.end(() => r()))
+    // pipeline handles both network and filesystem errors, including a disk
+    // full while waiting for drain. A bare WriteStream error crashed Electron.
+    await pipeline(
+      Readable.fromWeb(res.body as import("node:stream/web").ReadableStream),
+      async function* (source) {
+        for await (const value of source) {
+          hash.update(value)
+          recu += value.length
+          const pourcent = size > 0 ? Math.floor((recu / size) * 100) : 0
+          if (pourcent !== annonce && !target.isDestroyed()) {
+            annonce = pourcent
+            target.send("update:progress", { received: recu, total: size })
+          }
+          yield value
+        }
+      },
+      createWriteStream(file)
+    )
+  } catch (error) {
+    await fs.rm(file, { force: true }).catch(() => undefined)
+    throw error
   }
 
   const empreinte = hash.digest("hex")
@@ -363,11 +376,13 @@ export async function deplier(file: string, kind: PackageKind): Promise<string> 
 
 let enAttente = false
 let preparing = false
+let downloading = false
 
 // install : poser le paquet téléchargé. Le chemin est revérifié : il doit être
 // dans le dossier de mises à jour, et nulle part ailleurs — la fenêtre ne
 // choisit pas ce qu'on exécute.
 export async function installUpdate(file: string, info: UpdateInfo): Promise<"quitting" | "opened"> {
+  if (downloading) throw new Error("Wait for the update download to finish before installing.")
   if (preparing) throw new Error("The update is already being prepared. Please wait.")
   preparing = true
   try { return await prepareUpdate(file, info) }

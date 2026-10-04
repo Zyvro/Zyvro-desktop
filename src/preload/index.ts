@@ -732,6 +732,7 @@ const api = {
     onToggleTerminal: (cb: () => void): Unsubscribe => on("menu:toggle-terminal", cb),
     onFindInFile: (cb: () => void): Unsubscribe => on("menu:find-in-file", cb),
     onFindInProject: (cb: () => void): Unsubscribe => on("menu:find-in-project", cb),
+    onAgentAction: (cb: (action: "focus" | "new" | "sessions" | "login") => void): Unsubscribe => on("menu:agent-action", cb),
     onToggleAgent: (cb: () => void): Unsubscribe => on("menu:toggle-agent", cb),
   },
 }
