@@ -30,6 +30,7 @@
 //     node scripts/check-queue.mjs
 import { readFileSync } from "node:fs"
 import path from "node:path"
+import vm from "node:vm"
 
 const ROOT = path.resolve(import.meta.dirname, "..")
 
@@ -128,6 +129,26 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   )
 }
 
+// Run the real endTurn body: Stop must not advance a queued paid prompt.
+{
+  const start = panel.indexOf("function endTurn(id: string): void {")
+  const body = panel.slice(start, panel.indexOf("\n}\n", start) + 2)
+    .replace("function endTurn(id: string): void", "function endTurn(id)")
+  const canceled = new Set(["old"])
+  let thread = { turnId: "old", busy: true, messages: [{ id: "answer" }] }
+  let shouldAdvance = null
+  const context = {
+    turnToMessage: new Map([["old", { threadId: "chat", messageId: "answer" }]]),
+    orphans: new Map(), cancelled: canceled, compacting: new Set(),
+    mapThread: (_id, f) => { thread = f(thread) },
+    persist: () => {}, threadById: () => thread,
+    advance: (_id, ok) => { shouldAdvance = ok },
+  }
+  vm.runInNewContext(`${body}; endTurn("old")`, context)
+  check("Stop is remembered before cleanup, so a queued prompt never advances", shouldAdvance === false)
+  check("Stop releases the conversation", !thread.busy && thread.turnId === null)
+}
+
 // ---- même dans un onglet qu'on ne regarde pas ----------------------------
 {
   // `dispatch` est au niveau du module, pas dans le composant : c'est ce qui
@@ -172,7 +193,8 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   check(
     "**le processus principal sait dire ce qui tourne encore**",
     // Par projet depuis qu'une fenêtre en tient plusieurs : `running(projectDir)`.
-    /running\(projectDir\?: string\): \{ id: string; conversationId: string; prompt: string \}\[\]/.test(main),
+    // Et depuis quand : la durée affichée reprend là où elle en était.
+    /running\(projectDir\?: string\): \{ id: string; conversationId: string; prompt: string; startedAt: number \}\[\]/.test(main),
     "la page neuve n'a aucun moyen de retrouver le tour en vol"
   )
   // La question est reprise du principal et pas du disque : un tour en vol n'y

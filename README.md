@@ -75,10 +75,16 @@ own token. Claude gets it through a config file written with owner-only
 permissions, Codex reads the token from an environment variable; neither puts it
 in argv, where every process on the machine could read it.
 
-Only the Zyvro tools are pre-approved, because a print-mode run cannot stop to
-ask. The CLI's own file and shell tools keep whatever policy the user already
-configured, and `--strict-mcp-config` keeps the user's other MCP servers out of
-the panel.
+Zyvro adds its MCP servers to the CLI's existing configuration, preserving the
+user's servers, plugins and native skills. Claude's saved Chrome opt-in is
+forwarded explicitly in print mode. Only Zyvro's MCP tools are pre-approved;
+other tools remain subject to the selected permission mode and the CLI's rules.
+The Advanced skills switch controls Zyvro's additional catalog, not native skills.
+
+Stop ends the displayed turn immediately and terminates its process group,
+including tools that ignore the first termination signal. A final Claude/Codex
+result also ends the displayed turn even if the CLI takes time to shut down;
+remaining teardown processes are stopped after a short grace period.
 
 ## Settings and advanced skills
 

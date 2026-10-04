@@ -25,3 +25,9 @@ export const DEFAULT_PERMISSION: Permission = "project"
 // dans le panneau, avec deux boutons, au lieu de mourir dans un tour en mode
 // impression qui ne peut répondre à personne.
 export const PERMISSION_TOOL = "mcp__zyvro-app__zyvro_permission"
+
+// Le même chemin, pour les niveaux qui ne demandent rien : seules les questions
+// de l'agent (AskUserQuestion) y arrivent jusqu'à la personne, tout le reste
+// est refusé comme le ferait `--permission-prompts none`. Sans lui, la CLI
+// retire carrément AskUserQuestion des outils — mesuré sur la 2.1.288.
+export const QUESTIONS_TOOL = "mcp__zyvro-app__zyvro_questions"

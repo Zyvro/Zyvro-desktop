@@ -114,8 +114,11 @@ for (const inconnu of ["--sandbox", "--full-auto", "--ask-for-approval"]) {
 // Aucun de ces drapeaux n'échoue bruyamment quand il manque : leur absence rend
 // l'agent impuissant, ou, dans l'autre sens, sans limite.
 {
-  const claudeArgs = (permission) => argsFor("claude", { ...ctx, permission }, null).join(" ")
-  const codexArgs = (permission) => argsFor("codex", { ...ctx, permission }, null).join(" ")
+  // Avec un moteur : c'est lui qui fait déclarer les serveurs MCP à la CLI, et
+  // l'outil de permission n'existe pour elle que s'ils le sont.
+  const avecMcp = { ...ctx, daemonOrigin: "http://127.0.0.1:1", daemonToken: "t" }
+  const claudeArgs = (permission) => argsFor("claude", { ...avecMcp, permission }, null).join(" ")
+  const codexArgs = (permission) => argsFor("codex", { ...avecMcp, permission }, null).join(" ")
 
   // Le défaut : tout le projet, sans rien demander — et RIEN QUE le projet.
   //
@@ -143,10 +146,18 @@ for (const inconnu of ["--sandbox", "--full-auto", "--ask-for-approval"]) {
   )
   // En mode impression personne ne peut répondre : ce qui demanderait doit être
   // refusé, pas attendu.
+  // Ce qui demanderait est refusé, pas laissé pendre — mais par l'outil des
+  // questions et non par `--permission-prompts none`, qui retire aussi
+  // AskUserQuestion : le modèle ne pouvait plus poser de question qu'en texte,
+  // en fin de tour. Mesuré sur la 2.1.288 (features/agent-questions.md).
+  const QUESTIONS = "--permission-prompts host --permission-prompt-tool mcp__zyvro-app__zyvro_questions"
+  check("**et ses questions montent au panneau, le reste est refusé par l'outil des questions**", claudeArgs(undefined).includes(QUESTIONS), claudeArgs(undefined))
+  check("sans retirer AskUserQuestion", !claudeArgs(undefined).includes("--permission-prompts none"), claudeArgs(undefined))
   check(
-    "et ce qui demanderait est refusé, pas laissé pendre",
-    claudeArgs(undefined).includes("--permission-prompts none"),
-    claudeArgs(undefined)
+    "**sans moteur, pas d'outil à nommer : retour au refus pur**",
+    argsFor("claude", { ...ctx, permission: "project" }, null).join(" ").includes("--permission-prompts none") &&
+      !argsFor("claude", { ...ctx, permission: "project" }, null).join(" ").includes("--permission-prompt-tool"),
+    argsFor("claude", { ...ctx, permission: "project" }, null).join(" ")
   )
   // Par `-c` et pas par `--sandbox` : `codex exec resume` refuse le drapeau, et
   // le deuxième tour de chaque session mourait dessus — « error: unexpected
@@ -178,13 +189,14 @@ for (const inconnu of ["--sandbox", "--full-auto", "--ask-for-approval"]) {
   // suite plutôt que laissé en attente.
   const reading = claudeArgs("read")
   check("**en lecture seule, les outils d'écriture sont interdits**", reading.includes("--disallowedTools Write,Edit,MultiEdit,NotebookEdit,Bash"), reading)
-  check("et personne n'est censé répondre", reading.includes("--permission-prompts none"))
+  check("et seules les questions de l'agent y sont posées", reading.includes(QUESTIONS), reading)
   check("dans le mode qui demande, donc tout le reste est refusé", reading.includes("--permission-mode manual"))
   check("codex y est en lecture seule aussi", codexArgs("read").includes("-c sandbox_mode=read-only"))
 
   // YOLO : aucune limite, et c'est le seul niveau où le bac à sable de codex
   // tombe.
   check("**YOLO ne demande rien à personne**", claudeArgs("yolo").includes("--dangerously-skip-permissions"))
+  check("sauf les questions de l'agent", claudeArgs("yolo").includes(QUESTIONS), claudeArgs("yolo"))
   check("et codex y perd son bac à sable", codexArgs("yolo").includes("--dangerously-bypass-approvals-and-sandbox"))
   check(
     "ce qui n'arrive à aucun autre niveau",

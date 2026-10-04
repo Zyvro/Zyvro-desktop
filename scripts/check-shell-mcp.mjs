@@ -174,7 +174,7 @@ if (process.platform !== "win32") {
     )
     // Sans lui, les serveurs MCP déclarés ailleurs par la personne s'ajoutent,
     // et l'agent n'a pas les mêmes outils d'une machine à l'autre.
-    check("et seulement celle du projet", out.includes("--strict-mcp-config"))
+    check("sans exclure les intégrations personnelles", !out.includes("--strict-mcp-config"))
     check("**ce qu'on tape derrière arrive**", out.includes("--model") && out.includes("opus"), out.join(" "))
   }
 
@@ -248,7 +248,7 @@ if (process.platform === "win32") {
       out.includes("--mcp-config") && out.includes(shell.env.ZYVRO_MCP_CONFIG),
       out.join(" ")
     )
-    check("et seulement celle du projet", out.includes("--strict-mcp-config"), out.join(" "))
+    check("sans exclure les intégrations personnelles", !out.includes("--strict-mcp-config"), out.join(" "))
     check("**ce qu'on tape derrière arrive**", out.includes("--model") && out.includes("opus"), out.join(" "))
     // Le piège : avec `%*` après un `shift`, « claude » repartirait comme
     // premier argument de claude.

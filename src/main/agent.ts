@@ -1,5 +1,6 @@
-import { type ChildProcess, spawnSync } from "node:child_process"
-import { codexInput, codexServerPolicy, CodexServerTurn } from "./codexserver"
+import { type ChildProcess, spawn, spawnSync } from "node:child_process"
+import { CODEX_QUESTIONS_FEATURE, codexInput, codexServerPolicy, CodexServerTurn } from "./codexserver"
+import { askIn } from "./asks"
 import { installed as cliInstalled, launchPiped } from "./cli"
 import { describeTool, imagesIn, outputIn, planIn } from "./tooltalk"
 import { keep as keepImage } from "./attachments"
@@ -10,10 +11,12 @@ import { nextRunIn, type Pending, type Wake, wakeIn } from "./schedule"
 import { startGateway, type GatewayHandle } from "./responses"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
+import { readFileSync } from "node:fs"
+import os from "node:os"
 import type { WebContents } from "electron"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect, type McpTarget } from "./mcp"
 import { shotsEndpoint } from "./shots"
-import { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/permission"
+import { DEFAULT_PERMISSION, PERMISSION_TOOL, QUESTIONS_TOOL, type Permission } from "../shared/permission"
 import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO, speaksCodex } from "../shared/harness"
 import { promptWithSkills, type AgentSettings, type SkillEntry } from "../shared/skills"
 
@@ -89,6 +92,17 @@ export function claudeMcpConfig(ctx: AgentContext, dialecte: McpDialect = "claud
   return writeMcpConfig(ctx, dialecte)
 }
 
+// Print mode does not activate Chrome from the saved default on its own.
+// Forward the user's opt-in explicitly; leave native skills/plugins/settings alone.
+function claudeChromeArgs(): string[] {
+  const file = path.join(process.env.CLAUDE_CONFIG_DIR || os.homedir(), ".claude.json")
+  try {
+    return JSON.parse(readFileSync(file, "utf8")).claudeInChromeDefaultEnabled === true ? ["--chrome"] : []
+  } catch {
+    return []
+  }
+}
+
 // argsFor builds the command line for one turn.
 //
 // Pulled out and exported so it can be pinned by a check, because this is the
@@ -133,6 +147,7 @@ export function argsFor(
       "stream-json",
       "--replay-user-messages",
       "--verbose",
+      ...(!gateway ? claudeChromeArgs() : []),
       // Ce que l'agent a le droit de faire, dit à claude.
       //
       // Un tour en mode impression ne peut poser aucune question : sans ça, la
@@ -142,8 +157,10 @@ export function argsFor(
       // La question ne peut remonter que si le serveur MCP de l'application
       // tourne : c'est lui qui sert l'outil de permission. Sans lui, mieux vaut
       // refuser tout de suite que laisser l'agent attendre une réponse qui
-      // n'arrivera pas.
-      ...claudePermission(ctx.permission ?? DEFAULT_PERMISSION, Boolean(shotsEndpoint())),
+      // n'arrivera pas. Et il n'est déclaré à la CLI que si les serveurs MCP le
+      // sont (voir `--mcp-config` plus bas) : nommer un outil absent ferait
+      // échouer chaque tour, et c'est maintenant le cas de tous les niveaux.
+      ...claudePermission(ctx.permission ?? DEFAULT_PERMISSION, Boolean(shotsEndpoint()) && mcpAvailable(ctx)),
       "--append-system-prompt",
       preamble(ctx),
       ...(pinned ? ["--model", pinned] : []),
@@ -236,16 +253,11 @@ export function claudePermission(permission: Permission, canAsk = true): string[
       // Nommer les outils d'écriture plutôt que de compter sur un mode : un
       // refus clair, tout de suite. Et personne pour répondre au reste : ce qui
       // demanderait est refusé, sans attendre.
-      return [
-        "--disallowedTools",
-        "Write,Edit,MultiEdit,NotebookEdit,Bash",
-        "--permission-mode",
-        "manual",
-        "--permission-prompts",
-        "none",
-      ]
+      return ["--disallowedTools", "Write,Edit,MultiEdit,NotebookEdit,Bash", "--permission-mode", "manual", ...questionFlags(canAsk)]
     case "yolo":
-      return ["--dangerously-skip-permissions"]
+      // Sans outil de permission, la CLI retire AskUserQuestion même ici. Avec,
+      // seule la question l'atteint : le reste passe sans rien demander.
+      return ["--dangerously-skip-permissions", ...(canAsk ? questionFlags(true) : [])]
     case "project":
       // Rien ne demande, et rien ne sort du projet.
       //
@@ -273,10 +285,10 @@ export function claudePermission(permission: Permission, canAsk = true): string[
       // commande shell peut écrire n'importe où de mille façons qu'aucun
       // analyseur ne voit.
       //
-      // `--permission-prompts none` va avec : en mode impression personne ne
-      // peut répondre, et ce qui demanderait doit être refusé plutôt que
-      // d'attendre une réponse qui n'arrivera pas.
-      return ["--permission-mode", "acceptEdits", "--permission-prompts", "none"]
+      // Ce qui demanderait doit être refusé plutôt que d'attendre une réponse :
+      // c'est l'outil des questions qui le refuse (voir questionFlags), et lui
+      // seul laisse passer les questions de l'agent jusqu'au panneau.
+      return ["--permission-mode", "acceptEdits", ...questionFlags(canAsk)]
     default:
       // Tout demande, et la question arrive dans le panneau.
       //
@@ -289,6 +301,22 @@ export function claudePermission(permission: Permission, canAsk = true): string[
 
 function askFlags(): string[] {
   return ["--permission-prompts", "host", "--permission-prompt-tool", PERMISSION_TOOL]
+}
+
+// questionFlags : les niveaux qui ne demandent rien posent quand même les
+// questions de l'agent.
+//
+// `--permission-prompts none` refuse ce qui demanderait, comme voulu, mais
+// retire aussi AskUserQuestion des outils : le modèle ne la voit plus et pose
+// sa question en texte, en fin de tour. L'outil des questions la remplace —
+// il fait monter les questions au panneau et refuse tout le reste. Mesuré sur
+// la 2.1.288 : en « Read only », « Project » et « YOLO », seule la question
+// l'atteint ; une commande dans le projet, une lecture, passent sans lui.
+//
+// Sans le serveur de l'application, personne pour répondre : on revient au
+// refus pur.
+function questionFlags(canAsk: boolean): string[] {
+  return canAsk ? ["--permission-prompts", "host", "--permission-prompt-tool", QUESTIONS_TOOL] : ["--permission-prompts", "none"]
 }
 
 // codex ne sait pas demander en cours de tour : `codex exec` n'a pas de crochet
@@ -823,6 +851,9 @@ const REPLAY_MAX_BYTES = 2 * 1024 * 1024
 type Turn = {
   id: string
   conversationId: string
+  /** Quand le tour a été lancé (ms) : une fenêtre rechargée en plein tour
+   *  reprend la durée là où elle en était, pas à zéro. */
+  startedAt: number
   /**
    * Le projet où ce tour tourne. Une fenêtre tient plusieurs projets, et un
    * tour du projet A ne doit pas réapparaître dans le chat du projet B quand
@@ -862,6 +893,8 @@ type Turn = {
   // there is usually a tool call. Concatenating them verbatim runs the last
   // sentence of one into the first word of the next.
   sentText: boolean
+  cancel?: () => void
+  complete?: () => void
   /**
    * Glisser un message dans ce tour pendant qu'il tourne. Absent pour les
    * harnais qui ne savent pas (qwen, MiMo) : leurs messages attendent la fin
@@ -870,6 +903,26 @@ type Turn = {
   steer?: (text: string) => Promise<boolean>
   /** Claude : les messages écrits pas encore repris, et les reprises vues. */
   live?: { pending: number; replays: number; closer: ReturnType<typeof setTimeout> | null }
+}
+
+// Each turn has its own process group. Stop must reach tools/MCP children too,
+// and SIGTERM is only a request: a stuck CLI must eventually receive SIGKILL.
+function stopProcess(child: ChildProcess): void {
+  const pid = child.pid
+  if (!pid) return
+  if (process.platform === "win32") {
+    const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" })
+    killer.on("error", () => { child.kill("SIGKILL") })
+    return
+  }
+  const signal = (name: NodeJS.Signals): void => {
+    try { process.kill(-pid, name) } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ESRCH") console.error("[agent] stop:", err)
+    }
+  }
+  signal("SIGTERM")
+  // Keep this even if the parent exits: a tool in its group may ignore SIGTERM.
+  setTimeout(() => signal("SIGKILL"), 1500).unref()
 }
 
 /** Une question à Claude en `--input-format stream-json` : une ligne JSON. */
@@ -1101,10 +1154,7 @@ export class AgentRunner {
         args.push(
           "--mcp-config",
           config.path,
-          // Only this project's server. Without it the user's own MCP servers
-          // would also load into the panel, which is a surprise nobody asked
-          // for and a different set of tools on every machine.
-          "--strict-mcp-config",
+          // Add Zyvro to the user's MCP configuration, preserving their integrations.
           // A print-mode run cannot prompt for permission, so the Zyvro tools
           // are pre-approved. Nothing else is: the CLI's own file and shell
           // tools keep whatever policy the user configured.
@@ -1172,39 +1222,78 @@ export class AgentRunner {
     // réglages `-c` que pour exec — MCP, passerelle, bac à sable —, la
     // question en entrée JSON-RPC plutôt que sur stdin.
     const serveur = kind === "codex" && codexServerReady(bin)
-    const child = launchPiped(bin, serveur ? ["app-server", ...configPairs(args)] : args, { cwd: ctx.projectDir, env }, harness(kind).install)
-    const turn: Turn = { id, conversationId, projectDir: ctx.projectDir, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false }
+    const child = launchPiped(bin, serveur ? ["app-server", ...CODEX_QUESTIONS_FEATURE, ...configPairs(args)] : args, { cwd: ctx.projectDir, env, detached: process.platform !== "win32" }, harness(kind).install)
+    const turn: Turn = { id, conversationId, startedAt: Date.now(), projectDir: ctx.projectDir, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false }
     this.turns.set(id, turn)
 
     // Ce que la sortie du processus devient : des événements au format du
     // harnais, sauf pour le serveur de codex, qui parle JSON-RPC et que son
     // pilote traduit.
+    let settled = false
     let onLine = (line: string): void => {
+      if (settled) return
       this.remember(id, line)
       this.emitEvent(target, id, kind, line)
     }
     let serverTurn: CodexServerTurn | null = null
+    let exitTimer: ReturnType<typeof setTimeout> | null = null
+    const finish = (message?: string): void => {
+      if (settled) return
+      settled = true
+      this.turns.delete(id)
+      if (turn.live?.closer) clearTimeout(turn.live.closer)
+      serverTurn?.closed()
+      disposeConfig?.()
+      disposeConfig = null
+      if (!target.isDestroyed()) {
+        if (message) target.send("agent:error", { id, message })
+        else target.send("agent:done", { id })
+      }
+    }
+    turn.cancel = () => {
+      if (settled) return
+      this.unschedule(conversationId)
+      finish()
+      child.stdin.destroy()
+      stopProcess(child)
+    }
+    turn.complete = () => {
+      if (settled) return
+      if (!child.stdin.writableEnded) child.stdin.end()
+      finish()
+      // A final protocol result ends the UI turn. Give hooks/MCP teardown time
+      // to finish, but don't leave a process alive indefinitely afterwards.
+      exitTimer = setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) stopProcess(child)
+      }, 3000)
+      exitTimer.unref()
+    }
+    child.stdin.on("error", (err: Error) => {
+      if (settled) return
+      finish(`Could not send input to ${bin}: ${err.message}`)
+      stopProcess(child)
+    })
     if (serveur) {
       const pilote = new CodexServerTurn(
         (line) => {
           if (!child.stdin.writableEnded) child.stdin.write(`${line}\n`)
         },
         (event) => {
-          if (target.isDestroyed()) return
+          if (settled || target.isDestroyed()) return
           const line = JSON.stringify(event)
           this.remember(id, line)
           this.emitEvent(target, id, kind, line)
         },
-        () => {
-          if (!child.stdin.writableEnded) child.stdin.end()
-          // Il sort de lui-même quand son entrée se ferme ; sinon, on l'aide.
-          setTimeout(() => {
-            if (child.exitCode === null && child.signalCode === null) child.kill()
-          }, 5000).unref()
+        () => turn.complete?.(),
+        // Ses questions vont à la fenêtre du tour, celle qui l'a lancé.
+        async (questions, signal) => {
+          if (target.isDestroyed()) return null
+          const answer = await askIn(target, { tool: "request_user_input", input: {}, questions }, signal)
+          return answer.allow ? answer.answers ?? null : null
         }
       )
       serverTurn = pilote
-      onLine = (line) => pilote.onLine(line)
+      onLine = (line) => { if (!settled) pilote.onLine(line) }
       turn.steer = (message) => pilote.steer(message)
       const pinned = model?.trim() ? model.trim() : null
       void pilote.start({
@@ -1233,6 +1322,7 @@ export class AgentRunner {
     let buffer = ""
     child.stdout.setEncoding("utf8")
     child.stdout.on("data", (chunk: string) => {
+      if (settled) return
       buffer += chunk
       let index = buffer.indexOf("\n")
       while (index >= 0) {
@@ -1251,29 +1341,16 @@ export class AgentRunner {
     })
 
     child.on("error", (err: NodeJS.ErrnoException) => {
-      this.turns.delete(id)
-      disposeConfig?.()
-      disposeConfig = null
-      const detail =
-        err.code === "ENOENT"
-          ? `"${bin}" is not on your PATH. Install it and sign in, then reopen this panel.`
-          : err.message
-      if (!target.isDestroyed()) target.send("agent:error", { id, message: detail })
+      finish(err.code === "ENOENT"
+        ? `"${bin}" is not on your PATH. Install it and sign in, then reopen this panel.`
+        : err.message)
     })
 
-    child.on("exit", (code) => {
-      this.turns.delete(id)
-      serverTurn?.closed()
-      if (turn.live?.closer) clearTimeout(turn.live.closer)
-      disposeConfig?.()
-      disposeConfig = null
-      if (target.isDestroyed()) return
-      if (buffer.trim()) onLine(buffer.trim())
-      if (code !== 0) {
-        target.send("agent:error", { id, message: stderr.trim() || `${bin} exited with code ${code}` })
-        return
-      }
-      target.send("agent:done", { id })
+    child.on("exit", (code, signal) => {
+      if (exitTimer) clearTimeout(exitTimer)
+      // Drain the last protocol line before removing its turn/session state.
+      if (!settled && buffer.trim()) onLine(buffer.trim())
+      finish(code === 0 ? undefined : stderr.trim() || `${bin} exited with ${signal ?? `code ${code}`}`)
     })
 
     return id
@@ -1394,11 +1471,12 @@ export class AgentRunner {
    */
   // Ceux d'un seul projet quand on le nomme : c'est ce que demande le panneau
   // en arrivant sur un projet, et les tours des autres ne sont pas les siens.
-  running(projectDir?: string): { id: string; conversationId: string; prompt: string }[] {
+  running(projectDir?: string): { id: string; conversationId: string; prompt: string; startedAt: number }[] {
     return [...this.turns.values()].filter((turn) => projectDir === undefined || turn.projectDir === projectDir).map((turn) => ({
       id: turn.id,
       conversationId: turn.conversationId,
       prompt: turn.prompt,
+      startedAt: turn.startedAt,
     }))
   }
 
@@ -1627,7 +1705,10 @@ export class AgentRunner {
           if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
         }
         // Le tour est fini : c'est maintenant qu'on tient ce qu'il a demandé.
-        if (turn && !rejeu) this.honorWake(turn)
+        if (turn && !rejeu) {
+          this.honorWake(turn)
+          turn.complete?.()
+        }
         return
       }
       return
@@ -1742,8 +1823,7 @@ export class AgentRunner {
   cancel(id: string): void {
     const turn = this.turns.get(id)
     if (!turn) return
-    this.turns.delete(id)
-    turn.child.kill()
+    turn.cancel?.()
   }
 
   // cancelAll : la fenêtre s'en va, tout s'arrête avec elle.

@@ -77,6 +77,10 @@ export type StoredMessage = {
     context?: number
   }
   error?: string
+  /** Quand la réponse a commencé et fini (ms depuis l'époque), pour relire
+   *  combien de temps le tour a pris et à quelle heure il s'est terminé. */
+  startedAt?: number
+  endedAt?: number
   /** Les images parties avec ce message : leurs identifiants, jamais leurs
    *  chemins. Le fichier vit à côté de la conversation et s'en va avec elle. */
   images?: { id: string; name: string }[]

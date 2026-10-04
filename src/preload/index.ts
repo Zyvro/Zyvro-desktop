@@ -54,6 +54,7 @@ export type ReplaceResult = { files: number; matches: number; skipped: number }
 // importe `electron`, et le prendre pour une constante ferait entrer electron
 // dans le paquet du rendu.
 import type { Permission } from "../shared/permission"
+import type { AgentQuestion, QuestionAnswers } from "../shared/questions"
 import type { Goal } from "../main/goal"
 import type { Pending } from "../main/schedule"
 export type { Goal, Pending }
@@ -419,11 +420,14 @@ const api = {
     ): Promise<string> =>
       invoke("agent:send", kind, prompt, { workflows, permission, advancedSkills, agentSettings }, conversationId, model, images),
     // Une demande de permission venue de la CLI, et la réponse de la personne.
+    // `questions` présent : c'est un formulaire, et la réponse porte `answers`.
     onPermission: (
-      cb: (payload: { id: string; tool: string; input: Record<string, unknown> }) => void
+      cb: (payload: { id: string; tool: string; input: Record<string, unknown>; questions?: AgentQuestion[] }) => void
     ): Unsubscribe => on("agent:permission", cb),
-    answerPermission: (id: string, allow: boolean): Promise<boolean> =>
-      invoke("agent:permission-answer", id, allow),
+    // La demande n'attend plus : réglée ailleurs, tour interrompu, délai passé.
+    onPermissionGone: (cb: (payload: { id: string }) => void): Unsubscribe => on("agent:permission-gone", cb),
+    answerPermission: (id: string, allow: boolean, answers?: QuestionAnswers): Promise<boolean> =>
+      invoke("agent:permission-answer", id, allow, answers),
     attach: (
       conversationId: string,
       name: string,
@@ -538,7 +542,7 @@ const api = {
      * chaque fichier modifié, et le tour que le processus principal fait
      * tourner lui survit.
      */
-    running: (): Promise<{ id: string; conversationId: string; prompt: string }[]> => invoke("agent:running"),
+    running: (): Promise<{ id: string; conversationId: string; prompt: string; startedAt?: number }[]> => invoke("agent:running"),
     /** Rejouer ce qu'un tour a déjà imprimé. À demander une fois lié, pas avant. */
     replay: (id: string): Promise<boolean> => invoke("agent:replay", id),
     onUsage: (cb: (p: { id: string } & Spent) => void): Unsubscribe => on("agent:usage", cb),

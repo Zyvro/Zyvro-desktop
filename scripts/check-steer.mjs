@@ -71,6 +71,25 @@ const check = (name, ok, detail = "") => {
   check("le texte d'une reprise se relit", m.replayText({ message: { content: [{ type: "text", text: "a" }, { type: "text", text: "b" }] } }) === "ab")
 }
 
+// Print-mode Chrome must follow the saved preference; native skills stay enabled.
+{
+  const config = mkdtempSync(path.join(os.tmpdir(), "zyvro-claude-settings-"))
+  const oldConfig = process.env.CLAUDE_CONFIG_DIR
+  process.env.CLAUDE_CONFIG_DIR = config
+  try {
+    for (const enabled of [true, false]) {
+      writeFileSync(path.join(config, ".claude.json"), JSON.stringify({ claudeInChromeDefaultEnabled: enabled }))
+      const args = m.argsFor("claude", { projectDir: "/p", workflows: [], advancedSkills: false }, null)
+      check(`Chrome default ${enabled} is respected in print mode`, args.includes("--chrome") === enabled)
+      check("Native skills and plugins are not disabled with Zyvro's catalog off", !args.includes("--bare") && !args.includes("--disable-slash-commands") && !args.includes("--setting-sources"))
+    }
+  } finally {
+    if (oldConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = oldConfig
+    rmSync(config, { recursive: true, force: true })
+  }
+}
+
 // ---- Codex : la traduction du serveur en flux exec ----------------------------
 {
   const st = m.newTranslateState()
@@ -185,6 +204,7 @@ if (process.platform === "win32") {
     `#!${process.execPath}
 const out = (o) => process.stdout.write(JSON.stringify(o) + "\\n")
 const mode = process.env.FAUX_MODE
+if (process.env.FAUX_ARGS) require("node:fs").writeFileSync(process.env.FAUX_ARGS, JSON.stringify(process.argv.slice(2)))
 let lignes = [], fin = false, tours = 0
 const texte = (l) => l.message.content.map((c) => c.text).join("")
 process.stdin.setEncoding("utf8")
@@ -197,6 +217,20 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
   const q = lignes.shift()
   out({ type: "system", subtype: "init", session_id: "s-1" })
   out({ type: "user", isReplay: true, message: { role: "user", content: [{ type: "text", text: texte(q) }] } })
+  if (mode === "stubborn" || mode === "linger") {
+    process.on("SIGTERM", () => {})
+    if (mode === "stubborn") {
+      const helper = require("node:child_process").spawn(process.execPath, ["-e", 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'], { stdio: "ignore" })
+      require("node:fs").writeFileSync(process.env.FAUX_CHILD, String(helper.pid))
+      await attendre(150)
+      out({ type: "assistant", message: { content: [{ type: "text", text: "READY" }] } })
+    } else {
+      out({ type: "assistant", message: { content: [{ type: "text", text: "DONE" }] } })
+      out({ type: "result", subtype: "success", result: "DONE", queued_turn_count: 0, usage: {} })
+    }
+    setInterval(() => {}, 1000)
+    return
+  }
   if (mode === "late") {
     out({ type: "assistant", message: { content: [{ type: "text", text: "réponse finale" }] } })
     await attendre(500)
@@ -326,6 +360,41 @@ function recu(r) {
   {
     const r = await tourDe("codex", "tool", 2000)
     check("**Codex, tour déjà fini : refusé**", r.accepte === false)
+  }
+  // A CLI can ignore SIGTERM, and MCP/hooks can keep it alive after result.
+  // Exercise the real runner with actual processes, without any model account.
+  for (const mode of ["stubborn", "linger"]) {
+    process.env.FAUX_MODE = mode
+    process.env.FAUX_CHILD = path.join(bin, "child.pid")
+    const events = []
+    const runner = new m.AgentRunner()
+    const target = { isDestroyed: () => false, send: (channel, payload) => events.push({ channel, ...payload }) }
+    const id = runner.send(target, "claude", "test", { projectDir: projet, workflows: [], daemonOrigin: "http://127.0.0.1:1", daemonToken: "test" }, `conv-${mode}`)
+    const child = runner.turns.get(id).child
+    let helper = null
+    const alive = (pid) => { try { process.kill(pid, 0); return true } catch { return false } }
+    try {
+      const until = Date.now() + 3000
+      while (!events.some((e) => e.channel === "agent:text") && Date.now() < until) await new Promise((r) => setTimeout(r, 20))
+      const args = JSON.parse(readFileSync(process.env.FAUX_ARGS, "utf8"))
+      check("Zyvro MCP config supplements user integrations", args.includes("--mcp-config") && !args.includes("--strict-mcp-config"))
+      if (mode === "stubborn") {
+        helper = Number(readFileSync(process.env.FAUX_CHILD, "utf8"))
+        runner.cancel(id)
+        runner.cancel(id)
+      }
+      await new Promise((r) => setTimeout(r, 150))
+      check(`${mode}: the UI finishes without waiting for process exit`, events.filter((e) => e.channel === "agent:done").length === 1)
+      check(`${mode}: no late steering into a finished turn`, (await runner.steer(id, "too late")) === false)
+      check(`${mode}: no phantom running turn`, runner.running().length === 0)
+      await new Promise((r) => setTimeout(r, mode === "stubborn" ? 2200 : 5500))
+      check(`${mode}: the CLI is reaped even when it ignores SIGTERM`, !alive(child.pid))
+      if (helper) check("Stop also reaps the CLI's child process", !alive(helper))
+      check(`${mode}: completion is emitted exactly once, without a spurious error`, events.filter((e) => e.channel === "agent:done").length === 1 && !events.some((e) => e.channel === "agent:error"))
+    } finally {
+      for (const pid of [helper, child.pid]) if (pid && alive(pid)) process.kill(pid, "SIGKILL")
+      runner.cancelAll()
+    }
   }
   rmSync(bin, { recursive: true, force: true })
   rmSync(projet, { recursive: true, force: true })

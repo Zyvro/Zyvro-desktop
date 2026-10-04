@@ -274,10 +274,8 @@ function writeHelper(dir: string, ctx: McpTarget): void {
     `  echo "  any other client: point it at ${"$" + MCP_CONFIG_ENV}"`,
     "}",
     'case "${1:-}" in',
-    // --strict-mcp-config : seulement les serveurs de ce projet. Sans lui, ceux
-    // que la personne a déclarés ailleurs se rajoutent, et l'agent n'a pas les
-    // mêmes outils d'une machine à l'autre.
-    `  claude) shift; exec claude --mcp-config "${"$" + MCP_CONFIG_ENV}" --strict-mcp-config "$@" ;;`,
+    // Add the project's servers while preserving the user's own integrations.
+    `  claude) shift; exec claude --mcp-config "${"$" + MCP_CONFIG_ENV}" "$@" ;;`,
     `  codex) shift; exec codex ${codex} "$@" ;;`,
     "  ''|-h|--help|info) info ;;",
     `  *) echo "${HELPER}: I do not know how to wire \\"$1\\"" >&2; info; exit 2 ;;`,
@@ -342,7 +340,7 @@ function writeHelper(dir: string, ctx: McpTarget): void {
       "",
       ...collect(
         "claude",
-        `call claude --mcp-config "%${MCP_CONFIG_ENV}%" --strict-mcp-config%ARGS%`
+        `call claude --mcp-config "%${MCP_CONFIG_ENV}%"%ARGS%`
       ),
       ...collect("codex", `call codex ${codexCmd}%ARGS%`),
       ":info",

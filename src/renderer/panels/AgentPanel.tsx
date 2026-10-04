@@ -26,6 +26,7 @@ import type { AgentKind, Spent, WorkflowRef } from "../../preload"
 import { harness } from "../../shared/harness"
 import { droppedText, insertAt } from "../../shared/dropped"
 import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
+import { clockTime, formatDuration } from "~/lib/duration"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
 import { askHarness } from "~/state/persistent"
@@ -63,6 +64,8 @@ import { SynthesisPicker } from "~/panels/SynthesisPicker"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { synthesisSettings } from "~/state/synthesis"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
+import { QuestionCard } from "~/panels/QuestionCard"
+import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
 import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { handTo, subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
@@ -100,6 +103,16 @@ export type ChatMessage = {
   // morceaux : ce n'est pas une chose que l'agent a dite ou faite, c'est un
   // reçu sur le tour entier.
   spent?: Spent
+  // Quand la réponse a commencé et fini, en ms depuis l'époque : la durée qui
+  // défile à côté de « Writing », puis « Cogitated for 3s · done 23:55 ».
+  startedAt?: number
+  endedAt?: number
+}
+
+// ended : la réponse s'arrête — fin, erreur, Stop, message glissé. La première
+// fin compte : un `done` qui suit une erreur ne la repousse pas.
+function ended(message: ChatMessage): ChatMessage {
+  return { ...message, streaming: false, endedAt: message.endedAt ?? Date.now() }
 }
 
 // textOf : tout ce que le message a dit, sans ce qu'il a fait.
@@ -236,7 +249,10 @@ export function canSteer(
 // Une demande de permission en attente : ce que la CLI veut faire, et les deux
 // boutons qui décident. Elle vit au niveau du panneau et non d'une conversation
 // parce que c'est la CLI qui la pose, au milieu d'un tour, sans dire lequel.
-type Ask = { id: string; tool: string; input: Record<string, unknown> }
+//
+// `questions` présent : ce n'est pas une permission mais les questions de
+// l'agent, et la carte est un formulaire (QuestionCard).
+type Ask = { id: string; tool: string; input: Record<string, unknown>; questions?: AgentQuestion[] }
 
 type ChatState = {
   threads: Thread[]
@@ -374,6 +390,10 @@ function ensureAttached(): void {
   // réponse. Elle s'ajoute à la file du panneau, et la conversation l'affiche.
   window.zyvro.agent.onPermission((ask) => {
     commit({ ...state, asks: [...state.asks, ask] })
+  })
+  // Réglée sans nous — tour interrompu, délai passé : la carte s'en va.
+  window.zyvro.agent.onPermissionGone(({ id }) => {
+    if (state.asks.some((ask) => ask.id === id)) commit({ ...state, asks: state.asks.filter((ask) => ask.id !== id) })
   })
 
   window.zyvro.agent.onText(({ id, text }) => {
@@ -521,7 +541,7 @@ function ensureAttached(): void {
       orphanFor(id).error = message
       return
     }
-    mapMessage(bound.threadId, bound.messageId, (existing) => ({ ...existing, error: message, streaming: false }))
+    mapMessage(bound.threadId, bound.messageId, (existing) => ended({ ...existing, error: message }))
     endTurn(id)
   })
 
@@ -540,14 +560,14 @@ export function steered(turnId: string, text: string): void {
   if (!thread) return
   const pris = thread.queued.find((q) => q.steering === true)
   const user: ChatMessage = { id: nextMessageId(), role: "user", parts: [{ kind: "text", text: pris?.text ?? text }], images: [], streaming: false }
-  const suite: ChatMessage = { id: nextMessageId(), role: "assistant", parts: [], streaming: true }
+  const suite: ChatMessage = { id: nextMessageId(), role: "assistant", parts: [], streaming: true, startedAt: Date.now() }
   mapThread(bound.threadId, (t) => ({
     ...t,
     queued: pris ? t.queued.filter((q) => q.id !== pris.id) : t.queued,
     messages: [
       // La réponse en cours s'arrête là ; vide, elle n'a rien à montrer.
       ...t.messages.flatMap((m) =>
-        m.id !== bound.messageId ? [m] : m.parts.length === 0 && !m.error ? [] : [{ ...m, streaming: false }]
+        m.id !== bound.messageId ? [m] : m.parts.length === 0 && !m.error ? [] : [ended(m)]
       ),
       user,
       suite,
@@ -571,7 +591,7 @@ function finishTurn(id: string): void {
     orphanFor(id).done = true
     return
   }
-  mapMessage(bound.threadId, bound.messageId, (message) => ({ ...message, streaming: false }))
+  mapMessage(bound.threadId, bound.messageId, ended)
   endTurn(id)
 }
 
@@ -681,12 +701,12 @@ function endTurn(id: string): void {
   const bound = turnToMessage.get(id)
   turnToMessage.delete(id)
   orphans.delete(id)
+  const arrete = cancelled.has(id)
   cancelled.delete(id)
   compacting.delete(id)
   if (!bound) return
-  const arrete = cancelled.has(id)
   mapThread(bound.threadId, (thread) =>
-    thread.turnId === id || thread.busy ? { ...thread, turnId: null, busy: false } : thread
+    thread.turnId === id ? { ...thread, turnId: null, busy: false } : thread
   )
   persist(bound.threadId)
   // Le tour est terminé : c'est maintenant que la file avance, si elle le doit.
@@ -797,6 +817,7 @@ function beginTurn(threadId: string, prompt: string, images: Attached[] = []): s
     role: "assistant",
     parts: [],
     streaming: true,
+    startedAt: Date.now(),
   }
   mapThread(threadId, (thread) => ({
     ...thread,
@@ -829,6 +850,7 @@ function bindTurn(threadId: string, messageId: string, turnId: string): void {
     spent: orphan.spent ?? message.spent,
     error: orphan.error || message.error,
     streaming: !orphan.done && orphan.error === "",
+    endedAt: orphan.done || orphan.error !== "" ? message.endedAt ?? Date.now() : message.endedAt,
   }))
   // L'usage orphelin porte lui aussi la taille du contexte — sans ça, un tour
   // dont le reçu arrive avant le lien laisserait le % à sa valeur d'avant.
@@ -841,7 +863,7 @@ function bindTurn(threadId: string, messageId: string, turnId: string): void {
 
 /** Fails a turn that never reached main at all, so nothing will stream for it. */
 function failTurn(threadId: string, messageId: string, message: string): void {
-  mapMessage(threadId, messageId, (existing) => ({ ...existing, error: message, streaming: false }))
+  mapMessage(threadId, messageId, (existing) => ended({ ...existing, error: message }))
   mapThread(threadId, (thread) => ({ ...thread, turnId: null, busy: false }))
 }
 
@@ -868,6 +890,8 @@ function persist(threadId: string): void {
     .map((m) => ({
       role: m.role,
       spent: m.spent,
+      startedAt: m.startedAt,
+      endedAt: m.endedAt,
       images: m.images,
       // L'ordre est ce qu'on écrit : une conversation rouverte demain doit se
       // relire comme elle s'est déroulée.
@@ -983,6 +1007,8 @@ export async function restore(project: string | null = restoredFor): Promise<voi
       role: m.role,
       parts: restoreParts(m),
       spent: m.spent,
+      startedAt: m.startedAt,
+      endedAt: m.endedAt,
       images: m.images,
       error: m.error,
       streaming: false,
@@ -1050,7 +1076,7 @@ async function reattach(project: string | null = restoredFor): Promise<void> {
   // pendant la question, ce ne sont plus ceux de l'écran.
   const running = await window.zyvro.agent.running().catch(() => [])
   if (project !== restoredFor) return
-  for (const { id, conversationId, prompt } of running) {
+  for (const { id, conversationId, prompt, startedAt } of running) {
     // Une conversation neuve n'est pas encore sur le disque : son premier tour
     // est en vol, et `restore` n'a donc rien trouvé à recréer. On lui refait un
     // onglet, sous son identifiant à elle — celui que le processus principal et
@@ -1066,6 +1092,7 @@ async function reattach(project: string | null = restoredFor): Promise<void> {
       commit({ ...state, threads, activeId: conversationId })
     }
     const messageId = beginTurn(conversationId, prompt, [])
+    if (startedAt) mapMessage(conversationId, messageId, (message) => ({ ...message, startedAt }))
     bindTurn(conversationId, messageId, id)
     // Lié d'abord, rejoué ensuite : les événements portent l'identifiant du
     // tour, et une page qui ne l'a pas encore lié les garerait une seconde fois.
@@ -1298,9 +1325,9 @@ function setKind(threadId: string, kind: AgentKind): void {
 // answerAsk : la réponse part, la demande quitte l'écran. Les deux ensemble,
 // sinon on peut cliquer deux fois sur « Allow » et la seconde réponse n'a plus
 // personne à qui parler.
-function answerAsk(id: string, allow: boolean): void {
+function answerAsk(id: string, allow: boolean, answers?: QuestionAnswers): void {
   commit({ ...state, asks: state.asks.filter((ask) => ask.id !== id) })
-  void window.zyvro.agent.answerPermission(id, allow)
+  void window.zyvro.agent.answerPermission(id, allow, answers)
 }
 
 // ---------------------------------------------------------------------------
@@ -1710,7 +1737,10 @@ export function AgentPanel(): JSX.Element {
     const turnId = thread.turnId
     if (turnId === null) return
     markCancelled(turnId)
-    void window.zyvro.agent.cancel(turnId)
+    void window.zyvro.agent.cancel(turnId).then(() => {
+      // Also recover a stale UI whose process has already disappeared.
+      if (turnToMessage.has(turnId)) finishTurn(turnId)
+    })
 
     // « Stop » vide la file, et rend ce qu'elle contenait.
     //
@@ -2287,9 +2317,18 @@ export function AgentPanel(): JSX.Element {
             barre de saisie : il attend, et c'est ici qu'on regarde. */}
         {!present(kind) && <InstallBanner kind={kind} npm={installes.data?.npm ?? true} />}
 
-        {asks.map((ask) => (
-          <AskCard key={ask.id} ask={ask} />
-        ))}
+        {asks.map((ask) =>
+          ask.questions ? (
+            <QuestionCard
+              key={ask.id}
+              questions={ask.questions}
+              onSubmit={(answers) => answerAsk(ask.id, true, answers)}
+              onSkip={() => answerAsk(ask.id, false)}
+            />
+          ) : (
+            <AskCard key={ask.id} ask={ask} />
+          )
+        )}
 
         {attachError && (
           <p className="mb-1.5 rounded border border-destructive/30 bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
@@ -2565,17 +2604,30 @@ function Bubble({
       {/* Tant qu'il produit : une étoile qui tourne, le verbe qui scintille, des
           points qui sautent — à la fin du message, là où le prochain mot va
           arriver. Un « Thinking… » gris et fixe ne disait pas si ça avançait. */}
-      {message.streaming ? <Working verb={verb} kind={kind} /> : null}
+      {message.streaming ? (
+        <Working verb={verb} kind={kind}>
+          {message.startedAt ? <Elapsed since={message.startedAt} /> : null}
+        </Working>
+      ) : null}
 
       {/* Ce que le tour a dépensé. Discret et sous la réponse : c'est une
           information qu'on va chercher, pas une qu'on subit — et elle
           s'éteint d'un clic dans la barre du bas. */}
-      {message.spent && showSpent ? (
+      {/* Et combien de temps il a pris, sur la même ligne : « Cogitated for
+          3s · done 23:55 ». */}
+      {showSpent && (message.spent || (!message.streaming && message.startedAt && message.endedAt)) ? (
         <div
           className="mt-1 font-mono text-[10px] text-muted-foreground/70"
-          title={detail(message.spent)}
+          title={message.spent ? detail(message.spent) : undefined}
         >
-          ↑ {compact(message.spent.input)} in · ↓ {compact(message.spent.output)} out
+          {[
+            message.spent ? `↑ ${compact(message.spent.input)} in · ↓ ${compact(message.spent.output)} out` : null,
+            !message.streaming && message.startedAt && message.endedAt
+              ? `Cogitated for ${formatDuration(message.endedAt - message.startedAt)} · done ${clockTime(message.endedAt)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
         </div>
       ) : null}
 
@@ -2587,6 +2639,19 @@ function Bubble({
         </div>
       ) : null}
     </div>
+  )
+}
+
+// Elapsed : depuis combien de temps l'agent travaille, à côté du verbe. Une
+// seconde par seconde, sur l'horloge que tout le panneau partage. Masqué aux
+// lecteurs d'écran : l'indicateur est une région annoncée, et une durée qui
+// change chaque seconde y parlerait sans arrêt.
+function Elapsed({ since }: { since: number }): JSX.Element {
+  const now = useSyncExternalStore(everySecond, () => Math.floor(Date.now() / 1000))
+  return (
+    <span className="font-mono text-[10px] text-muted-foreground/70" aria-hidden>
+      {formatDuration(now * 1000 - since)}
+    </span>
   )
 }
 

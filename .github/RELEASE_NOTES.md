@@ -49,6 +49,36 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.69
+
+**Stop works even when an agent gets stuck.** Stopping a turn releases the
+conversation and terminates the agent's process group, escalating if a process
+ignores the first signal. A final Claude or Codex result ends the displayed
+turn without waiting indefinitely for the CLI to exit. Stopping also prevents
+the next queued prompt from being sent automatically.
+
+**Claude keeps your integrations.** Zyvro's MCP servers are added alongside
+your existing configuration. The panel and terminal helper no longer exclude
+your personal MCP servers. Claude's saved Chrome opt-in is explicitly passed
+to print-mode sessions, so an already configured Claude in Chrome connection
+is available there too. Native skills and plugins remain enabled independently
+of Zyvro's Advanced skills switch; their tools still follow your permissions.
+
+**Questions are answered in the chat.** Claude and Codex can display forms with
+choices and free-text answers. Submit sends the answers back to the agent;
+Skip lets it continue without them. Codex requests withdrawn by the server
+are removed from the panel.
+
+**Response timing stays visible.** Replies show elapsed time while running and
+their duration and completion time afterwards, including when reopening a
+saved conversation.
+
+Validation: the full local typecheck/check suite and macOS packaging passed.
+Regression tests cover a CLI that ignores termination, its child process, a CLI
+that lingers after its final result, queued-prompt cancellation, and the saved
+Chrome preference. Native skills, plugin skills and the Chrome connection were
+also checked against the installed Claude CLI without sending a model prompt.
+
 ## New in alpha.68
 
 **Talk to Claude and Codex while they work.** A message sent while Claude or

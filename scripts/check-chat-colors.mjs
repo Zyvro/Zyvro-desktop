@@ -17,7 +17,7 @@ const dir = path.join(ROOT, "node_modules", ".zyvro-chat-colors-check")
 mkdirSync(dir, { recursive: true })
 await build({
   stdin: {
-    contents: `export { looksLikeDiff, diffLineClass, HARNESS_TINT } from "${path.join(ROOT, "src/renderer/lib/chatColors").replace(/\\/g, "/")}"\nexport { AGENT_KINDS } from "${path.join(ROOT, "src/shared/harness").replace(/\\/g, "/")}"`,
+    contents: `export { looksLikeDiff, diffLineClass, HARNESS_TINT } from "${path.join(ROOT, "src/renderer/lib/chatColors").replace(/\\/g, "/")}"\nexport { AGENT_KINDS } from "${path.join(ROOT, "src/shared/harness").replace(/\\/g, "/")}"\nexport { formatDuration, clockTime } from "${path.join(ROOT, "src/renderer/lib/duration").replace(/\\/g, "/")}"`,
     resolveDir: ROOT,
   },
   outfile: path.join(dir, "h.cjs"),
@@ -76,8 +76,23 @@ check("**le chat s'en sert**", /className="zy-agent-md text-foreground" compact 
 // ---- « il travaille » ----
 check(
   "**tant que l'agent produit, l'indicateur animé est au bout du message**",
-  /\{message\.streaming \? <Working verb=\{verb\} kind=\{kind\} \/> : null\}/.test(panel)
+  /\{message\.streaming \? \(\s*<Working verb=\{verb\} kind=\{kind\}>/.test(panel)
 )
+check(
+  "**avec la durée qui défile à côté du verbe**",
+  /<Working verb=\{verb\} kind=\{kind\}>\s*\{message\.startedAt \? <Elapsed since=\{message\.startedAt\} \/> : null\}/.test(panel)
+)
+check(
+  "**et, le tour fini, sa durée et son heure sur la ligne des jetons**",
+  /`Cogitated for \$\{formatDuration\(message\.endedAt - message\.startedAt\)\} · done \$\{clockTime\(message\.endedAt\)\}`/.test(panel)
+)
+check(
+  "la durée se lit comme dans le terminal",
+  mod.formatDuration(3400) === "3s" && mod.formatDuration(72_000) === "1m 12s" && mod.formatDuration(120_000) === "2m" && mod.formatDuration(3_840_000) === "1h 4m" && mod.formatDuration(-5) === "0s",
+  [3400, 72_000, 120_000, 3_840_000, -5].map(mod.formatDuration).join(", ")
+)
+check("l'heure de fin est sur 24 heures", mod.clockTime(new Date(2026, 9, 3, 23, 5).getTime()) === "23:05")
+check("la durée est gardée avec le transcript", /startedAt: m\.startedAt,\s*endedAt: m\.endedAt,/.test(panel))
 check("et il dit ce qu'il fait : réfléchir, lancer un outil, écrire", /"Thinking"/.test(panel) && /"Writing"/.test(panel) && /dernier\.call\.running/.test(panel))
 const css = lire("src/renderer/styles.css")
 check("les animations existent", ["zy-working-star", "zy-shimmer", "zy-dot", "zy-pulse"].every((n) => css.includes(`@keyframes ${n}`)))

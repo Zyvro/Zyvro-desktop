@@ -25,6 +25,8 @@ import { choose as chooseShell, shells as machineShells } from "./shell"
 import { authorized, currentAccount, signIn, signOut } from "./account"
 import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type AskHost, type BrowserHost } from "./shots"
+import { answerAsk, askIn } from "./asks"
+import type { QuestionAnswers } from "../shared/questions"
 import {
   guestForWindow,
   hideDevTools,
@@ -303,36 +305,14 @@ function viewNamed(view: string): Guest | null {
 // Elle arrive par le serveur MCP de l'application, sans conversation attachée :
 // c'est la CLI qui la pose, au milieu d'un tour. Elle part donc vers la fenêtre
 // au premier plan — celle que la personne regarde en la posant — et la réponse
-// revient par un canal, avec l'identifiant de la demande.
-//
-// Elle attend, longtemps : quelqu'un doit avoir le temps de lire. Mais pas
-// indéfiniment — un tour laissé en plan tiendrait un processus CLI ouvert, et
-// la personne n'aurait plus rien à cliquer.
-const pendingAsks = new Map<string, (answer: { allow: boolean; message?: string }) => void>()
-const ASK_PATIENCE_MS = 10 * 60 * 1000
-
+// revient par un canal, avec l'identifiant de la demande (main/asks.ts).
 export const askHost: AskHost = async (request) => {
   // Une fenêtre de Studio : une fenêtre de capture n'écoute pas cette question,
   // et l'agent attendrait dix minutes une réponse que personne ne voit.
   const [win] = studioWindows().filter((w) => w.isFocused())
   const target = win ?? studioWindows()[0]
   if (!target) return { allow: false, message: "Zyvro Studio is not open" }
-
-  const id = randomUUID()
-  target.webContents.send("agent:permission", { id, tool: request.tool, input: request.input })
-
-  return await new Promise((resolve) => {
-    const settle = (answer: { allow: boolean; message?: string }) => {
-      clearTimeout(timer)
-      pendingAsks.delete(id)
-      resolve(answer)
-    }
-    pendingAsks.set(id, settle)
-    const timer = setTimeout(
-      () => settle({ allow: false, message: "nobody answered — ask again, or change what the agent may do" }),
-      ASK_PATIENCE_MS
-    )
-  })
+  return await askIn(target.webContents, { tool: request.tool, input: request.input, questions: request.questions })
 }
 
 const workspaces = new WeakMap<BrowserWindow, Workspace>()
@@ -876,12 +856,15 @@ export function registerIpc(onRecents?: () => void): void {
   })
 
   // La réponse de la personne à une demande de permission.
-  ipcMain.handle("agent:permission-answer", async (event, id: string, allow: boolean) => {
+  // `answers` : les réponses d'un formulaire de questions, par identifiant de
+  // question. Venues du rendu, donc relues : des chaînes, rien d'autre.
+  ipcMain.handle("agent:permission-answer", async (event, id: string, allow: boolean, answers?: unknown) => {
     requireWorkspace(event)
-    const settle = pendingAsks.get(String(id))
-    if (!settle) return false
-    settle({ allow: allow === true, message: allow === true ? undefined : "you said no" })
-    return true
+    return answerAsk(String(id), {
+      allow: allow === true,
+      message: allow === true ? undefined : "you said no",
+      answers: allow === true ? cleanAnswers(answers) : undefined,
+    })
   })
 
   // ---------- chercher, remplacer ----------
@@ -1960,4 +1943,17 @@ export function registerIpc(onRecents?: () => void): void {
 export async function disposeWorkspace(win: BrowserWindow): Promise<void> {
   const ws = workspaces.get(win)
   if (ws) await ws.dispose()
+}
+
+// cleanAnswers : ce que le rendu a envoyé, réduit à la forme attendue. Une
+// valeur d'une autre forme n'est pas une réponse : elle disparaît, et la
+// question reste sans réponse plutôt que d'en recevoir une fausse.
+function cleanAnswers(answers: unknown): QuestionAnswers | undefined {
+  if (!answers || typeof answers !== "object" || Array.isArray(answers)) return undefined
+  const out: QuestionAnswers = {}
+  for (const [key, value] of Object.entries(answers as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue
+    out[key] = value.filter((v): v is string => typeof v === "string")
+  }
+  return out
 }

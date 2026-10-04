@@ -20,6 +20,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 import { randomBytes } from "node:crypto"
 import { JSONRPC_METHOD_NOT_FOUND, negotiateProtocol } from "../shared/mcpversion"
+import { ASK_USER_QUESTION, claudeAnswerInput, questionsFromClaude, type AgentQuestion, type QuestionAnswers } from "../shared/questions"
 import { mkdirSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { nativeImage, type BrowserWindow, type NativeImage, type Rectangle, type WebContents } from "electron"
@@ -60,6 +61,7 @@ import {
 
 export const SHOTS_SERVER = "zyvro-app"
 export const TOOL_PERMISSION = "zyvro_permission"
+export const TOOL_QUESTIONS = "zyvro_questions"
 export const TOOL_SCREENSHOT = "zyvro_screenshot"
 export const TOOL_LIST_WINDOWS = "zyvro_list_windows"
 
@@ -442,13 +444,31 @@ export const permissionTool = {
   annotations: { title: "Ask permission", readOnlyHint: true, openWorldHint: false },
 }
 
+// Le même contrat, pour les niveaux qui ne demandent rien. La CLI y envoie ses
+// questions (AskUserQuestion) et, rarement, une action que le niveau refuse
+// déjà — sortir du projet en « Project ». Les questions montent au panneau ;
+// le reste est refusé ici, comme le faisait `--permission-prompts none`.
+export const questionsTool = {
+  ...permissionTool,
+  name: TOOL_QUESTIONS,
+  description:
+    "Ask the person the agent's questions. Zyvro Studio shows them as a form in its agent panel and returns the answers; " +
+    "any other permission request is refused. This is the permission prompt tool — it is called by the CLI, not by you.",
+  annotations: { title: "Ask the person", readOnlyHint: true, openWorldHint: false },
+}
+
 // AskHost : comment la question atteint la personne. Le serveur ne sait pas
 // dessiner, et le panneau ne sait pas écouter un socket.
+//
+// `questions` présent : c'est un formulaire, et la réponse porte `answers`.
 export type AskHost = (request: {
   tool: string
   input: Record<string, unknown>
   id: string
-}) => Promise<{ allow: boolean; message?: string }>
+  questions?: AgentQuestion[]
+}) => Promise<AskAnswer>
+
+export type AskAnswer = { allow: boolean; message?: string; answers?: QuestionAnswers }
 
 export type BrowserHost = {
   /** Ouvre (ou révèle) un onglet navigateur et rend la vue quand elle répond.
@@ -753,13 +773,31 @@ export async function takeShot(all: BrowserWindow[], args: ShotArgs): Promise<Sh
 // l'entrée éventuellement corrigée ou `deny` avec une raison. Une réponse d'une
 // autre forme est lue comme un refus, sans rien dire — d'où le test qui la
 // vérifie mot pour mot.
-export async function askPermission(ask: AskHost, args: Record<string, unknown>): Promise<ShotResult> {
+//
+// AskUserQuestion passe par le même outil, mais ce n'est pas une permission :
+// la personne remplit un formulaire, et ses réponses repartent dans l'entrée
+// (`updatedInput.answers`). `questionsOnly` : l'outil des niveaux qui ne
+// demandent rien, qui refuse tout ce qui n'est pas une question.
+export async function askPermission(ask: AskHost, args: Record<string, unknown>, questionsOnly = false): Promise<ShotResult> {
   const tool = String(args.tool_name ?? "a tool")
   const input = (args.input ?? {}) as Record<string, unknown>
-  const answer = await ask({ tool, input, id: String(args.tool_use_id ?? "") })
-  const payload = answer.allow
-    ? { behavior: "allow", updatedInput: input }
-    : { behavior: "deny", message: answer.message || `${tool} was not allowed` }
+  const id = String(args.tool_use_id ?? "")
+  const questions = tool === ASK_USER_QUESTION ? questionsFromClaude(input) : null
+  let payload: Record<string, unknown>
+  if (questions) {
+    const answer = await ask({ tool, input, id, questions })
+    payload =
+      answer.allow && answer.answers
+        ? { behavior: "allow", updatedInput: claudeAnswerInput(input, questions, answer.answers) }
+        : { behavior: "deny", message: answer.message || "The person did not answer your questions." }
+  } else if (questionsOnly) {
+    payload = { behavior: "deny", message: `${tool} needs permission, and the current permission level does not grant it.` }
+  } else {
+    const answer = await ask({ tool, input, id })
+    payload = answer.allow
+      ? { behavior: "allow", updatedInput: input }
+      : { behavior: "deny", message: answer.message || `${tool} was not allowed` }
+  }
   return { content: [{ type: "text", text: JSON.stringify(payload) }] }
 }
 
@@ -923,7 +961,7 @@ async function handle(
         return
       case "tools/list":
         reply({
-          tools: [listWindowsTool, screenshotTool, ...(browser ? BROWSER_TOOLS : []), ...(ask ? [permissionTool] : [])],
+          tools: [listWindowsTool, screenshotTool, ...(browser ? BROWSER_TOOLS : []), ...(ask ? [permissionTool, questionsTool] : [])],
         })
         return
       case "tools/call": {
@@ -952,6 +990,12 @@ async function handle(
             if (!ask) throw new Error("this window cannot ask anyone")
             const args = (msg.params?.arguments ?? {}) as Record<string, unknown>
             reply(await askPermission(ask, args))
+            return
+          }
+          case TOOL_QUESTIONS: {
+            if (!ask) throw new Error("this window cannot ask anyone")
+            const args = (msg.params?.arguments ?? {}) as Record<string, unknown>
+            reply(await askPermission(ask, args, true))
             return
           }
           default:

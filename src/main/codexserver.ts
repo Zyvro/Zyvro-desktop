@@ -17,6 +17,22 @@
 // différence.
 
 import type { Permission } from "../shared/permission"
+import { codexAnswerResult, questionsFromCodex, type AgentQuestion, type QuestionAnswers } from "../shared/questions"
+
+/** Poser des questions à la personne. Null : pas de réponse (refus, délai). */
+export type CodexAsk = (questions: AgentQuestion[], signal: AbortSignal) => Promise<QuestionAnswers | null>
+
+// Ce qui rend l'outil de questions de Codex disponible hors du mode plan. Il est
+// « under development » en 0.159.1 mais fonctionne — mesuré : la requête arrive
+// et la réponse est lue. Sans lui, le routeur répond « request_user_input is
+// unavailable in Default mode » et le modèle pose sa question en texte, en
+// fin de tour.
+//
+// Par `-c` et pas par `--enable` : `--enable` d'un nom inconnu fait échouer le
+// serveur au démarrage (« Unknown feature flag »), `-c` est ignoré avec un
+// avertissement. Le jour où le drapeau disparaît, le panneau continue de
+// marcher.
+export const CODEX_QUESTIONS_FEATURE = ["-c", "features.default_mode_request_user_input=true"]
 
 export type CodexSandbox = "read-only" | "workspace-write" | "danger-full-access"
 
@@ -178,6 +194,8 @@ type Pending = { resolve: (value: { result?: unknown; error?: { message?: string
 export class CodexServerTurn {
   private next = 0
   private pending = new Map<number, Pending>()
+  /** Les questions du serveur qui attendent la personne, par id de requête. */
+  private asking = new Map<number | string, AbortController>()
   private state = newTranslateState()
   private threadId: string | null = null
   private turnId: string | null = null
@@ -186,7 +204,8 @@ export class CodexServerTurn {
   constructor(
     private readonly write: (line: string) => void,
     private readonly emit: (event: Record<string, unknown>) => void,
-    private readonly finish: () => void
+    private readonly finish: () => void,
+    private readonly ask?: CodexAsk
   ) {}
 
   private request(method: string, params: unknown): Promise<{ result?: unknown; error?: { message?: string } }> {
@@ -213,7 +232,8 @@ export class CodexServerTurn {
     resume: string | null
     input: unknown[]
   }): Promise<void> {
-    const init = await this.request("initialize", { clientInfo: { name: "zyvro-studio", version: "1" } })
+    // `experimentalApi` : `item/tool/requestUserInput` en fait partie.
+    const init = await this.request("initialize", { clientInfo: { name: "zyvro-studio", version: "1" }, capabilities: { experimentalApi: true } })
     if (init.error) return this.fail(`Codex app server: ${init.error.message ?? "initialize failed"}`)
     this.write(JSON.stringify({ jsonrpc: "2.0", method: "initialized" }))
 
@@ -248,7 +268,7 @@ export class CodexServerTurn {
 
   /** Une ligne de la sortie du serveur. */
   onLine(line: string): void {
-    let message: { id?: number; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { message?: string } }
+    let message: { id?: number | string; method?: string; params?: Record<string, unknown>; result?: unknown; error?: { message?: string } }
     try {
       message = JSON.parse(line)
     } catch {
@@ -262,15 +282,26 @@ export class CodexServerTurn {
       }
       return
     }
-    if (typeof message.id === "number" && message.method) {
-      // Une demande du serveur (une approbation) : le panneau ne demande
-      // jamais rien en plein tour, donc on refuse plutôt que de le laisser
+    if (message.id !== undefined && message.method) {
+      // Une question de l'agent : elle monte au panneau, la réponse redescend.
+      if (message.method === "item/tool/requestUserInput" && this.ask) {
+        void this.answer(message.id, message.params ?? {})
+        return
+      }
+      // Une autre demande du serveur (une approbation) : le panneau n'en
+      // demande aucune en plein tour, donc on refuse plutôt que de le laisser
       // attendre une réponse qui ne viendrait pas.
       this.write(JSON.stringify({ jsonrpc: "2.0", id: message.id, error: { code: -32601, message: "Not supported by Zyvro Studio" } }))
       return
     }
     if (!message.method) return
     const params = message.params ?? {}
+    // Le serveur a réglé une requête sans nous — le tour a été interrompu : la
+    // question quitte l'écran.
+    if (message.method === "serverRequest/resolved") {
+      const requestId = params.requestId as number | string | undefined
+      if (requestId !== undefined) this.asking.get(requestId)?.abort()
+    }
     if (message.method === "turn/started") {
       const id = (params.turn as { id?: string } | undefined)?.id
       if (id) this.turnId = id
@@ -282,8 +313,27 @@ export class CodexServerTurn {
     }
   }
 
+  /**
+   * Une question du serveur, posée à la personne.
+   *
+   * La réponse est indexée par l'id de chaque question, toujours en liste.
+   * Sans réponse (refus, délai), des listes vides : le modèle lit qu'on n'a
+   * rien répondu et continue, au lieu d'attendre.
+   */
+  private async answer(requestId: number | string, params: Record<string, unknown>): Promise<void> {
+    const questions = questionsFromCodex(params)
+    const controller = new AbortController()
+    this.asking.set(requestId, controller)
+    const answers = questions.length > 0 && this.ask ? await this.ask(questions, controller.signal) : null
+    this.asking.delete(requestId)
+    if (controller.signal.aborted) return
+    this.write(JSON.stringify({ jsonrpc: "2.0", id: requestId, result: codexAnswerResult(questions, answers ?? {}) }))
+  }
+
   /** Le processus est sorti : ce qui attendait une réponse n'en aura pas. */
   closed(): void {
+    for (const controller of this.asking.values()) controller.abort()
+    this.asking.clear()
     this.over = true
     for (const waiting of this.pending.values()) waiting.resolve({ error: { message: "The Codex app server stopped." } })
     this.pending.clear()

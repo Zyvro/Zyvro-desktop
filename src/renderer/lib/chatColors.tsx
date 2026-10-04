@@ -195,7 +195,7 @@ export function looksLikeDiff(text: string): boolean {
  * points qui sautent — et le verbe dit ce qu'il fait : il réfléchit avant le
  * premier mot, il lance un outil, il écrit.
  */
-export function Working({ verb, kind }: { verb: string; kind: AgentKind }) {
+export function Working({ verb, kind, children }: { verb: string; kind: AgentKind; children?: ReactNode }) {
   const tint = HARNESS_TINT[kind] ?? HARNESS_TINT.claude
   // Le style choisi dans les réglages — étoile, glyphes, spinner, orbe, ou
   // l'image qu'on a téléversée.
@@ -209,6 +209,7 @@ export function Working({ verb, kind }: { verb: string; kind: AgentKind }) {
         <span />
         <span />
       </span>
+      {children}
     </div>
   )
 }
