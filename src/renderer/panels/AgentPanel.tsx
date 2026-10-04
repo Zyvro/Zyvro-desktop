@@ -68,7 +68,7 @@ import { QuestionCard } from "~/panels/QuestionCard"
 import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
 import type { Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
-import { handTo, subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
+import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { engineReady, subscribeEngine } from "~/state/engine"
 import type { StoredTool } from "../../preload"
 
@@ -613,15 +613,17 @@ function finishTurn(id: string): void {
 // MiMo Code a besoin des serveurs MCP du projet dans son environnement, qu'une
 // ligne tapée ne peut pas lui donner : il s'ouvre dans un onglet à lui, qui les
 // reçoit, et reprend la même conversation.
+//
+// Un onglet à lui, pour tous les harnais, et plus une ligne tapée dans le
+// shell actif. La ligne attendait que ce shell existe : sans aucun shell
+// ouvert (« No shell open. »), elle était jetée au bout de cinq secondes et le
+// bouton ne faisait rien. Et quand il y en avait un, elle pouvait tomber dans
+// un programme déjà lancé — un autre agent, un serveur. `agent:shell` lance le
+// harnais lui-même, avec le modèle, les serveurs MCP du projet et la session
+// de la conversation à reprendre.
 async function openInTerminal(kind: AgentKind, threadId: string, model: string | null): Promise<void> {
-  if (kind === "mimo") {
-    useWorkspace.getState().setPanel("terminal", true)
-    askHarness(kind, model, threadId)
-    return
-  }
-  const commande = await window.zyvro.agent.interactiveCommand(kind, threadId)
   useWorkspace.getState().setPanel("terminal", true)
-  handTo("terminal", `${commande}\n`)
+  askHarness(kind, model, threadId)
 }
 
 async function dispatch(threadId: string, text: string, images: Attached[]): Promise<void> {

@@ -515,3 +515,22 @@ export function adoptHomeBins(): void {
   if (present.length === 0) return
   process.env.PATH = merge(process.env.PATH ?? "", present.join(isWindows ? ";" : ":"))
 }
+
+// scrubParentAgentEnv : ce que la session d'agent qui a lancé l'app laisse
+// dans son environnement.
+//
+// Lancée depuis un terminal où tourne Claude Code — `npm run dev` demandé à
+// un agent, typiquement —, l'app hérite des marqueurs de CETTE session :
+// `CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`, `CLAUDE_CODE_CHILD_SESSION`, la
+// socket et le jeton de sa messagerie… Et tout ce qu'elle lance en hérite à
+// son tour. Vu dans le terminal de l'app : le claude ouvert par « Continue in
+// terminal » disait « saving is off — inherited CLAUDE_CODE_CHILD_SESSION
+// marker », donc ne gardait pas sa session, donc ne pouvait pas la reprendre.
+// Rien de ce que l'app lance n'est un enfant de cette session-là.
+export const PARENT_AGENT_MARKERS = /^(CLAUDECODE|CLAUDE_CODE_(CHILD_SESSION|SESSION_ID|SESSION_ATTENDED|ENTRYPOINT|EXECPATH|MESSAGING_SOCKET|MESSAGING_TOKEN)|CLAUDE_PID)$/
+
+export function scrubParentAgentEnv(env: NodeJS.ProcessEnv): string[] {
+  const retires = Object.keys(env).filter((name) => PARENT_AGENT_MARKERS.test(name))
+  for (const name of retires) delete env[name]
+  return retires
+}

@@ -206,6 +206,17 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
     /setPanel\("terminal", true\)[\s\S]{0,200}?askHarness\(kind, thread\.model\)/.test(panel),
     "le clic ne fait rien quand le terminal est replié, et part tout seul plus tard"
   )
+  // « Continue in terminal » : un onglet à lui, qui reprend la session — pas
+  // une ligne tapée dans le shell actif. Sans shell ouvert, la ligne attendait
+  // cinq secondes puis était jetée, et le bouton ne faisait rien ; avec un
+  // shell, elle pouvait tomber dans un programme déjà lancé.
+  const ouvrir = panel.slice(panel.indexOf("async function openInTerminal"), panel.indexOf("async function dispatch"))
+  check(
+    "**« Continue in terminal » ouvre un onglet dédié qui reprend la conversation, pour tous les harnais**",
+    /setPanel\("terminal", true\)\s*askHarness\(kind, model, threadId\)/.test(ouvrir) && !/handTo\(/.test(ouvrir) && !/kind === "mimo"/.test(ouvrir),
+    "le bouton écrit une ligne dans un shell qui n'existe peut-être pas"
+  )
+  check("et le bouton y mène", /onClick=\{\(\) => void openInTerminal\(kind, thread\.id, thread\.model\)\}/.test(panel))
 }
 
 console.log(

@@ -284,3 +284,8 @@ Petits correctifs repérés en passant :
   sans serveur. Fenêtre : `canSteer`, accusé `agent:steered` qui place le
   message dans le fil ; refusé, il reste dans la file. Limites mesurées dans
   `scripts/check-steer.mjs`.
+- **0.1.0-alpha.70 — « Continue in terminal » marche, pour tous les harnais.**
+  `openInTerminal` passe par `askHarness` (onglet dédié, `agent:shell`, reprise
+  de session) au lieu d'écrire dans le shell actif, jeté sans shell ouvert ;
+  `scrubParentAgentEnv` retire au démarrage les marqueurs de la session Claude
+  Code parente (`CLAUDECODE`, `CLAUDE_CODE_CHILD_SESSION`…).

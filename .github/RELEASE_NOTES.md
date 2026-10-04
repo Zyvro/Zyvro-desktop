@@ -49,6 +49,20 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.70
+
+**"Continue in terminal" works again.** The terminal button of the agent panel
+typed a command into the active shell. With no shell open ("No shell open."),
+the command waited a few seconds and was dropped, so the button did nothing;
+with a shell open, it could land in a program already running there. It now
+opens the agent in a terminal tab of its own, with the session's model and
+the project's tools, and resumes the conversation, for every harness.
+
+**Agents started from Zyvro save their sessions again when Zyvro itself was
+started from Claude Code.** Zyvro inherited that Claude Code session's markers
+and passed them on, so a Claude opened in its terminal reported "saving is
+off" and could not be resumed. Zyvro now drops those markers at startup.
+
 ## New in alpha.69
 
 **Stop works even when an agent gets stuck.** Stopping a turn releases the

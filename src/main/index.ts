@@ -5,7 +5,7 @@ import { startShotsServer } from "./shots"
 import { BROWSER_PARTITION, noteRequest } from "./browser"
 import { loadRecents, recentFiles } from "./recents"
 import { bundledBinary } from "./daemon"
-import { prepare as prepareCliPath } from "./cli"
+import { prepare as prepareCliPath, scrubParentAgentEnv } from "./cli"
 import { appContextTemplate } from "./contextmenu"
 import fs from "node:fs"
 import { trackZoom, zoomBy } from "./zoom"
@@ -14,6 +14,11 @@ import { studioWindows } from "./windows"
 import { handleMedia, registerMediaScheme } from "./media"
 
 const isDev = !app.isPackaged
+
+// Avant tout le reste : rien de ce que l'app lance — agents, terminaux,
+// shells persistants — ne doit se croire enfant de la session d'agent qui l'a
+// peut-être lancée (cli.ts).
+scrubParentAgentEnv(process.env)
 
 
 // scripts/dev-app-name.mjs renames the development Electron bundle so the menu

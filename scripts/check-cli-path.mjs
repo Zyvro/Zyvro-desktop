@@ -32,7 +32,7 @@ await build({
   absWorkingDir: ROOT, logLevel: "silent",
 })
 const harness = path.join(dir, "h.cjs")
-const { merge, locate, shimTarget, direct } = createRequire(import.meta.url)(harness)
+const { merge, locate, shimTarget, direct, scrubParentAgentEnv } = createRequire(import.meta.url)(harness)
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -236,6 +236,41 @@ process.env.PATH = saved
   check("un exécutable ordinaire reste tel quel", direct({ file: "/bin/ls", needsShell: false }).shell === false)
   const source = readFileSync(path.join(ROOT, "src/main/cli.ts"), "utf8")
   check("**launch passe par là, et sans fenêtre de console**", /const how = direct\(found\)/.test(source) && /windowsHide: true/.test(source))
+}
+
+// Lancée depuis une session de Claude Code, l'app en héritait les marqueurs, et
+// tout ce qu'elle lançait aussi : le claude ouvert dans son terminal disait
+// « saving is off — inherited CLAUDE_CODE_CHILD_SESSION marker » et ne pouvait
+// plus reprendre de session.
+{
+  const env = {
+    PATH: "/usr/bin",
+    HOME: "/h",
+    CLAUDECODE: "1",
+    CLAUDE_CODE_CHILD_SESSION: "1",
+    CLAUDE_CODE_SESSION_ID: "abc",
+    CLAUDE_CODE_MESSAGING_SOCKET: "/tmp/s.sock",
+    CLAUDE_CODE_MESSAGING_TOKEN: "t",
+    CLAUDE_PID: "42",
+    CLAUDE_CONFIG_DIR: "/garde",
+    ANTHROPIC_API_KEY: "garde",
+  }
+  const retires = scrubParentAgentEnv(env)
+  check(
+    "**les marqueurs de la session d'agent parente sont retirés**",
+    !("CLAUDECODE" in env) && !("CLAUDE_CODE_CHILD_SESSION" in env) && !("CLAUDE_CODE_SESSION_ID" in env) && !("CLAUDE_CODE_MESSAGING_SOCKET" in env) && !("CLAUDE_PID" in env),
+    JSON.stringify(Object.keys(env))
+  )
+  check(
+    "**et rien d'autre : la configuration de l'utilisateur reste**",
+    env.CLAUDE_CONFIG_DIR === "/garde" && env.ANTHROPIC_API_KEY === "garde" && env.PATH === "/usr/bin" && retires.length === 6,
+    JSON.stringify(retires)
+  )
+  const index = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
+  check(
+    "et c'est fait au démarrage, avant que l'app lance quoi que ce soit",
+    index.indexOf("scrubParentAgentEnv(process.env)") > 0 && index.indexOf("scrubParentAgentEnv(process.env)") < index.indexOf("app.whenReady()")
+  )
 }
 
 rmSync(dir, { recursive: true, force: true })
