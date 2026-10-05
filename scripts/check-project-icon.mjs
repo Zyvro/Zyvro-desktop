@@ -77,6 +77,9 @@ const s = require(path.join(dir, "shared.cjs"))
     `const { app, nativeImage } = require("electron")
 const fs = require("node:fs"), path = require("node:path")
 const m = require(${JSON.stringify(path.join(dir, "projecticon.cjs"))})
+// Une trace dès le démarrage : elle sépare « Electron n'a pas pu se lancer
+// ici » de « l'essai a démarré et a échoué ».
+fs.writeFileSync(${JSON.stringify(path.join(projet, "demarre"))}, "1")
 app.whenReady().then(async () => {
   const out = {}
   try {
@@ -108,13 +111,24 @@ app.whenReady().then(async () => {
 `
   )
   const electron = require("electron")
+  // Sans ELECTRON_RUN_AS_NODE du tout : une valeur vide compte encore comme
+  // présente pour Electron, qui démarre alors en Node, sans `app` — l'essai ne
+  // s'écrivait jamais, sur le runner Windows de la CI.
+  const env = { ...process.env }
+  delete env.ELECTRON_RUN_AS_NODE
+  let journal = ""
   try {
-    execFileSync(electron, [path.join(dir, "run.cjs")], { stdio: "ignore", timeout: 60_000, env: { ...process.env, ELECTRON_RUN_AS_NODE: "" } })
-  } catch {
+    execFileSync(electron, [path.join(dir, "run.cjs"), "--disable-gpu", "--no-sandbox"], { stdio: "pipe", timeout: 60_000, env, encoding: "utf8" })
+  } catch (err) {
     // Le résultat dit ce qui s'est passé ; un code de sortie seul ne le dit pas.
+    journal = `${err?.stdout ?? ""}${err?.stderr ?? ""}`.trim().slice(-1500)
   }
-  if (!existsSync(sortie)) {
-    check("Electron a lancé l'essai", false, "aucun résultat écrit")
+  if (!existsSync(path.join(projet, "demarre"))) {
+    // Une machine qui ne lance pas Electron (pas de session graphique) n'en
+    // dit rien sur l'icône : l'essai est sauté, à voix haute.
+    console.log(`  skip  recadrage dans Electron — Electron ne démarre pas ici${journal ? `\n        ${journal.split("\n").join("\n        ")}` : ""}`)
+  } else if (!existsSync(sortie)) {
+    check("Electron a lancé l'essai", false, journal || "aucun résultat écrit")
   } else {
     const r = JSON.parse(readFileSync(sortie, "utf8"))
     check("l'essai a tourné", !r.error, r.error)
