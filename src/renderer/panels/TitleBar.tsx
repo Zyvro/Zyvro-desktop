@@ -1,6 +1,7 @@
 import { Code2, FolderOpen, PanelBottom, PanelLeft, PanelRight, Plus, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Mode } from "~/state/workspace"
+import { ProjectIcon } from "~/panels/ProjectIcon"
 import { closeProject, newZyvro, openProject, switchProject } from "~/lib/project"
 
 // The native title bar is hidden so the window reads as an editor. That makes
@@ -103,7 +104,7 @@ function ProjectChip({
         onClick={() => void switchProject(path)}
         title={path}
       >
-        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <ProjectIcon project={path} name={name} size={14} />
         <span className="truncate">{name}</span>
       </button>
       <button

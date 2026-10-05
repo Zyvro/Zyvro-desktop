@@ -184,6 +184,12 @@ const api = {
   },
 
   project: {
+    /** L'icône choisie du projet (data URL), ou null : on montre la générée. */
+    icon: (project: string): Promise<string | null> => invoke("project:icon", project),
+    /** Ouvre un sélecteur d'image et la pose comme icône. Null si annulé. */
+    chooseIcon: (project: string): Promise<string | null> => invoke("project:choose-icon", project),
+    clearIcon: (project: string): Promise<boolean> => invoke("project:clear-icon", project),
+    onIconChanged: (cb: (payload: { project: string; icon: string | null }) => void): Unsubscribe => on("project:icon-changed", cb),
     choose: (): Promise<string | null> => invoke("project:choose"),
     create: (): Promise<string | null> => invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),

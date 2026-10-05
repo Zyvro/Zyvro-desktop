@@ -51,6 +51,7 @@ import { readSettingsFile, settingsPath, writeSettingsFile } from "./settingsFil
 import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
 import { studioWindows } from "./windows"
+import { clearProjectIcon, readProjectIcon, setProjectIcon } from "./projecticon"
 import { discoverSkills, downloadPack } from "./skills"
 import { sanitizeAgentSettings } from "../shared/settings"
 import { skillEnabled } from "../shared/skills"
@@ -419,6 +420,49 @@ export function registerIpc(onRecents?: () => void): void {
   // Le bouton bug rougit quand une erreur entre au journal.
   onIncident((count) => {
     for (const win of studioWindows()) if (!win.isDestroyed()) win.webContents.send("bug:incidents", count)
+  })
+
+  // ---------- l'icône d'un projet ----------
+  //
+  // Un chemin venu du rendu n'est accepté que s'il est l'un des projets
+  // ouverts dans CETTE fenêtre : sans ça, n'importe quelle page chargée dans
+  // le rendu pourrait écrire `.zyvro/icon.png` n'importe où sur le disque.
+  const openProjectFor = (event: Electron.IpcMainInvokeEvent, project: unknown): string => {
+    const { ws } = requireWorkspace(event)
+    const wanted = typeof project === "string" ? project : ""
+    const found = ws.list().find((p) => p.project === wanted)
+    if (!found) throw new Error("That project is not open in this window.")
+    return found.project
+  }
+  const iconChanged = (project: string, icon: string | null) => {
+    for (const win of studioWindows()) if (!win.isDestroyed()) win.webContents.send("project:icon-changed", { project, icon })
+  }
+  ipcMain.handle("project:icon", async (event, project: unknown) => readProjectIcon(openProjectFor(event, project)))
+  ipcMain.handle("project:choose-icon", async (event, project: unknown) => {
+    const root = openProjectFor(event, project)
+    const { win } = requireWorkspace(event)
+    const result = await dialog.showOpenDialog(win, {
+      title: `Choose an icon for ${path.basename(root)}`,
+      properties: ["openFile"],
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }],
+      buttonLabel: "Use as icon",
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    try {
+      const icon = await setProjectIcon(root, result.filePaths[0])
+      iconChanged(root, icon)
+      return icon
+    } catch (err) {
+      // Dit là où l'on vient de choisir le fichier, par le même système.
+      await dialog.showMessageBox(win, { type: "warning", message: "That image cannot be used as an icon.", detail: (err as Error).message })
+      return null
+    }
+  })
+  ipcMain.handle("project:clear-icon", async (event, project: unknown) => {
+    const root = openProjectFor(event, project)
+    await clearProjectIcon(root)
+    iconChanged(root, null)
+    return true
   })
 
   ipcMain.handle("project:choose", async (event) => {

@@ -65,6 +65,7 @@ import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscrib
 import { synthesisSettings } from "~/state/synthesis"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import { BugButton } from "~/panels/BugReportDialog"
+import { PromptProject } from "~/panels/ProjectIcon"
 import { reportIncident } from "~/state/bugReport"
 import { QuestionCard } from "~/panels/QuestionCard"
 import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
@@ -1643,6 +1644,8 @@ export function AgentPanel(): JSX.Element {
   // dossier qu'on ouvre. Voir state/permission.ts.
   const projectDir = project?.project ?? null
   const permission = useSyncExternalStore(subscribePermission, agentPermission)
+  // Le projet où partira ce qu'on tape : celui au premier plan de la fenêtre.
+  const projet = useWorkspace((s) => s.project)
   // Lu une fois ici plutôt que dans chaque bulle : le réglage est le même pour
   // toute la fenêtre, et cent messages n'ont pas à s'abonner cent fois.
   const showSpent = useSyncExternalStore(subscribeUsage, usageShown, () => true)
@@ -2575,6 +2578,9 @@ export function AgentPanel(): JSX.Element {
                 pose : c'est là qu'on hésite, et un réglage rangé dans une page
                 de préférences est un réglage qu'on découvre en lisant
                 « permission refusée » au milieu d'une réponse. */}
+            {/* Où part le prompt. Avec plusieurs projets ouverts, c'est la
+                première chose à vérifier avant d'envoyer. */}
+            {projet && <PromptProject project={projet.project} name={projet.name} />}
             <PermissionPicker
               value={permission}
               kind={kind}
