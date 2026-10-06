@@ -47,6 +47,37 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.80
+
+**Agent plugins, in the store.** A plugin is a `zyvro-plugin.json` manifest,
+actions (ready-made requests, optionally with a question for you) and skills
+written in Markdown. It contains no code: it acts only through the agent, at the
+permission level you chose. Store › Plugins lists the published plugins, shows
+their files and installs or updates them, checking the publisher's signature.
+Store › Publish publishes the plugins of a project (`.zyvro/plugins/<name>`),
+signed with the same password as packs. The zyv.ro store has a Plugins tab too.
+
+Each plugin gets a button in the chat's right-hand bar. An action that asks a
+question opens a small dialog, then starts in a new conversation, after the list
+of skills the agent should read first. Settings › Plugins turns plugins on or
+off, uninstalls them, and says why a project plugin fails to load. The skills of
+enabled plugins join the Advanced skills catalog, and plugins written by the
+agent appear at the end of its turn, without a restart.
+
+**Plugin Creator ships with the app.** Describe an idea ("New plugin from an
+idea") or pick one to improve, and the agent builds it with five authoring
+skills: design, the exact format, writing skills, testing and publishing. It is
+not allowed to publish on its own; it tells you how.
+
+**The bar's own tools are plugins too.** Permissions, auto-synthesis, skills,
+compaction, the task queue, project memory and the bug report can each be turned
+off in Settings › Plugins.
+
+**Queued tasks go into the session.** A task now runs in the conversation it
+was added from (or the one on screen if that one was closed), like a message you
+typed there, instead of opening a "Task: …" tab of its own; the conversation
+keeps its title.
+
 ## New in alpha.79
 
 **Switching to AI mode no longer closes your shells.** The terminal panel was
