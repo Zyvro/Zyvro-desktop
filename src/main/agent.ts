@@ -20,6 +20,7 @@ import { shotsEndpoint } from "./shots"
 import { DEFAULT_PERMISSION, PERMISSION_TOOL, QUESTIONS_TOOL, type Permission } from "../shared/permission"
 import { AGENT_KINDS, type Aim, type AgentKind, harness, SHELL_YOLO, speaksCodex } from "../shared/harness"
 import { promptWithSkills, type AgentSettings, type SkillEntry } from "../shared/skills"
+import { memoryPreamble } from "../shared/memory"
 
 // The chat panel runs the user's own agent CLI in the project directory. That
 // is the whole reason this app exists: a ChatGPT or Claude subscription cannot
@@ -50,6 +51,8 @@ export type AgentContext = {
   advancedSkills?: boolean
   agentSettings?: AgentSettings
   skills?: SkillEntry[]
+  /** La mémoire du projet (ZYVRO.md), telle que lue pour ce tour. */
+  memory?: string | null
 }
 
 // preamble tells the CLI what this project's workflows are. Without it the
@@ -82,6 +85,11 @@ function preamble(ctx: AgentContext): string {
       "user asks for it, not to satisfy your own curiosity about what it does."
     )
   }
+
+  // La mémoire du projet, pour tous les harnais : claude lit CLAUDE.md et codex
+  // AGENTS.md d'eux-mêmes, mais ni l'un ni l'autre ne connaît ZYVRO.md.
+  const memory = memoryPreamble(ctx.memory ?? null)
+  if (memory) lines.push(memory)
 
   return lines.join("\n")
 }

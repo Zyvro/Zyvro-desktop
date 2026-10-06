@@ -322,6 +322,24 @@ export function parseBranchHeader(line: string): Pick<GitStatus, "branch" | "ups
 
 // ---------- reading ----------
 
+/**
+ * Commits made since `since` (ms epoch), leaving out those that only touch
+ * `except`. Null outside a repository or when git cannot answer — the caller
+ * then judges by age alone rather than by a count it made up.
+ */
+export async function commitsSince(root: string, since: number, except?: string): Promise<number | null> {
+  try {
+    // `--since` est à la seconde et inclusif : la seconde suivante, sinon le
+    // commit fait juste avant l'écriture — dans la même seconde — compte.
+    const args = ["rev-list", "--count", `--since=${Math.floor(since / 1000) + 1}`, "HEAD", "--", "."]
+    if (except) args.push(`:(exclude)${except}`)
+    const n = Number.parseInt((await run(root, args, { quiet: true })).trim(), 10)
+    return Number.isFinite(n) ? n : null
+  } catch {
+    return null
+  }
+}
+
 export async function isRepository(root: string): Promise<boolean> {
   try {
     // --show-toplevel rather than a .git check: a project opened inside a

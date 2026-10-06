@@ -66,6 +66,10 @@ import { synthesisSettings } from "~/state/synthesis"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
 import { BugButton } from "~/panels/BugReportDialog"
 import { PromptProject } from "~/panels/ProjectIcon"
+import { TaskQueueButton } from "~/panels/TaskQueueButton"
+import { MemoryButton, refreshMemory } from "~/panels/MemoryButton"
+import { setTaskRunner, taskTurnEnded } from "~/state/tasks"
+import { memoryPrompt } from "../../shared/memory"
 import { reportIncident } from "~/state/bugReport"
 import { QuestionCard } from "~/panels/QuestionCard"
 import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
@@ -717,6 +721,47 @@ function endTurn(id: string): void {
   // Le tour est terminé : c'est maintenant que la file avance, si elle le doit.
   const fini = threadById(bound.threadId)?.messages.find((m) => m.id === bound.messageId)
   advance(bound.threadId, !arrete && !fini?.error)
+  // Une tâche de la file attendait peut-être ce tour ; et l'agent a peut-être
+  // réécrit la mémoire du projet.
+  taskTurnEnded(bound.threadId, arrete ? "stopped" : fini?.error ? "failed" : "done")
+  refreshMemory()
+}
+
+// runInThread : une demande qui ne vient pas de la boîte — une tâche de la
+// file, l'agent qui écrit la mémoire — dans une conversation à elle.
+//
+// Une tâche planifiée ne prend pas l'onglet qu'on regarde : elle part à côté,
+// et l'onglet dit qu'elle tourne. Ce qu'on vient de demander d'un clic, si.
+function runInThread(title: string, prompt: string, options: { reuse?: string; activate: boolean }): string {
+  let id = options.reuse && threadById(options.reuse) ? options.reuse : null
+  if (!id) {
+    const thread = blankThread()
+    commit({ threads: [...state.threads, thread], activeId: options.activate ? thread.id : state.activeId, asks: state.asks })
+    id = thread.id
+  } else if (options.activate) {
+    selectThread(id)
+  }
+  // `beginTurn` est synchrone au début de `dispatch` : le titre posé juste
+  // après n'est pas écrasé par celui qu'il tire de la question.
+  void dispatch(id, prompt, [])
+  mapThread(id, (t) => ({ ...t, title }))
+  return id
+}
+
+// La file de tâches demande ici ce qu'est « l'agent est libre » et comment
+// lancer un tour : c'est ce module qui le sait.
+if (typeof window !== "undefined" && window.zyvro) {
+  setTaskRunner({
+    idle: () => state.asks.length === 0 && state.threads.every((t) => !t.busy),
+    status: (threadId) => {
+      const thread = threadById(threadId)
+      if (!thread) return undefined
+      if (thread.busy) return "running"
+      const last = [...thread.messages].reverse().find((m) => m.role === "assistant")
+      return last?.error ? "failed" : "done"
+    },
+    run: (task, reuse) => runInThread(`Task: ${task.title}`, task.prompt, { reuse, activate: false }),
+  })
 }
 
 // Reloading is driven by the project, not by a component mounting.
@@ -2158,7 +2203,7 @@ export function AgentPanel(): JSX.Element {
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 flex-col bg-background",
+        "relative flex h-full min-h-0 bg-background",
         dropping && "ring-2 ring-inset ring-primary/60"
       )}
       onDragEnter={onDragEnter}
@@ -2166,6 +2211,7 @@ export function AgentPanel(): JSX.Element {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Ce qu'on s'apprête à lâcher, dit en grand plutôt que par un liseré :
           on arrive avec un fichier au bout du curseur et on veut savoir que
           c'est ici que ça tombe. Sans `pointer-events`, sinon le voile
@@ -2574,69 +2620,9 @@ export function AgentPanel(): JSX.Element {
           />
 
           <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            {/* Ce que l'agent a le droit de faire, sous la question qu'on lui
-                pose : c'est là qu'on hésite, et un réglage rangé dans une page
-                de préférences est un réglage qu'on découvre en lisant
-                « permission refusée » au milieu d'une réponse. */}
             {/* Où part le prompt. Avec plusieurs projets ouverts, c'est la
                 première chose à vérifier avant d'envoyer. */}
             {projet && <PromptProject project={projet.project} name={projet.name} />}
-            <PermissionPicker
-              value={permission}
-              kind={kind}
-              disabled={disabled}
-              onChange={(next) => setPermission(next)}
-            />
-            <SynthesisPicker
-              disabled={disabled}
-              busy={reecriture.busy}
-              canRewrite={draft.trim() !== ""}
-              onRewriteNow={() => void reecrireMaintenant()}
-            />
-            {settings.agent.advancedSkills && <SkillsButton
-              kind={kind}
-              active={thread.advancedSkills}
-              settings={settings.agent}
-              disabled={disabled || thread.busy || thread.queued.length > 0}
-              onChange={(advancedSkills) => {
-                mapThread(thread.id, (t) => ({ ...t, advancedSkills }))
-                persist(thread.id)
-              }}
-            />}
-            {/* Recycler le contexte avant une longue tâche : le pourcentage dit
-                où en est la fenêtre du modèle, un clic lance `/compact` sur le
-                harnais pour retomber bas et ne pas tomber sur une compaction
-                automatique en plein milieu d'une grosse feature. */}
-            <ContextCompact
-              context={thread.context}
-              model={thread.model}
-              ranWith={thread.ranWith}
-              hasCompact={toutes.some((n) => n.toLowerCase() === "compact")}
-              disabled={disabled || thread.busy || !started}
-              onCompact={() => {
-                // `/compact` part tel quel, sans images ni auto-synthèse :
-                // une commande locale n'est pas une question à réécrire, et
-                // joindre une image à un compactage n'a aucun sens.
-                //
-                // La taille réelle n'est connue qu'au tour suivant — le
-                // compactage lui-même relit l'ancien contexte — donc on
-                // l'oublie plutôt que d'afficher un chiffre qui n'est plus
-                // vrai.
-                mapThread(thread.id, (t) => ({ ...t, context: null, images: [] }))
-                void dispatch(thread.id, "/compact", [])
-              }}
-            />
-            {/* Signaler un bug, là où il arrive : l'état complet part avec la
-                description. Jamais grisé — c'est justement quand le panneau
-                est bloqué qu'on en a besoin. */}
-            <BugButton
-              snapshot={() => ({
-                chat: chatSnapshot(),
-                root: useWorkspace.getState().root,
-                permission: agentPermission(),
-                agentSettings: getSettings().agent,
-              })}
-            />
             <button
               type="button"
               title="Attach an image"
@@ -2671,6 +2657,89 @@ export function AgentPanel(): JSX.Element {
             )}
           </div>
         </div>
+      </div>
+      </div>
+
+      {/* La barre verticale, sur toute la hauteur à droite : ce qui gouverne
+          la conversation sans être la conversation. Des icônes seules — le
+          nom et l'état sont dans l'infobulle — pour rendre la largeur au
+          texte : sur une rangée sous la boîte, ces réglages mangeaient la
+          moitié d'un panneau de 360 points. En bas, près de la boîte, parce
+          que c'est en écrivant qu'on y touche. */}
+      <div className="flex w-7 shrink-0 flex-col items-center justify-end gap-0.5 border-l border-white/[0.06] py-1.5" data-agent-rail>
+        {/* La file de tâches et la mémoire : propres au projet. */}
+        <TaskQueueButton />
+        {projet && (
+          <MemoryButton
+            project={projet.project}
+            permission={permission}
+            onRunAgent={(exists) =>
+              runInThread(exists ? "Update project memory" : "Create project memory", memoryPrompt(exists), { activate: true })
+            }
+          />
+        )}
+        <span className="my-1 h-px w-4 bg-white/[0.08]" aria-hidden />
+        {/* Ce que l'agent a le droit de faire, à côté de la question qu'on lui
+            pose : c'est là qu'on hésite, et un réglage rangé dans une page
+            de préférences est un réglage qu'on découvre en lisant
+            « permission refusée » au milieu d'une réponse. */}
+        <PermissionPicker
+          rail
+          value={permission}
+          kind={kind}
+          disabled={disabled}
+          onChange={(next) => setPermission(next)}
+        />
+        <SynthesisPicker
+          disabled={disabled}
+          busy={reecriture.busy}
+          canRewrite={draft.trim() !== ""}
+          onRewriteNow={() => void reecrireMaintenant()}
+        />
+        {settings.agent.advancedSkills && <SkillsButton
+          kind={kind}
+          active={thread.advancedSkills}
+          settings={settings.agent}
+          disabled={disabled || thread.busy || thread.queued.length > 0}
+          onChange={(advancedSkills) => {
+            mapThread(thread.id, (t) => ({ ...t, advancedSkills }))
+            persist(thread.id)
+          }}
+        />}
+        {/* Recycler le contexte avant une longue tâche : le pourcentage dit
+            où en est la fenêtre du modèle, un clic lance `/compact` sur le
+            harnais pour retomber bas et ne pas tomber sur une compaction
+            automatique en plein milieu d'une grosse feature. */}
+        <ContextCompact
+          context={thread.context}
+          model={thread.model}
+          ranWith={thread.ranWith}
+          hasCompact={toutes.some((n) => n.toLowerCase() === "compact")}
+          disabled={disabled || thread.busy || !started}
+          onCompact={() => {
+            // `/compact` part tel quel, sans images ni auto-synthèse :
+            // une commande locale n'est pas une question à réécrire, et
+            // joindre une image à un compactage n'a aucun sens.
+            //
+            // La taille réelle n'est connue qu'au tour suivant — le
+            // compactage lui-même relit l'ancien contexte — donc on
+            // l'oublie plutôt que d'afficher un chiffre qui n'est plus
+            // vrai.
+            mapThread(thread.id, (t) => ({ ...t, context: null, images: [] }))
+            void dispatch(thread.id, "/compact", [])
+          }}
+        />
+        {/* Signaler un bug, là où il arrive : l'état complet part avec la
+            description. Jamais grisé — c'est justement quand le panneau
+            est bloqué qu'on en a besoin. */}
+        <BugButton
+          snapshot={() => ({
+            chat: chatSnapshot(),
+            root: useWorkspace.getState().root,
+            permission: agentPermission(),
+            agentSettings: getSettings().agent,
+          })}
+        />
       </div>
     </div>
   )

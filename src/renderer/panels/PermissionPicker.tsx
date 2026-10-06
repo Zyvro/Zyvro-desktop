@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import type { AgentKind } from "../../preload"
 import { PERMISSIONS, type Permission } from "../../shared/permission"
 import { speaksCodex } from "../../shared/harness"
+import { RAIL_BUTTON, RAIL_MENU } from "./railButton"
 
 // Ce que l'agent a le droit de faire, choisi à côté de la question qu'on lui
 // pose.
@@ -64,11 +65,14 @@ export function PermissionPicker({
   kind,
   onChange,
   disabled,
+  rail,
 }: {
   value: Permission
   kind: AgentKind
   onChange: (value: Permission) => void
   disabled?: boolean
+  /** Dans la barre verticale de l'agent : l'icône seule, le menu vers la gauche. */
+  rail?: boolean
 }) {
   const current = LEVELS.find((level) => level.value === value) ?? LEVELS[0]
   const Icon = current.icon
@@ -77,24 +81,25 @@ export function PermissionPicker({
     <Menu.Root>
       <Menu.Trigger
         disabled={disabled}
-        title={`${current.label} — ${current.hint}`}
+        title={`Permissions: ${current.label} — ${current.hint}`}
+        aria-label={`Permissions: ${current.label}`}
+        data-permission-trigger
         className={cn(
-          "mb-[1px] flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] outline-none hover:bg-white/[0.08] disabled:opacity-40 data-[state=open]:bg-white/[0.08]",
+          rail
+            ? RAIL_BUTTON
+            : "mb-[1px] flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] outline-none hover:bg-white/[0.08] disabled:opacity-40 data-[state=open]:bg-white/[0.08]",
           value === "yolo" ? "text-amber-300" : "text-muted-foreground hover:text-foreground"
         )}
       >
         <Icon className="h-3.5 w-3.5 shrink-0" />
-        <span className="hidden sm:inline">{current.label}</span>
-        <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
+        {!rail && <span className="hidden sm:inline">{current.label}</span>}
+        {!rail && <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />}
       </Menu.Trigger>
 
       <Menu.Portal>
         <Menu.Content
           className="panel zy-scroll z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto w-[19rem] p-1"
-          align="start"
-          side="top"
-          sideOffset={6}
-          collisionPadding={8}
+          {...(rail ? RAIL_MENU : { align: "start" as const, side: "top" as const, sideOffset: 6, collisionPadding: 8 })}
         >
           {LEVELS.map((level) => (
             <Menu.Item

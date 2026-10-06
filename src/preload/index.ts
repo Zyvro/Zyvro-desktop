@@ -55,6 +55,8 @@ export type ReplaceResult = { files: number; matches: number; skipped: number }
 // dans le paquet du rendu.
 import type { Permission } from "../shared/permission"
 import type { AgentQuestion, QuestionAnswers } from "../shared/questions"
+import type { TaskFile } from "../shared/tasks"
+import type { MemoryInfo } from "../shared/memory"
 import type { Goal } from "../main/goal"
 import type { Pending } from "../main/schedule"
 export type { Goal, Pending }
@@ -190,6 +192,14 @@ const api = {
     chooseIcon: (project: string): Promise<string | null> => invoke("project:choose-icon", project),
     clearIcon: (project: string): Promise<boolean> => invoke("project:clear-icon", project),
     onIconChanged: (cb: (payload: { project: string; icon: string | null }) => void): Unsubscribe => on("project:icon-changed", cb),
+    /** La file de tâches du projet (`.zyvro/tasks.json`). */
+    tasks: (project: string): Promise<TaskFile> => invoke("tasks:read", project),
+    saveTasks: (project: string, file: TaskFile): Promise<TaskFile> => invoke("tasks:write", project, file),
+    /** La file changée par une autre fenêtre. */
+    onTasksChanged: (cb: (payload: { project: string; file: TaskFile }) => void): Unsubscribe => on("tasks:changed", cb),
+    /** La mémoire du projet (ZYVRO.md) et son état. */
+    memory: (project: string): Promise<MemoryInfo> => invoke("memory:read", project),
+    saveMemory: (project: string, text: string): Promise<MemoryInfo> => invoke("memory:write", project, text),
     choose: (): Promise<string | null> => invoke("project:choose"),
     create: (): Promise<string | null> => invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),

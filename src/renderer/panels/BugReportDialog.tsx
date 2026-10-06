@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog"
 import { Bug, Check, Copy, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { markReported, subscribeIncidents, unreportedIncidents } from "~/state/bugReport"
+import { RAIL_BUTTON } from "./railButton"
 
 // Le bouton bug et sa fenêtre.
 //
@@ -26,7 +27,7 @@ export function BugButton({ snapshot }: { snapshot: () => unknown }): JSX.Elemen
         title={count > 0 ? `Report a bug — ${count} error${count > 1 ? "s" : ""} recorded since the last report` : "Report a bug"}
         aria-label="Report a bug"
         className={cn(
-          "relative shrink-0 rounded p-1 hover:bg-white/[0.08]",
+          RAIL_BUTTON,
           count > 0 ? "text-red-300 hover:text-red-200" : "text-muted-foreground hover:text-foreground"
         )}
       >

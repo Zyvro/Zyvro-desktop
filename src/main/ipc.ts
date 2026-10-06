@@ -52,6 +52,8 @@ import { findMenuItem, flattenMenu } from "./menulist"
 import * as updater from "./updater"
 import { studioWindows } from "./windows"
 import { clearProjectIcon, readProjectIcon, setProjectIcon } from "./projecticon"
+import { readTasks, writeTasks } from "./tasks"
+import { memoryForAgent, readMemory, writeMemory } from "./memory"
 import { discoverSkills, downloadPack } from "./skills"
 import { sanitizeAgentSettings } from "../shared/settings"
 import { skillEnabled } from "../shared/skills"
@@ -464,6 +466,25 @@ export function registerIpc(onRecents?: () => void): void {
     iconChanged(root, null)
     return true
   })
+
+  // ---------- la file de tâches et la mémoire d'un projet ----------
+  //
+  // Même garde que l'icône : seulement un projet ouvert dans cette fenêtre.
+  // Une file changée ici est rediffusée à toutes les fenêtres, pour qu'une
+  // seconde fenêtre sur le même projet ne relance pas une tâche déjà partie.
+  ipcMain.handle("tasks:read", async (event, project: unknown) => readTasks(openProjectFor(event, project)))
+  ipcMain.handle("tasks:write", async (event, project: unknown, file: unknown) => {
+    const root = openProjectFor(event, project)
+    const written = await writeTasks(root, file)
+    for (const win of studioWindows()) {
+      if (!win.isDestroyed() && win.webContents !== event.sender) win.webContents.send("tasks:changed", { project: root, file: written })
+    }
+    return written
+  })
+  ipcMain.handle("memory:read", async (event, project: unknown) => readMemory(openProjectFor(event, project)))
+  ipcMain.handle("memory:write", async (event, project: unknown, text: unknown) =>
+    writeMemory(openProjectFor(event, project), typeof text === "string" ? text : "")
+  )
 
   ipcMain.handle("project:choose", async (event) => {
     const { win } = requireWorkspace(event)
@@ -1176,6 +1197,9 @@ export function registerIpc(onRecents?: () => void): void {
       // codex le renvoie mot pour mot dans sa requête, et c'est par là que la
       // passerelle sait à quel serveur parler.
       if (aim && pinned) await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
+      // La mémoire du projet, relue à chaque tour : corrigée entre deux tours,
+      // c'est la nouvelle que reçoit le suivant.
+      const memory = await memoryForAgent(root)
 
       return ws.agent.send(
         event.sender,
@@ -1192,6 +1216,7 @@ export function registerIpc(onRecents?: () => void): void {
           workflows: Array.isArray(ctx?.workflows) ? ctx.workflows : [],
           daemonOrigin: ws.daemon.current?.origin,
           daemonToken: ws.daemon.current?.token,
+          memory,
           // Ce que l'agent a le droit de faire vient du panneau : c'est un
           // choix par conversation, et la personne le voit à côté de son texte.
           // La liste des niveaux vient du module partagé : l'écrire ici une

@@ -157,16 +157,20 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
   const canceled = new Set(["old"])
   let thread = { turnId: "old", busy: true, messages: [{ id: "answer" }] }
   let shouldAdvance = null
+  let taskStatus = null
   const context = {
     turnToMessage: new Map([["old", { threadId: "chat", messageId: "answer" }]]),
     orphans: new Map(), cancelled: canceled, compacting: new Set(),
     mapThread: (_id, f) => { thread = f(thread) },
     persist: () => {}, threadById: () => thread,
     advance: (_id, ok) => { shouldAdvance = ok },
+    taskTurnEnded: (_id, status) => { taskStatus = status },
+    refreshMemory: () => {},
   }
   vm.runInNewContext(`${body}; endTurn("old")`, context)
   check("Stop is remembered before cleanup, so a queued prompt never advances", shouldAdvance === false)
   check("Stop releases the conversation", !thread.busy && thread.turnId === null)
+  check("a stopped turn tells the task queue it was stopped, not done", taskStatus === "stopped", String(taskStatus))
 }
 
 // ---- même dans un onglet qu'on ne regarde pas ----------------------------
