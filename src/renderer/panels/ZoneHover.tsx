@@ -53,11 +53,15 @@ export function ZoneHover() {
     <div
       className="pointer-events-none fixed z-[90]"
       data-zone-hover={hover.name}
+      // Un pixel en retrait sur chaque bord : les panneaux se séparent par un
+      // trait gris d'un pixel, posé sur leur premier pixel. Le liseré tombait
+      // pile dessus et en changeait la couleur ; juste à l'intérieur, il le
+      // longe sans le recouvrir.
       style={{
-        left: hover.rect.x,
-        top: hover.rect.y,
-        width: hover.rect.width,
-        height: hover.rect.height,
+        left: hover.rect.x + 1,
+        top: hover.rect.y + 1,
+        width: Math.max(0, hover.rect.width - 2),
+        height: Math.max(0, hover.rect.height - 2),
         // Un liseré, rien d'autre : pas de fond, pas de nom. « Un tout petit
         // peu », pas un mode capture.
         boxShadow: "inset 0 0 0 1px rgb(56 189 248 / 0.22)",
