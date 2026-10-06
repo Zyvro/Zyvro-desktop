@@ -170,30 +170,51 @@ jobs:
         working-directory: Zyvro-desktop
         run: npx electron-vite build
 
+      # Le certificat Developer ID dans un trousseau à nous, et pas dans celui
+      # qu'electron-builder crée à partir de CSC_LINK : avec electron-builder
+      # 25, ce dernier échoue sur `security set-key-partition-list`
+      # (« The user name or passphrase you entered is not correct »), sur ce
+      # runner comme sur un Mac de développement. Un trousseau dont on connaît
+      # le mot de passe, désigné par CSC_KEYCHAIN, passe aux deux endroits.
+      #
+      # Sans le secret, une release Mac échoue plutôt que de partir ad hoc :
+      # ses correctifs (`-signed-e…`) seraient posés sur des applications
+      # signées et casseraient leur signature — et avec elle les
+      # autorisations de macOS (capture d'écran, accessibilité).
+      - name: Import the Developer ID certificate
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          P12: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "::error::MAC_CERT_P12_BASE64 is not set: a Mac release must be signed Developer ID."
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/zyvro-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
       - name: Package
         working-directory: Zyvro-desktop
         shell: bash
-        # macOS : signé Developer ID (Jeremy Guyet, SQW729T8BD). Le certificat
-        # et sa clé arrivent des secrets du dépôt, en base64 dans CSC_LINK, et
-        # electron-builder les pose dans un trousseau à lui le temps du build.
-        # Sans le secret, une release Mac échoue plutôt que de partir ad hoc :
-        # ses correctifs (`-signed-e…`) seraient posés sur des applications
-        # signées et casseraient leur signature — et avec elle les
-        # autorisations de macOS (capture d'écran, accessibilité).
-        #
-        # Windows : pas de certificat Authenticode ; CSC_LINK reste vide pour
-        # qu'electron-builder n'essaie pas de signer un .exe avec un
-        # certificat Apple. Voir RELEASE.md.
+        # macOS : signé Developer ID (Jeremy Guyet, SQW729T8BD), avec le
+        # trousseau de l'étape précédente. Windows : pas de certificat
+        # Authenticode. Voir RELEASE.md.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CERT_P12_BASE64 || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CERT_PASSWORD || '' }}
         run: |
           if [ "${{ matrix.platform }}" = "mac" ]; then
-            if [ -z "$CSC_LINK" ]; then
-              echo "::error::MAC_CERT_P12_BASE64 is not set: a Mac release must be signed Developer ID."
-              exit 1
-            fi
             npx electron-builder --mac ${{ matrix.target }} ${{ matrix.arches }} --publish never "-c.mac.identity=Jeremy Guyet (SQW729T8BD)"
           else
             npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} ${{ matrix.arches }} --publish never
