@@ -2,6 +2,8 @@
 // demande réécrite part d'elle-même ou revient d'abord dans la boîte.
 // Gardé sur ce poste, comme les réglages de l'éditeur.
 
+import { getSettings } from "~/state/settings"
+import { pluginOn } from "../../shared/plugins"
 import { isSynthesisMode, type SynthesisMode } from "../../shared/synthesize"
 
 export type SynthesisSettings = { mode: SynthesisMode; autoSend: boolean }
@@ -32,4 +34,11 @@ export function updateSynthesis(patch: Partial<SynthesisSettings>): void {
     // Se souvenir est un confort.
   }
   for (const l of listeners) l()
+}
+
+// Ce qui s'applique vraiment à l'envoi : le réglage, sauf si le plugin
+// « Auto-synthesize » est éteint (shared/plugins) — la demande part alors telle
+// qu'on l'a tapée, et le mode choisi attend qu'on le rallume.
+export function activeSynthesis(): SynthesisSettings {
+  return pluginOn(getSettings().agent, "synthesis") ? courant : { ...courant, mode: "off" }
 }

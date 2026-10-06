@@ -19,6 +19,7 @@ import {
   type WorkingIndicatorId,
 } from "./chatThemes"
 import { AGENT_KINDS, isAgentKind } from "./harness"
+import { sanitizePlugins } from "./plugins"
 import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "./skills"
 
 export type AutoSave = "off" | "afterDelay" | "onFocusChange"
@@ -132,9 +133,12 @@ export function sanitizeAgentSettings(raw: unknown): AgentSettings {
       return model === null || (typeof model === "string" && model.trim().length <= 256)
         ? [[kind, typeof model === "string" ? model.trim() || null : null]] : []
     })),
-    advancedSkills: booleen(r.advancedSkills, DEFAULT_AGENT_SETTINGS.advancedSkills),
+    // `advancedSkills` est le réglage d'avant les plugins : il ne s'écrit plus,
+    // mais un fichier qui le porte encore garde son choix.
+    plugins: sanitizePlugins(r.plugins, { skills: r.advancedSkills }),
     disabledSkills: ids(r.disabledSkills),
     enabledPacks: ids(r.enabledPacks),
+    disabledPlugins: ids(r.disabledPlugins),
   }
 }
 

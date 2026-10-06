@@ -89,7 +89,11 @@ import type {
   StoreDependency,
   InstallResult,
   InstalledPack,
+  StoreAgentPlugin,
+  PluginInstallResult,
 } from "../main/store"
+import type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem } from "../main/agentPlugins"
+export type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem, StoreAgentPlugin, PluginInstallResult }
 import type { PublisherVerdict } from "../main/knownpublishers"
 import type { Conversation, StoredMessage, StoredTool } from "../main/conversations"
 import type { PlanItem, ToolShape } from "../main/tooltalk"
@@ -632,6 +636,16 @@ const api = {
       invoke("store:publish-pack", name, password),
     publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
       invoke("store:publish-workflow", payload),
+    // Les plugins d'agent (shared/pluginPackage).
+    plugins: (q: string): Promise<StoreAgentPlugin[]> => invoke("store:plugins", q),
+    readPlugin: (name: string, version?: string): Promise<StoreAgentPlugin> => invoke("store:read-plugin", name, version),
+    installPlugin: (name: string): Promise<PluginInstallResult> => invoke("store:install-plugin", name),
+    publishPlugin: (name: string, password: string): Promise<unknown> => invoke("store:publish-plugin", name, password),
+  },
+  // Les plugins d'agent chargés sur ce poste : livrés, installés, du projet.
+  plugins: {
+    list: (): Promise<PluginList> => invoke("plugins:list"),
+    uninstall: (name: string): Promise<boolean> => invoke("plugins:uninstall", name),
   },
 
   // Git. The shapes are imported from the main process rather than restated

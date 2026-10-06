@@ -162,7 +162,10 @@ const check = (name, ok, detail = "") => {
   check("**et si l'écran croit encore le tour en cours, il cesse d'y croire**", /stuck\(threadId, turnId\)\) releaseThread/.test(stop))
   check("Ctrl+C marche dès que la conversation est occupée", /isStopKey\(event, thread\.busy\)/.test(panel))
   check("un Stop forcé entre au journal : c'est un bug", /reportIncident\(\s*"stuck-turn"/.test(panel))
-  check("**le bouton bug est dans la barre du composeur, avec l'état du panneau**", /<BugButton\s+snapshot=\{\(\) => \(\{\s*chat: chatSnapshot\(\)/.test(panel))
+  // Le bouton est le plugin « Bug report » (renderer/plugins/bugReport) ; l'état
+  // du panneau lui est prêté par l'hôte.
+  const plugin = readFileSync(path.join(ROOT, "src/renderer/plugins/bugReport.tsx"), "utf8")
+  check("**le bouton bug est dans la barre du composeur, avec l'état du panneau**", /snapshot: \(\) => \(\{\s*chat: chatSnapshot\(\)/.test(panel) && /<BugButton snapshot=\{ctx\.actions\.snapshot\} \/>/.test(plugin))
   const main = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
   check("**les exceptions du principal sont regardées sans changer leur effet**", /uncaughtExceptionMonitor/.test(main) && !/process\.on\("uncaughtException"/.test(main))
   const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")

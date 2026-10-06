@@ -1,0 +1,31 @@
+{
+  "name": "plugin-creator",
+  "version": "1.0.0",
+  "description": "Describe a plugin idea and the agent builds it: actions, skills and manifest, written into this project and loaded live so you can try it, then publish it to the store.",
+  "author": "Zyvro",
+  "icon": "sparkles",
+  "actions": [
+    {
+      "id": "create",
+      "label": "New plugin from an idea",
+      "description": "Describe what the plugin should do; the agent designs it, writes it and checks that Studio loads it.",
+      "input": {
+        "label": "Your plugin idea",
+        "placeholder": "e.g. A code reviewer that checks my changes for security issues before I commit, with a button to run it."
+      },
+      "prompt": "Create a new Zyvro agent plugin from this idea:\n\n{{input}}\n\nWork in this project's .zyvro/plugins/ folder and follow the plugin skills you were given, in this order: zyvro-plugin-design (turn the idea into actions and skills, and settle on a name), zyvro-plugin-format (write the files exactly to the format), zyvro-skill-writing (write each SKILL.md), zyvro-plugin-testing (check every rule, then confirm Studio loaded it). If the idea is ambiguous in a way that changes what you build, ask me one short question first; otherwise make sensible choices and say what you chose. Do not publish the plugin: when it loads, tell me how to try it and how to publish it (zyvro-plugin-publishing).",
+      "skills": "all"
+    },
+    {
+      "id": "improve",
+      "label": "Improve a plugin",
+      "description": "Change a plugin of this project: add an action, sharpen a skill, fix what stops it loading.",
+      "input": {
+        "label": "Which plugin, and what should change?",
+        "placeholder": "e.g. commit-reviewer: also check for leaked secrets, and add a quick action that only looks at staged files."
+      },
+      "prompt": "Improve an agent plugin in this project's .zyvro/plugins/ folder:\n\n{{input}}\n\nRead the plugin's current files first. Follow the plugin skills you were given: keep it valid for zyvro-plugin-format, write skills as zyvro-skill-writing describes, and check it with zyvro-plugin-testing. If the plugin was already published, raise its version as zyvro-plugin-publishing explains. Do not publish it yourself.",
+      "skills": "all"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import { create } from "zustand"
 import { useWorkspace } from "~/state/workspace"
+import { getSettings } from "~/state/settings"
+import { pluginOn } from "../../shared/plugins"
 import { dueTask, EMPTY_TASKS, started, titleOf, type Repeat, type ScheduledTask, type TaskFile, type TaskStatus } from "../../shared/tasks"
 
 // La file de tâches du projet ouvert, et l'horloge qui la fait avancer.
@@ -20,7 +22,12 @@ export type TaskRunner = {
    * bien ou mal. `undefined` : elle n'existe plus.
    */
   status: (threadId: string) => "running" | "done" | "failed" | undefined
-  /** Lance la tâche dans une conversation ; rend son id. */
+  /** La conversation affichée : celle où part une tâche qu'on y crée. */
+  session: () => string | undefined
+  /**
+   * Lance la tâche dans une conversation existante — la sienne si elle est
+   * encore là, sinon celle qu'on regarde — et rend son id.
+   */
   run: (task: ScheduledTask, threadId: string | undefined) => string
 }
 
@@ -111,6 +118,9 @@ export function addTask(input: { title: string; prompt: string; at: number | nul
     enabled: true,
     runs: 0,
     createdAt: Date.now(),
+    // Dans la session où on l'a écrite, pas dans un onglet à elle : c'est la
+    // suite de cette conversation, avec son contexte.
+    thread: runner?.session(),
   }
   change((tasks) => [...tasks, task])
 }
@@ -186,6 +196,10 @@ export function tickTasks(): void {
   const now = Date.now()
   useTasks.setState({ now })
   if (!runner || !s.loaded || !s.project) return
+  // Le plugin « Task queue » éteint (shared/plugins) : rien ne part. Une tâche
+  // déjà lancée finit son tour ; la reprise ci-dessous la clôt au rallumage
+  // si personne ne l'a fait entre-temps.
+  if (!pluginOn(getSettings().agent, "tasks")) return
   if (s.project !== (useWorkspace.getState().project?.project ?? null)) return
 
   if (s.running) {
@@ -202,8 +216,8 @@ export function tickTasks(): void {
   if (!runner.idle()) return
   const task = dueTask(s.file, now)
   if (!task) return
-  const reprise = threadOfTask.get(task.id)
-  const threadId = runner.run(task, reprise && runner.status(reprise) !== "running" && runner.status(reprise) !== undefined ? reprise : undefined)
+  const reprise = task.thread ?? threadOfTask.get(task.id)
+  const threadId = runner.run(task, reprise && runner.status(reprise) !== undefined ? reprise : undefined)
   threadOfTask.set(task.id, threadId)
   useTasks.setState({ running: { project: s.project, taskId: task.id, threadId } })
   save({ ...s.file, tasks: s.file.tasks.map((t) => (t.id === task.id ? started(t, now) : t)) })

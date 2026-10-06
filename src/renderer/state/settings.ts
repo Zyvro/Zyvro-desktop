@@ -82,7 +82,26 @@ void (async () => {
   }
   const depuisLeFichier = sanitizeSettings(lu.settings)
   if (JSON.stringify(depuisLeFichier) !== JSON.stringify(courant)) replaceSettings(depuisLeFichier)
-})()
+})().finally(reprendreLAncien)
+
+// Avant les plugins (shared/plugins), « Show token usage » avait sa clé à lui
+// dans le stockage de la fenêtre. Repris une fois, APRÈS la relecture du
+// fichier : avant, le fichier — écrit sans plugins, donc « tout allumé » —
+// écraserait le « off » qu'on vient de reprendre, et la clé effacée, le choix
+// serait perdu.
+function reprendreLAncien(): void {
+  if (typeof window === "undefined") return
+  try {
+    const ancien = window.localStorage.getItem("zyvro.usage.shown")
+    if (ancien === null) return
+    window.localStorage.removeItem("zyvro.usage.shown")
+    if (ancien === "off") {
+      updateSettings({ agent: { ...courant.agent, plugins: { ...courant.agent.plugins, usage: false } } })
+    }
+  } catch {
+    // Sans stockage, il n'y a rien à reprendre.
+  }
+}
 
 export function resetSettings(): void {
   updateSettings(DEFAULT_SETTINGS)

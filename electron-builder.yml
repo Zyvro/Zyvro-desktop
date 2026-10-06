@@ -47,6 +47,10 @@ mac:
   extraResources:
     - from: ../Zyvro-engine/bin/zyvrod-darwin-${arch}
       to: bin/zyvrod
+    # Les plugins d'agent livrés (Plugin Creator), hors de l'asar : l'agent
+    # lit leurs skills par leur chemin (src/main/ipc.ts, pluginRoots).
+    - from: resources/plugins
+      to: plugins
   category: public.app-category.developer-tools
   target:
     - target: dmg
@@ -72,6 +76,10 @@ win:
   extraResources:
     - from: ../Zyvro-engine/bin/zyvrod-windows-${arch}.exe
       to: bin/zyvrod.exe
+    # Les plugins d'agent livrés (Plugin Creator), hors de l'asar : l'agent
+    # lit leurs skills par leur chemin (src/main/ipc.ts, pluginRoots).
+    - from: resources/plugins
+      to: plugins
   target:
     - target: nsis
       arch: [x64, arm64]
@@ -85,5 +93,9 @@ linux:
   extraResources:
     - from: ../Zyvro-engine/bin/zyvrod-linux-${arch}
       to: bin/zyvrod
+    # Les plugins d'agent livrés (Plugin Creator), hors de l'asar : l'agent
+    # lit leurs skills par leur chemin (src/main/ipc.ts, pluginRoots).
+    - from: resources/plugins
+      to: plugins
   target: [AppImage]
   category: Development

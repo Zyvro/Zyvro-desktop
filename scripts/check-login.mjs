@@ -31,7 +31,7 @@ for (const kind of ["claude", "codex", "qwen", "mimo"]) {
       kind, thread: { id: "thread", busy, images: [{ id: "keep" }] }, isLoginCommand,
       threadById: () => ({ id: "thread", busy, images: [{ id: "keep" }] }),
       composer: { current: { style: {} } }, reecriture: { busy: false },
-      synthesisSettings: () => ({ mode: "detailed", autoSend: true }),
+      activeSynthesis: () => ({ mode: "detailed", autoSend: true }),
       setReecriture: () => {}, rememberPrompt: () => {}, leaveHistory: () => {}, setDraft: (s) => calls.push(["draft", s]),
       useWorkspace: { getState: () => ({ setPanel: (...a) => calls.push(a) }) },
       askLogin: (k) => calls.push(["login", k]), reecrire: no, dispatch: no, mapThread: no, releaseBlank: no,

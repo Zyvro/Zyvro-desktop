@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS } from "../../shared/settings"
 import { AgentChatSection, ConfigFileSection } from "~/panels/SettingsChat"
 import type { CaptureSettings, CaptureSettingsView } from "../../preload"
 import { SettingsAgents } from "./SettingsAgents"
+import { SettingsPlugins } from "./SettingsPlugins"
 import { SettingsSkills } from "./SettingsSkills"
 import { SETTINGS_PAGES, useSettingsPage } from "~/state/settingsPage"
 
@@ -286,6 +287,7 @@ export function SettingsTab() {
 
           </>}
           {page === "agents" && <SettingsAgents />}
+          {page === "plugins" && <SettingsPlugins />}
           {page === "permissions" && <SettingsAgents permissionsOnly />}
           {page === "skills" && <SettingsSkills />}
           {page === "appearance" && <AgentChatSection />}

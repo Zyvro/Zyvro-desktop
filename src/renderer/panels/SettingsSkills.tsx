@@ -8,6 +8,7 @@ import { handTo } from "~/state/handoff"
 import { AGENT_KINDS, type AgentKind } from "../../shared/harness"
 import { skillEnabled, type SkillPack } from "../../shared/skills"
 import { HARNESS_INFO } from "./HarnessPicker"
+import { pluginOn } from "../../shared/plugins"
 import { SettingRow, Toggle } from "./SettingsAgents"
 
 export const skillsKey = (root: string | null, kind: AgentKind) => ["agent", "skills", root, kind] as const
@@ -43,7 +44,7 @@ export function SettingsSkills() {
   const button = "rounded-md border border-white/10 px-3 py-2 text-xs hover:bg-white/5 disabled:opacity-40"
   return <div className="space-y-5">
     <p className="text-xs leading-relaxed text-muted-foreground">Enable Skills in a conversation to let the agent choose from this catalog, then read only the instructions it needs. These switches control Zyvro's catalog; skills loaded independently by your CLI keep their own settings.</p>
-    {!settings.agent.advancedSkills && <p className="rounded-md bg-amber-400/10 p-3 text-xs text-amber-200">Advanced skills are disabled in Agents settings. You can still manage the catalog here.</p>}
+    {!pluginOn(settings.agent, "skills") && <p className="rounded-md bg-amber-400/10 p-3 text-xs text-amber-200">The Advanced skills plugin is off in Settings › Plugins. You can still manage the catalog here.</p>}
     <div className="flex flex-wrap items-center gap-2">
       <select aria-label="Skills for agent" value={kind} onChange={(e) => setKind(e.target.value as AgentKind)} className="rounded-md border border-white/10 bg-background p-2 text-xs">{AGENT_KINDS.map((k) => <option key={k} value={k}>{HARNESS_INFO[k].name}</option>)}</select>
       <button className={button} disabled={!root || catalog.isFetching} onClick={() => void catalog.refetch()}><RefreshCw className="mr-1 inline h-3 w-3" />Refresh</button>

@@ -184,7 +184,8 @@ console.log("la mémoire du projet")
   const agent = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")
   check("codex et MiMo reçoivent le même préambule en tête de question", /envelope !== "claude" \? `\$\{preamble\(ctx\)\}/.test(agent))
   const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
-  check("chaque tour relit ZYVRO.md", /const memory = await memoryForAgent\(root\)/.test(ipc) && /\n\s+memory,\n/.test(ipc))
+  // Relue à chaque tour tant que le plugin « Project memory » est allumé.
+  check("chaque tour relit ZYVRO.md", /const memory = pluginOn\(agentSettings, "memory"\) \? await memoryForAgent\(root\) : null/.test(ipc) && /\n\s+memory,\n/.test(ipc))
 }
 
 // ---- l'horloge de la file, avec un faux agent ----------------------------
@@ -216,14 +217,19 @@ console.log("l'horloge : une à la fois, quand l'agent est libre")
   const tick = () => new Promise((r) => { t.tickTasks(); setTimeout(r, 5) })
 
   // Un agent qu'on pilote à la main : occupé ou libre, et ce qu'il a lancé.
-  const fils = new Map()
+  // `affichee` : la session à l'écran. Comme AgentPanel, le faux agent
+  // n'ouvre jamais d'onglet : sans conversation à reprendre, il part dans
+  // celle qu'on regarde.
+  const fils = new Map([["S1", "done"]])
+  let affichee = "S1"
   let occupeAilleurs = false
   const lances = []
   t.setTaskRunner({
     idle: () => !occupeAilleurs && [...fils.values()].every((f) => f !== "running"),
     status: (id) => fils.get(id),
+    session: () => affichee,
     run: (task, reprise) => {
-      const id = reprise ?? `fil-${lances.length + 1}`
+      const id = reprise ?? affichee
       fils.set(id, "running")
       lances.push({ task: task.id, fil: id })
       return id
@@ -241,6 +247,7 @@ console.log("l'horloge : une à la fois, quand l'agent est libre")
   occupeAilleurs = false
   await tick()
   check("l'agent libre : la première part, et seulement elle", lances.length === 1 && lances[0].task === t.useTasks.getState().file.tasks[0].id)
+  check("**elle part dans la session où on l'a créée, pas dans un onglet neuf**", lances[0].fil === "S1" && t.useTasks.getState().file.tasks[0].thread === "S1", JSON.stringify(lances[0]))
   check("elle est écrite « partie » tout de suite", t.useTasks.getState().file.tasks[0].enabled === false && disque.tasks[0].runs === 1)
   await tick(); await tick()
   check("**la seconde attend la fin de la première**", lances.length === 1)
@@ -255,6 +262,8 @@ console.log("l'horloge : une à la fois, quand l'agent est libre")
   check("**une conversation disparue en plein tour libère la file (arrêtée)**", t.useTasks.getState().running === null && t.useTasks.getState().file.tasks[1].lastStatus === "stopped")
 
   // Récurrente : reprend sa conversation, et ne repart qu'au prochain rendez-vous.
+  fils.set("S2", "done")
+  affichee = "S2"
   t.addTask({ title: "Matin", prompt: "relis", at: Date.now() - 1000, repeat: "daily" })
   await tick()
   const matin = t.useTasks.getState().file.tasks[2]
@@ -271,6 +280,29 @@ console.log("l'horloge : une à la fois, quand l'agent est libre")
   await tick()
   check("en pause, même « Run now » attend", lances.length === 4)
   check("tout est écrit sur le disque", disque.paused === true && disque.tasks.length === 3)
+  check("la récurrente a été créée et lancée dans S2, la session alors affichée", matin.thread === "S2" && lances[2].fil === "S2")
+
+  // Sa session fermée entre-temps : elle part dans celle qu'on regarde.
+  // (La reprise lance d'abord le « Run now » resté en attente pendant la pause.)
+  t.setQueuePaused(false)
+  await tick()
+  for (const l of lances) fils.set(l.fil, "done")
+  const enCours = t.useTasks.getState().running
+  if (enCours) t.taskTurnEnded(enCours.threadId, "done")
+  await tick()
+  fils.set("S3", "done")
+  affichee = "S3"
+  t.addTask({ title: "Plus tard", prompt: "après", at: null, repeat: "none" })
+  // On ferme S3 avant qu'elle parte, et on passe sur S4.
+  occupeAilleurs = true
+  await tick()
+  fils.delete("S3")
+  fils.set("S4", "done")
+  affichee = "S4"
+  occupeAilleurs = false
+  const avant = lances.length
+  await tick()
+  check("**sa session fermée, elle part dans la session affichée, toujours sans nouvel onglet**", lances.length === avant + 1 && lances.at(-1).fil === "S4", JSON.stringify(lances.at(-1)))
 }
 
 console.log(failures === 0 ? "\nLa file attend l'agent, une tâche à la fois, et la mémoire arrive à chaque harnais." : `\n${failures} échec(s)`)

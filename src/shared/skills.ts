@@ -1,11 +1,13 @@
 import type { AgentKind } from "./harness"
+import { DEFAULT_PLUGINS, type PluginStates } from "./plugins"
 
 export type SkillEntry = {
   id: string
   name: string
   description: string
   path: string
-  source: "project" | "user" | "pack"
+  /** `plugin` : un skill apporté par un plugin d'agent allumé (shared/pluginPackage). */
+  source: "project" | "user" | "pack" | "plugin"
   pack: string | null
 }
 
@@ -15,17 +17,56 @@ export type SkillCatalog = { skills: SkillEntry[]; packs: SkillPack[]; roots: st
 export type AgentSettings = {
   defaultKind: AgentKind
   defaultModels: Partial<Record<AgentKind, string | null>>
-  advancedSkills: boolean
+  /**
+   * Les fonctions de l'agent allumées ou éteintes (shared/plugins). « Advanced
+   * skills » en est une : c'était `advancedSkills`, repris à la lecture.
+   */
+  plugins: PluginStates
   disabledSkills: string[]
   enabledPacks: string[]
+  /**
+   * Les plugins en paquets (shared/pluginPackage) éteints, par nom. Une liste
+   * des éteints plutôt que des allumés : un plugin qu'on vient d'installer ou
+   * d'écrire marche tout de suite, et c'est ce qu'on attend en cliquant Install.
+   */
+  disabledPlugins: string[]
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   defaultKind: "claude",
   defaultModels: {},
-  advancedSkills: true,
+  plugins: DEFAULT_PLUGINS,
   disabledSkills: [],
   enabledPacks: [],
+  disabledPlugins: [],
+}
+
+// skillFrontmatter lit le nom et la description dans le frontmatter d'un
+// SKILL.md, tels quels : vides s'ils manquent. Un plugin de la boutique
+// (shared/pluginPackage) refuse un skill sans l'un ou l'autre, là où le
+// catalogue local se contente d'un repli — d'où les deux fonctions.
+export function skillFrontmatter(text: string): { name: string; description: string } {
+  const front = text.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? ""
+  const field = (key: string): string => {
+    const lines = front.split(/\r?\n/)
+    const index = lines.findIndex((line) => line.startsWith(`${key}:`))
+    if (index < 0) return ""
+    let value = lines[index].slice(key.length + 1).trim()
+    if (/^[>|][-+]?\s*$/.test(value)) {
+      value = ""
+      for (const line of lines.slice(index + 1)) {
+        if (line && !/^\s/.test(line)) break
+        value += ` ${line.trim()}`
+      }
+    }
+    return value.replace(/^(['"])([\s\S]*)\1$/, "$2").replace(/\s+/g, " ").trim()
+  }
+  return { name: field("name"), description: field("description") }
+}
+
+export function parseSkill(text: string, fallback: string): { name: string; description: string } {
+  const { name, description } = skillFrontmatter(text)
+  return { name: (name || fallback).slice(0, 120), description: (description || "No description provided.").slice(0, 700) }
 }
 
 export function skillEnabled(skill: SkillEntry, settings: AgentSettings): boolean {

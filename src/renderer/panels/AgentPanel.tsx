@@ -30,7 +30,7 @@ import { droppedText, insertAt } from "../../shared/dropped"
 import { compact, detail, subscribeUsage, usageShown } from "~/lib/usage"
 import { clockTime, formatDuration } from "~/lib/duration"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
-import { permission as agentPermission, setPermission, subscribePermission } from "~/state/permission"
+import { permission as agentPermission, subscribePermission } from "~/state/permission"
 import { isLoginCommand } from "../../shared/login"
 import { askLogin, askHarness } from "~/state/persistent"
 import { agentActionToken, subscribeAgentActions, takeAgentAction } from "~/state/agentActions"
@@ -61,20 +61,13 @@ import { speakingId, speechAvailable, subscribeSpeech, toggleSpeech } from "~/li
 import { HarnessPicker } from "~/panels/HarnessPicker"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
-import { SkillsButton } from "~/panels/SkillsButton"
-import { getSettings, subscribeSettings } from "~/state/settings"
-import { ContextCompact } from "~/panels/ContextCompact"
-import { PermissionPicker } from "~/panels/PermissionPicker"
-import { SynthesisPicker } from "~/panels/SynthesisPicker"
+import { getSettings } from "~/state/settings"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
-import { synthesisSettings } from "~/state/synthesis"
+import { activeSynthesis } from "~/state/synthesis"
+import { AgentRail, pluginsTurnEnded, usePluginEnabled } from "~/plugins"
 import { ToolRow, type ToolCall } from "~/panels/ToolRow"
-import { BugButton } from "~/panels/BugReportDialog"
 import { PromptProject } from "~/panels/ProjectIcon"
-import { TaskQueueButton } from "~/panels/TaskQueueButton"
-import { MemoryButton, refreshMemory } from "~/panels/MemoryButton"
-import { setTaskRunner, taskTurnEnded } from "~/state/tasks"
-import { memoryPrompt } from "../../shared/memory"
+import { setTaskRunner } from "~/state/tasks"
 import { reportIncident } from "~/state/bugReport"
 import { QuestionCard } from "~/panels/QuestionCard"
 import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
@@ -726,10 +719,9 @@ function endTurn(id: string): void {
   // Le tour est terminé : c'est maintenant que la file avance, si elle le doit.
   const fini = threadById(bound.threadId)?.messages.find((m) => m.id === bound.messageId)
   advance(bound.threadId, !arrete && !fini?.error)
-  // Une tâche de la file attendait peut-être ce tour ; et l'agent a peut-être
-  // réécrit la mémoire du projet.
-  taskTurnEnded(bound.threadId, arrete ? "stopped" : fini?.error ? "failed" : "done")
-  refreshMemory()
+  // Les plugins qui veulent le savoir (shared/plugins) : une tâche de la file
+  // attendait peut-être ce tour, et l'agent a peut-être réécrit la mémoire.
+  pluginsTurnEnded(bound.threadId, arrete ? "stopped" : fini?.error ? "failed" : "done")
 }
 
 // runInThread : une demande qui ne vient pas de la boîte — une tâche de la
@@ -737,7 +729,7 @@ function endTurn(id: string): void {
 //
 // Une tâche planifiée ne prend pas l'onglet qu'on regarde : elle part à côté,
 // et l'onglet dit qu'elle tourne. Ce qu'on vient de demander d'un clic, si.
-function runInThread(title: string, prompt: string, options: { reuse?: string; activate: boolean }): string {
+function runInThread(title: string | null, prompt: string, options: { reuse?: string; activate: boolean }): string {
   let id = options.reuse && threadById(options.reuse) ? options.reuse : null
   if (!id) {
     const thread = blankThread()
@@ -749,7 +741,8 @@ function runInThread(title: string, prompt: string, options: { reuse?: string; a
   // `beginTurn` est synchrone au début de `dispatch` : le titre posé juste
   // après n'est pas écrasé par celui qu'il tire de la question.
   void dispatch(id, prompt, [])
-  mapThread(id, (t) => ({ ...t, title }))
+  // Sans titre : une conversation qu'on reprend garde le sien.
+  if (title !== null) mapThread(id, (t) => ({ ...t, title }))
   return id
 }
 
@@ -765,7 +758,12 @@ if (typeof window !== "undefined" && window.zyvro) {
       const last = [...thread.messages].reverse().find((m) => m.role === "assistant")
       return last?.error ? "failed" : "done"
     },
-    run: (task, reuse) => runInThread(`Task: ${task.title}`, task.prompt, { reuse, activate: false }),
+    session: () => state.activeId,
+    // Dans une session, jamais dans un onglet neuf : la sienne si elle est
+    // encore ouverte, sinon celle qu'on a sous les yeux. Le titre de la
+    // conversation ne change pas — c'est un message de plus dans le fil.
+    run: (task, reuse) =>
+      runInThread(null, task.prompt, { reuse: reuse && threadById(reuse) ? reuse : state.activeId, activate: false }),
   })
 }
 
@@ -1692,7 +1690,6 @@ function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.El
 
 export function AgentPanel(): JSX.Element {
   const [sessionsOpen, setSessionsOpen] = useState(false)
-  const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const project = useWorkspace((workspace) => workspace.project)
   // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
   const setPanel = useWorkspace((workspace) => workspace.setPanel)
@@ -1883,7 +1880,7 @@ export function AgentPanel(): JSX.Element {
   const reecrire = async (text: string): Promise<string | null> => {
     setReecriture((r) => ({ ...r, busy: true, erreur: "" }))
     try {
-      return await window.zyvro.agent.synthesize(text, synthesisSettings().mode, kind)
+      return await window.zyvro.agent.synthesize(text, activeSynthesis().mode, kind)
     } catch (err) {
       setReecriture((r) => ({ ...r, erreur: (err as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "") }))
       return null
@@ -1904,7 +1901,7 @@ export function AgentPanel(): JSX.Element {
     return false
   }
   const envoyer = async (prompt: string): Promise<void> => {
-    const { mode, autoSend } = synthesisSettings()
+    const { mode, autoSend } = activeSynthesis()
     const text = prompt.trim()
     if (reecriture.busy) return
     if (isLoginCommand(text) || mode === "off" || text === "" || text === reecriture.sortie) {
@@ -1928,7 +1925,7 @@ export function AgentPanel(): JSX.Element {
   }
   const reecrireMaintenant = async (): Promise<void> => {
     const text = draft.trim()
-    if (!text || synthesisSettings().mode === "off") return
+    if (!text || activeSynthesis().mode === "off") return
     const sortie = await reecrire(text)
     if (sortie === null || !canApplyRewrite(text)) return
     setDraft(sortie)
@@ -2736,87 +2733,57 @@ export function AgentPanel(): JSX.Element {
       </div>
       </div>
 
-      {/* La barre verticale, à droite, de sous les onglets jusqu'en bas : ce qui gouverne
-          la conversation sans être la conversation. Des icônes seules — le
-          nom et l'état sont dans l'infobulle — pour rendre la largeur au
-          texte : sur une rangée sous la boîte, ces réglages mangeaient la
-          moitié d'un panneau de 360 points. En bas, près de la boîte, parce
-          que c'est en écrivant qu'on y touche. */}
-      <div className="flex w-7 shrink-0 flex-col items-center justify-end gap-0.5 border-l border-white/[0.06] py-1.5" data-agent-rail>
-        {/* La file de tâches et la mémoire : propres au projet. */}
-        <TaskQueueButton />
-        {projet && (
-          <MemoryButton
-            project={projet.project}
-            permission={permission}
-            onRunAgent={(exists) =>
-              runInThread(exists ? "Update project memory" : "Create project memory", memoryPrompt(exists), { activate: true })
-            }
-          />
-        )}
-        <span className="my-1 h-px w-4 bg-white/[0.08]" aria-hidden />
-        {/* Ce que l'agent a le droit de faire, à côté de la question qu'on lui
-            pose : c'est là qu'on hésite, et un réglage rangé dans une page
-            de préférences est un réglage qu'on découvre en lisant
-            « permission refusée » au milieu d'une réponse. */}
-        <PermissionPicker
-          rail
-          value={permission}
-          kind={kind}
-          disabled={disabled}
-          onChange={(next) => setPermission(next)}
-        />
-        <SynthesisPicker
-          disabled={disabled}
-          busy={reecriture.busy}
-          canRewrite={draft.trim() !== ""}
-          onRewriteNow={() => void reecrireMaintenant()}
-        />
-        {settings.agent.advancedSkills && <SkillsButton
-          kind={kind}
-          active={thread.advancedSkills}
-          settings={settings.agent}
-          disabled={disabled || thread.busy || thread.queued.length > 0}
-          onChange={(advancedSkills) => {
-            mapThread(thread.id, (t) => ({ ...t, advancedSkills }))
-            persist(thread.id)
-          }}
-        />}
-        {/* Recycler le contexte avant une longue tâche : le pourcentage dit
-            où en est la fenêtre du modèle, un clic lance `/compact` sur le
-            harnais pour retomber bas et ne pas tomber sur une compaction
-            automatique en plein milieu d'une grosse feature. */}
-        <ContextCompact
-          context={thread.context}
-          model={thread.model}
-          ranWith={thread.ranWith}
-          hasCompact={toutes.some((n) => n.toLowerCase() === "compact")}
-          disabled={disabled || thread.busy || !started}
-          onCompact={() => {
-            // `/compact` part tel quel, sans images ni auto-synthèse :
-            // une commande locale n'est pas une question à réécrire, et
-            // joindre une image à un compactage n'a aucun sens.
-            //
-            // La taille réelle n'est connue qu'au tour suivant — le
-            // compactage lui-même relit l'ancien contexte — donc on
-            // l'oublie plutôt que d'afficher un chiffre qui n'est plus
-            // vrai.
-            mapThread(thread.id, (t) => ({ ...t, context: null, images: [] }))
-            void dispatch(thread.id, "/compact", [])
-          }}
-        />
-        {/* Signaler un bug, là où il arrive : l'état complet part avec la
-            description. Jamais grisé — c'est justement quand le panneau
-            est bloqué qu'on en a besoin. */}
-        <BugButton
-          snapshot={() => ({
-            chat: chatSnapshot(),
-            root: useWorkspace.getState().root,
-            permission: agentPermission(),
-            agentSettings: getSettings().agent,
-          })}
-        />
-      </div>
+      {/* La barre verticale, à droite : ce qui gouverne la conversation sans
+          être la conversation. Elle est faite des plugins allumés
+          (shared/plugins, renderer/plugins) ; le panneau ne leur donne que
+          l'état de la conversation et les gestes qu'ils ont le droit de faire. */}
+      <AgentRail
+        ctx={{
+          kind,
+          disabled,
+          permission,
+          project: projet?.project ?? null,
+          thread: {
+            id: thread.id,
+            model: thread.model,
+            ranWith: thread.ranWith,
+            context: thread.context,
+            busy: thread.busy,
+            queued: thread.queued.length,
+            started,
+            advancedSkills: thread.advancedSkills,
+          },
+          draft,
+          rewriting: reecriture.busy,
+          commands: toutes,
+          actions: {
+            runInThread: (title, prompt) => void runInThread(title, prompt, { activate: true }),
+            setAdvancedSkills: (advancedSkills) => {
+              mapThread(thread.id, (t) => ({ ...t, advancedSkills }))
+              persist(thread.id)
+            },
+            compact: () => {
+              // `/compact` part tel quel, sans images ni auto-synthèse :
+              // une commande locale n'est pas une question à réécrire, et
+              // joindre une image à un compactage n'a aucun sens.
+              //
+              // La taille réelle n'est connue qu'au tour suivant — le
+              // compactage lui-même relit l'ancien contexte — donc on
+              // l'oublie plutôt que d'afficher un chiffre qui n'est plus
+              // vrai.
+              mapThread(thread.id, (t) => ({ ...t, context: null, images: [] }))
+              void dispatch(thread.id, "/compact", [])
+            },
+            rewriteNow: () => void reecrireMaintenant(),
+            snapshot: () => ({
+              chat: chatSnapshot(),
+              root: useWorkspace.getState().root,
+              permission: agentPermission(),
+              agentSettings: getSettings().agent,
+            }),
+          },
+        }}
+      />
       </div>
     </div>
   )
@@ -2955,7 +2922,9 @@ function Elapsed({ since }: { since: number }): JSX.Element {
 // en permanence pendant la lecture, pour qu'on trouve où l'arrêter.
 function SpeakButton({ id, text }: { id: string; text: string }): JSX.Element | null {
   const lu = useSyncExternalStore(subscribeSpeech, speakingId, () => null) === id
-  if (!speechAvailable()) return null
+  // Le plugin « Read aloud » (shared/plugins) éteint : pas de bouton.
+  const allume = usePluginEnabled("speech")
+  if (!allume || !speechAvailable()) return null
   return (
     <button
       type="button"

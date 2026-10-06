@@ -39,7 +39,9 @@ try {
   assert.equal(a.agent.defaultKind, "claude")
   assert.deepEqual(a.agent.defaultModels, { claude: "model" })
   assert.deepEqual(a.agent.disabledSkills, ["x"])
-  assert.equal(m.sanitizeSettings({}).agent.advancedSkills, true)
+  assert.equal(m.sanitizeSettings({}).agent.plugins.skills, true)
+  // L'interrupteur d'avant les plugins garde son choix (shared/plugins).
+  assert.equal(m.sanitizeSettings({ agent: { advancedSkills: false } }).agent.plugins.skills, false)
   const entry = { id: "x", name: "Review", description: "Find bugs", path: "/skill/SKILL.md", source: "pack", pack: "p" }
   assert.equal(m.skillEnabled(entry, { ...a.agent, disabledSkills: [], enabledPacks: ["p"] }), true)
   assert.equal(m.skillEnabled(entry, a.agent), false)

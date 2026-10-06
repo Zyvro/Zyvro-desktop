@@ -56,7 +56,7 @@ for (const change of ["none", "draft", "session", "project"]) {
       setDraft: (value) => { currentDraft = value },
       reecriture: { busy: false, sortie: null },
       setReecriture: (fn) => { feedback = fn({}) },
-      synthesisSettings: () => ({ mode: "short", autoSend }),
+      activeSynthesis: () => ({ mode: "short", autoSend }),
       isLoginCommand: () => false,
       reecrire: () => new Promise((resolve) => { finishRewrite = resolve }),
       send: async (value) => { sent.push(value) },

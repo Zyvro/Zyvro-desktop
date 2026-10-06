@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   ShieldQuestion,
+  Puzzle,
   Upload,
   Workflow as WorkflowIcon,
 } from "lucide-react"
@@ -21,13 +22,16 @@ import { useAccount } from "~/lib/account"
 import { SignInDialog } from "~/panels/SignInDialog"
 import { PackSource } from "~/panels/PackSource"
 import { PublishSection } from "~/panels/PublishSection"
+import { StorePlugins } from "~/panels/StorePlugins"
 
 // The store distributes source, never behaviour: everything it hands over runs
 // locally, in the sandbox, on this machine. That is why reading a pack's Lua is
 // a first-class action here rather than something buried. It is the only review
 // a small store gets.
 
-type Section = "nodes" | "workflows" | "publish"
+// Les plugins d'agent (StorePlugins) ont leur onglet et leur propre liste : ils
+// s'installent pour l'app entière, pas dans un projet.
+type Section = "nodes" | "workflows" | "plugins" | "publish"
 
 // The input/output pair from a real run, the same picture the web store shows.
 // A catalogue of names is a catalogue nobody browses, and this window is where
@@ -131,7 +135,7 @@ export function StorePanel() {
   })
 
   const install = useMutation({
-    mutationFn: async (what: { kind: Section; name: string }) =>
+    mutationFn: async (what: { kind: "nodes" | "workflows"; name: string }) =>
       what.kind === "nodes"
         ? window.zyvro.store.installPack(what.name)
         : window.zyvro.store.installWorkflow(what.name),
@@ -154,8 +158,8 @@ export function StorePanel() {
           <div className="flex-1">
             <h1 className="text-xl font-semibold">Store</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Nodes and workflows written by other people. Everything runs on this machine, in the
-              sandbox, and you can read the source before installing.
+              Workflows, nodes and agent plugins written by other people. Everything runs on this
+              machine, and you can read the source before installing.
             </p>
           </div>
           {account.data ? (
@@ -175,7 +179,7 @@ export function StorePanel() {
 
         <div className="mt-6 flex items-center gap-2">
           <div className="flex rounded-lg border border-white/[0.08] bg-white/[0.02] p-0.5">
-            {(["nodes", "workflows", "publish"] as Section[]).map((value) => (
+            {(["workflows", "nodes", "plugins", "publish"] as Section[]).map((value) => (
               <button
                 key={value}
                 className={cn(
@@ -188,6 +192,8 @@ export function StorePanel() {
                   <Box className="h-3.5 w-3.5" />
                 ) : value === "workflows" ? (
                   <WorkflowIcon className="h-3.5 w-3.5" />
+                ) : value === "plugins" ? (
+                  <Puzzle className="h-3.5 w-3.5" />
                 ) : (
                   <Upload className="h-3.5 w-3.5" />
                 )}
@@ -201,14 +207,14 @@ export function StorePanel() {
             <input
               className="h-8 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] pl-8 pr-3 text-[13px] outline-none focus:border-primary/50 disabled:opacity-40"
               disabled={section === "publish"}
-              placeholder={section === "publish" ? "Your own packs and workflows" : `Search ${section}`}
+              placeholder={section === "publish" ? "Your own plugins, packs and workflows" : `Search ${section}`}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
         </div>
 
-        {!project && (
+        {!project && section !== "plugins" && (
           <p className="mt-4 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-[12px] text-muted-foreground">
             Open a project to install anything. A pack is installed into the project that uses it, not
             into the app.
@@ -227,8 +233,9 @@ export function StorePanel() {
         )}
 
         {section === "publish" && <PublishSection signedIn={Boolean(account.data)} />}
+        {section === "plugins" && <StorePlugins search={search} />}
 
-        <div className={cn("mt-4 space-y-2", section === "publish" && "hidden")}>
+        <div className={cn("mt-4 space-y-2", (section === "publish" || section === "plugins") && "hidden")}>
           {listing.isLoading && (
             <p className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 zy-spin" /> Loading
@@ -292,7 +299,7 @@ export function StorePanel() {
                     <button
                       className="flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                       disabled={!project || busy}
-                      onClick={() => install.mutate({ kind: section, name: item.name })}
+                      onClick={() => install.mutate({ kind: isWorkflow ? "workflows" : "nodes", name: item.name })}
                     >
                       {busy ? <Loader2 className="h-3.5 w-3.5 zy-spin" /> : <Download className="h-3.5 w-3.5" />}
                       Install
@@ -324,11 +331,22 @@ export function StorePanel() {
 
         <footer className="mt-8 flex gap-2 rounded-lg border border-amber-400/25 bg-amber-400/[0.06] p-3 text-[12px] leading-relaxed">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-          <p className="text-foreground/80">
-            Installing runs someone else&apos;s code on your machine. The sandbox bounds what it can
-            do to processor time and your model quota, and a pack can only touch your files if it
-            declares the capability, which you can see above. Nothing here is reviewed by us.
-          </p>
+          {section === "plugins" ? (
+            // Un plugin n'a pas de code, mais ses skills sont des consignes que
+            // l'agent suivra avec les permissions qu'on lui a données : c'est
+            // cela qu'il faut dire ici, pas le bac à sable des packs.
+            <p className="text-foreground/80">
+              A plugin runs no code of its own, but its skills are instructions your agent will follow
+              with the permissions you give it. Read its files before installing. Nothing here is
+              reviewed by us.
+            </p>
+          ) : (
+            <p className="text-foreground/80">
+              Installing runs someone else&apos;s code on your machine. The sandbox bounds what it can
+              do to processor time and your model quota, and a pack can only touch your files if it
+              declares the capability, which you can see above. Nothing here is reviewed by us.
+            </p>
+          )}
         </footer>
       </div>
 

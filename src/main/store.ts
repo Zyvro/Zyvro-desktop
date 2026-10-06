@@ -4,6 +4,8 @@ import path from "node:path"
 import { anonymous, authorized, currentAccount, kdfParamsFor, storeOrigin, StoreError } from "./account"
 import { generateIdentity, signDigest, verifyDigest, type SealedKey } from "./signing"
 import { judge, remember, type PublisherVerdict } from "./knownpublishers"
+import { loadPluginDir, pluginDigest, writePluginFiles } from "./agentPlugins"
+import { PLUGIN_NAME, PLUGIN_VERSION, validatePluginFiles, type PluginFile } from "../shared/pluginPackage"
 
 // The store hands this process Lua source from strangers and asks it to write
 // that source into the user's project. Everything here is written on the
@@ -158,7 +160,9 @@ export type InstallResult = {
 // host key. It is the one case this whole scheme exists to catch, and a warning
 // somebody clicks through is not a catch. Accepting a rotation is a separate,
 // deliberate act — see forgetPublisher.
-async function vetPublisher(pack: StorePack): Promise<PublisherVerdict> {
+async function vetPublisher(
+  pack: Pick<StorePack, "name" | "author" | "publisher_name" | "publisher_key" | "signature">
+): Promise<PublisherVerdict> {
   const publisher = pack.publisher_name || pack.author || pack.name
   const verdict = await judge(publisher, pack.publisher_key, Boolean(pack.signature))
   if (verdict.kind === "changed") {
@@ -603,4 +607,108 @@ export async function publishWorkflow(payload: {
     source_workflow_id: payload.id,
   }
   return authorized("/api/store/workflows", { method: "POST", body: JSON.stringify(body) })
+}
+
+// ---------- agent plugins ----------
+//
+// La troisième chose que la boutique distribue (shared/pluginPackage) : des
+// actions et des skills pour l'agent, sans code. Même chaîne que les packs —
+// empreinte recalculée, signature vérifiée, éditeur retenu — parce qu'un skill
+// est une instruction que l'agent suivra sur ce poste, et qu'une instruction
+// remplacée sous une version déjà lue vaut bien du Lua remplacé.
+
+// StoreAgentPlugin est la ligne du serveur, champ pour champ (api/storeplugins.go).
+export type StoreAgentPlugin = {
+  id: string
+  name: string
+  version: string
+  description: string
+  author: string
+  icon: string
+  actions: { id: string; label: string; description: string; has_input: boolean; skills: string }[]
+  skills: { dir: string; name: string; description: string }[]
+  digest: string
+  signature?: string
+  publisher_key?: string
+  publisher_name?: string
+  files?: StoreSource[]
+  size_bytes?: number
+  yanked?: boolean
+  created_at: string
+}
+
+export async function listPlugins(q = "", limit = 50): Promise<StoreAgentPlugin[]> {
+  const body = (await anonymous(`/api/store/plugins${query({ q, limit })}`)) as { plugins?: StoreAgentPlugin[] }
+  return Array.isArray(body?.plugins) ? body.plugins : []
+}
+
+// readPlugin rend les fichiers sans rien installer : un skill se lit avant
+// d'être confié à l'agent, comme le Lua d'un pack.
+export async function readPlugin(name: string, version?: string): Promise<StoreAgentPlugin> {
+  if (!PLUGIN_NAME.test(name)) throw new StoreError(`"${name}" is not a valid plugin name.`)
+  if (version && !PLUGIN_VERSION.test(version)) throw new StoreError(`"${version}" is not a valid version.`)
+  const suffix = version ? `/${encodeURIComponent(version)}` : ""
+  const body = (await anonymous(`/api/store/plugins/${encodeURIComponent(name)}${suffix}`)) as
+    | StoreAgentPlugin
+    | { plugin: StoreAgentPlugin; warning?: string }
+  // Les deux formes, comme readPack : la dernière version arrive nue, une
+  // version épinglée arrive enveloppée avec son avertissement.
+  if (body && typeof body === "object" && "plugin" in body) {
+    if (body.warning) console.warn(`store: ${body.warning}`)
+    return body.plugin
+  }
+  return body as StoreAgentPlugin
+}
+
+export type PluginInstallResult = {
+  name: string
+  version: string
+  publisher: string
+  verdict: PublisherVerdict
+}
+
+// installPlugin vérifie tout avant d'écrire quoi que ce soit : l'empreinte
+// annoncée contre les octets reçus, la signature contre l'empreinte, la clé
+// contre celle qu'on a déjà vue pour cet éditeur, et le paquet contre la
+// grammaire. Un plugin sans empreinte est refusé : contrairement aux vieux
+// packs, il n'en existe aucun publié avant elle.
+export async function installPlugin(installRoot: string, name: string, version?: string): Promise<PluginInstallResult> {
+  const plugin = await readPlugin(name, version)
+  if (plugin.name !== name) throw new StoreError(`The store answered with "${plugin.name}" for "${name}".`)
+  const files = (plugin.files ?? []).map((f): PluginFile => {
+    if (typeof f?.path !== "string" || typeof f?.code !== "string") throw new StoreError(`The plugin "${name}" contains a malformed file entry.`)
+    return { path: f.path, code: f.code }
+  })
+  if (!plugin.digest) throw new StoreError(`The store sent ${name}@${plugin.version} without a digest. Refusing to install it.`)
+  if (pluginDigest(plugin.name, plugin.version, files) !== plugin.digest.toLowerCase()) {
+    throw new StoreError(`The content of ${name}@${plugin.version} does not match the digest the store published for it. Refusing to install it.`)
+  }
+  if (plugin.signature && plugin.publisher_key && !verifyDigest(plugin.digest.toLowerCase(), plugin.signature, plugin.publisher_key)) {
+    throw new StoreError(`The signature on ${name}@${plugin.version} does not match its content and the key it names. Refusing to install it.`)
+  }
+  let pkg
+  try {
+    pkg = validatePluginFiles(files)
+  } catch (error) {
+    throw new StoreError(`${name}@${plugin.version} is not a plugin this app can load: ${(error as Error).message}`)
+  }
+  if (pkg.name !== plugin.name || pkg.version !== plugin.version) {
+    throw new StoreError(`${name}@${plugin.version} carries a manifest for ${pkg.name}@${pkg.version}. Refusing to install it.`)
+  }
+  const verdict = await vetPublisher(plugin)
+  await writePluginFiles(installRoot, pkg.name, files)
+  return { name: pkg.name, version: pkg.version, publisher: plugin.publisher_name || plugin.author, verdict }
+}
+
+// publishPlugin publie un plugin du projet (.zyvro/plugins/<name>), signé.
+// Relu et revalidé ici plutôt que repris de la liste affichée : c'est ce qui est
+// sur le disque au moment du clic qui part, et c'est cela qu'on signe.
+export async function publishPlugin(dir: string, password: string): Promise<unknown> {
+  const { pkg, files } = await loadPluginDir(dir)
+  const digest = pluginDigest(pkg.name, pkg.version, files)
+  const signature = await signAs(digest, password)
+  return authorized("/api/store/plugins", {
+    method: "POST",
+    body: JSON.stringify({ name: pkg.name, version: pkg.version, files, signature }),
+  })
 }

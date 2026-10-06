@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Box, Check, Loader2, Upload, Workflow as WorkflowIcon } from "lucide-react"
+import { Box, Check, Loader2, Puzzle, Upload, Workflow as WorkflowIcon } from "lucide-react"
 import { api, type Workflow } from "@/lib/api"
 import type { InstalledPack } from "../../preload"
 import { workflowsKey } from "~/lib/project"
 import { SigningPasswordDialog } from "~/panels/SigningPasswordDialog"
+import { refreshPluginPackages, usePluginPackages } from "~/plugins/packages"
 
 // Publishing a workflow means publishing what it calls. The store derives a
 // template's dependencies from its graph and refuses one whose node type
@@ -62,6 +63,34 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
 
   const workflows = useQuery({ queryKey: workflowsKey, queryFn: () => api.listWorkflows() })
 
+  // Les plugins d'agent que ce projet écrit (.zyvro/plugins), et ceux qui ne
+  // se chargent pas : ceux-là ne se publient pas, et la raison est dite ici
+  // plutôt qu'au moment où la boutique les refuserait.
+  const pluginList = usePluginPackages()
+  const localPlugins = (pluginList.data?.plugins ?? []).filter((p) => p.origin === "project")
+  const brokenPlugins = (pluginList.data?.problems ?? []).filter((p) => p.origin === "project")
+  // Le plugin qui attend le mot de passe : la même saisie que pour les packs,
+  // retenue pour la même séance.
+  const [awaitingPlugin, setAwaitingPlugin] = useState<string | null>(null)
+
+  const publishPlugin = useMutation({
+    mutationFn: ({ name, password }: { name: string; password: string }) =>
+      window.zyvro.store.publishPlugin(name, password),
+    onSuccess: (_result, { name }) => {
+      setDone((current) => [...current, `plugin:${name}`])
+      void client.invalidateQueries({ queryKey: ["store", "plugins"] })
+      refreshPluginPackages()
+    },
+    onError: (error) => {
+      if ((error as Error).message.includes("does not open this signing key")) setPassword(null)
+    },
+  })
+
+  const startPublishingPlugin = (name: string) => {
+    if (password) publishPlugin.mutate({ name, password })
+    else setAwaitingPlugin(name)
+  }
+
   const publishPack = useMutation({
     mutationFn: ({ name, password }: { name: string; password: string }) =>
       window.zyvro.store.publishPack(name, password),
@@ -117,6 +146,48 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
 
   return (
     <div className="mt-4 space-y-6">
+      <section>
+        <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Puzzle className="h-3.5 w-3.5" /> Agent plugins in this project
+        </h2>
+        {localPlugins.length === 0 && brokenPlugins.length === 0 && (
+          <p className="mt-2 text-[12px] text-muted-foreground">
+            None yet. A plugin lives in .zyvro/plugins/&lt;name&gt;. Plugin Creator, in the chat&apos;s side bar, writes one from an idea.
+          </p>
+        )}
+        <div className="mt-2 space-y-1.5">
+          {localPlugins.map((plugin) => (
+            <div key={plugin.name} className="panel flex items-center gap-3 p-3" data-publish-plugin={plugin.name}>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium">
+                  {plugin.name} <span className="font-mono text-[11px] text-muted-foreground">{plugin.version}</span>
+                </p>
+                <p className="truncate text-[12px] text-muted-foreground">
+                  {plugin.description || "No description."} · {plugin.actions.length} action
+                  {plugin.actions.length === 1 ? "" : "s"}, {plugin.skills.length} skill{plugin.skills.length === 1 ? "" : "s"}
+                </p>
+              </div>
+              <PublishButton
+                busy={publishPlugin.isPending && publishPlugin.variables?.name === plugin.name}
+                done={done.includes(`plugin:${plugin.name}`)}
+                onClick={() => startPublishingPlugin(plugin.name)}
+              />
+            </div>
+          ))}
+          {brokenPlugins.map((problem) => (
+            <div key={problem.dir} className="panel p-3">
+              <p className="text-[13px] font-medium">{problem.name}</p>
+              <p className="mt-0.5 break-words text-[12px] text-destructive">Cannot be published: {problem.error}</p>
+            </div>
+          ))}
+        </div>
+        {publishPlugin.isError && (
+          <p className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-2.5 py-1.5 text-[12px] text-destructive">
+            {(publishPlugin.error as Error).message}
+          </p>
+        )}
+      </section>
+
       <section>
         <h2 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           <Box className="h-3.5 w-3.5" /> Node packs in this project
@@ -212,6 +283,18 @@ export function PublishSection({ signedIn }: { signedIn: boolean }) {
             setPassword(secret)
             setAwaiting(null)
             void publishPacks(awaiting, secret)
+          }}
+        />
+      )}
+      {awaitingPlugin && (
+        <SigningPasswordDialog
+          count={1}
+          what="plugin"
+          onCancel={() => setAwaitingPlugin(null)}
+          onSubmit={(secret) => {
+            setPassword(secret)
+            setAwaitingPlugin(null)
+            publishPlugin.mutate({ name: awaitingPlugin, password: secret })
           }}
         />
       )}

@@ -5,30 +5,15 @@ import { createHash, randomUUID } from "node:crypto"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import type { AgentKind } from "../shared/harness"
-import type { SkillCatalog, SkillEntry, SkillPack } from "../shared/skills"
+import { parseSkill, type SkillCatalog, type SkillEntry, type SkillPack } from "../shared/skills"
+
+// Le frontmatter se lit dans le module partagé : les plugins de la boutique
+// (shared/pluginPackage) en ont besoin aussi, côté rendu comme côté principal.
+export { parseSkill }
 
 const exec = promisify(execFile)
 const IGNORED = new Set([".git", "node_modules", "vendor", "dist", "out", "test", "tests", "fixtures"])
 const MAX_SKILLS = 400
-
-export function parseSkill(text: string, fallback: string): { name: string; description: string } {
-  const front = text.replace(/^\uFEFF/, "").match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/)?.[1] ?? ""
-  const field = (key: string): string => {
-    const lines = front.split(/\r?\n/)
-    const index = lines.findIndex((line) => line.startsWith(`${key}:`))
-    if (index < 0) return ""
-    let value = lines[index].slice(key.length + 1).trim()
-    if (/^[>|][-+]?\s*$/.test(value)) {
-      value = ""
-      for (const line of lines.slice(index + 1)) {
-        if (line && !/^\s/.test(line)) break
-        value += ` ${line.trim()}`
-      }
-    }
-    return value.replace(/^(['"])([\s\S]*)\1$/, "$2").replace(/\s+/g, " ").trim()
-  }
-  return { name: (field("name") || fallback).slice(0, 120), description: (field("description") || "No description provided.").slice(0, 700) }
-}
 
 export function skillRoots(kind: AgentKind, project: string, home = os.homedir(), env = process.env): string[] {
   const native = kind === "claude" ? ".claude" : kind === "codex" ? ".codex" : kind === "qwen" ? ".qwen" : ".mimo"
@@ -56,7 +41,12 @@ export async function listPacks(packsDir: string): Promise<SkillPack[]> {
   return packs.sort((a, b) => a.id.localeCompare(b.id))
 }
 
-export async function discoverSkills(kind: AgentKind, project: string, packsDir: string, home = os.homedir(), env = process.env): Promise<SkillCatalog> {
+/**
+ * `plugins` : les dossiers `skills/` des plugins d'agent allumés
+ * (main/agentPlugins). Leurs skills entrent au catalogue comme `plugin`, sans
+ * pack : éteindre le plugin suffit à les retirer.
+ */
+export async function discoverSkills(kind: AgentKind, project: string, packsDir: string, home = os.homedir(), env = process.env, plugins: { name: string; dir: string }[] = []): Promise<SkillCatalog> {
   const roots = skillRoots(kind, project, home, env)
   const packs = await listPacks(packsDir)
   const skills: SkillEntry[] = []
@@ -103,6 +93,7 @@ export async function discoverSkills(kind: AgentKind, project: string, packsDir:
     await walk(root, !relative.startsWith("..") && !path.isAbsolute(relative) ? "project" : "user", null, 0)
   }
   for (const pack of packs) await walk(pack.path, "pack", pack.id, 0)
+  for (const plugin of plugins) await walk(plugin.dir, "plugin", null, 0)
   if (skills.length >= MAX_SKILLS || directories > 4000) warnings.push("The skill catalog reached its scan limit. Narrow the installed skill folders to see more.")
   return { skills, packs, roots, warnings }
 }

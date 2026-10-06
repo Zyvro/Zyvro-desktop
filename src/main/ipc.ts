@@ -56,6 +56,9 @@ import { clearProjectIcon, readProjectIcon, setProjectIcon } from "./projecticon
 import { readTasks, writeTasks } from "./tasks"
 import { memoryForAgent, readMemory, writeMemory } from "./memory"
 import { discoverSkills, downloadPack } from "./skills"
+import { listAgentPlugins, pluginSkillDirs, removeInstalledPlugin, type PluginRoot } from "./agentPlugins"
+import { PLUGIN_NAME } from "../shared/pluginPackage"
+import { pluginOn } from "../shared/plugins"
 import { sanitizeAgentSettings } from "../shared/settings"
 import { skillEnabled } from "../shared/skills"
 
@@ -341,6 +344,23 @@ function requireWorkspace(event: Electron.IpcMainInvokeEvent): { win: BrowserWin
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!win) throw new Error("This request came from a window that no longer exists.")
   return { win, ws: workspaceFor(win) }
+}
+
+// Où vivent les plugins d'agent (main/agentPlugins). Les livrés sont à côté de
+// l'asar, pas dedans (electron-builder.yml, extraResources) : l'agent est un
+// autre processus, qui lit leurs SKILL.md par leur chemin, et un chemin dans
+// une archive asar n'existe que pour le Node d'Electron.
+function installedPluginsDir(): string {
+  return path.join(app.getPath("userData"), "agent-plugins")
+}
+
+function pluginRoots(root: string | null): PluginRoot[] {
+  const roots: PluginRoot[] = [
+    { origin: "bundled", dir: app.isPackaged ? path.join(process.resourcesPath, "plugins") : path.join(app.getAppPath(), "resources", "plugins") },
+    { origin: "installed", dir: installedPluginsDir() },
+  ]
+  if (root) roots.push({ origin: "project", dir: path.join(root, ".zyvro", "plugins") })
+  return roots
 }
 
 // requireRoot rend l'endroit où l'on travaille. Il ne lève plus dès qu'aucun
@@ -1154,7 +1174,26 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("agent:skills", async (event, kind: AgentKind) => {
     const { ws } = requireWorkspace(event)
     if (!isAgentKind(kind)) throw new Error("Unknown agent")
-    return discoverSkills(kind, requireRoot(ws), path.join(app.getPath("userData"), "skill-packs"))
+    const root = requireRoot(ws)
+    // Tous les plugins chargés, allumés ou non : c'est la page qui les liste,
+    // et le tour, lui, retire ceux qu'on a éteints (agent:send).
+    const plugins = pluginSkillDirs(await listAgentPlugins(pluginRoots(root)), [])
+    return discoverSkills(kind, root, path.join(app.getPath("userData"), "skill-packs"), os.homedir(), process.env, plugins)
+  })
+
+  // Les plugins d'agent en paquets (main/agentPlugins) : livrés, installés
+  // depuis la boutique, et ceux que le projet est en train d'écrire.
+  ipcMain.handle("plugins:list", async (event) => {
+    const { ws } = requireWorkspace(event)
+    return listAgentPlugins(pluginRoots(ws.root))
+  })
+
+  // Désinstaller ne touche qu'aux plugins venus de la boutique : un plugin du
+  // projet est un fichier du projet, et l'app livre les siens.
+  ipcMain.handle("plugins:uninstall", async (event, name: string) => {
+    requireWorkspace(event)
+    await removeInstalledPlugin(installedPluginsDir(), String(name))
+    return true
   })
 
   ipcMain.handle("agent:download-pack", async (event, repository: string) => {
@@ -1178,9 +1217,15 @@ export function registerIpc(onRecents?: () => void): void {
       const { ws } = requireWorkspace(event)
       const root = requireRoot(ws)
       const agentSettings = sanitizeAgentSettings(ctx?.agentSettings)
-      const advancedSkills = ctx?.advancedSkills === true && agentSettings.advancedSkills
+      // Les deux fonctions de l'agent qui se décident ici, au lancement du
+      // tour (shared/plugins) : un plugin éteint n'envoie rien à l'agent.
+      const advancedSkills = ctx?.advancedSkills === true && pluginOn(agentSettings, "skills")
       const catalog = advancedSkills
-        ? await discoverSkills(isAgentKind(kind) ? kind : "claude", root, path.join(app.getPath("userData"), "skill-packs"))
+        ? await discoverSkills(
+            isAgentKind(kind) ? kind : "claude", root, path.join(app.getPath("userData"), "skill-packs"), os.homedir(), process.env,
+            // Les skills des plugins allumés rejoignent le catalogue.
+            pluginSkillDirs(await listAgentPlugins(pluginRoots(root)), agentSettings.disabledPlugins)
+          )
         : null
       const pinned = typeof model === "string" && model.trim() ? model.trim() : null
       // Où ce harnais ira chercher son modèle. Résolu ici parce que c'est ici
@@ -1201,7 +1246,7 @@ export function registerIpc(onRecents?: () => void): void {
       if (aim && pinned) await ws.agent.openGateway(isAgentKind(kind) ? kind : "claude", aim, pinned)
       // La mémoire du projet, relue à chaque tour : corrigée entre deux tours,
       // c'est la nouvelle que reçoit le suivant.
-      const memory = await memoryForAgent(root)
+      const memory = pluginOn(agentSettings, "memory") ? await memoryForAgent(root) : null
 
       return ws.agent.send(
         event.sender,
@@ -1756,6 +1801,24 @@ export function registerIpc(onRecents?: () => void): void {
   ipcMain.handle("store:publish-pack", async (event, name: string, password: string) => {
     const { ws } = requireWorkspace(event)
     return store.publishPack(requireRoot(ws), String(name), String(password))
+  })
+
+  ipcMain.handle("store:plugins", async (_event, q: string) => store.listPlugins(String(q ?? "")))
+  ipcMain.handle("store:read-plugin", async (_event, name: string, version?: string) =>
+    store.readPlugin(String(name), version ? String(version) : undefined)
+  )
+  // Un plugin s'installe pour l'app entière, comme les réglages : il n'a pas
+  // besoin d'un projet ouvert, contrairement à un pack de nœuds.
+  ipcMain.handle("store:install-plugin", async (event, name: string) => {
+    requireWorkspace(event)
+    return store.installPlugin(installedPluginsDir(), String(name))
+  })
+  // Seul un plugin du projet se publie : c'est celui qu'on écrit.
+  ipcMain.handle("store:publish-plugin", async (event, name: string, password: string) => {
+    const { ws } = requireWorkspace(event)
+    const plugin = String(name)
+    if (!PLUGIN_NAME.test(plugin)) throw new Error(`"${plugin}" is not a valid plugin name.`)
+    return store.publishPlugin(path.join(requireRoot(ws), ".zyvro", "plugins", plugin), String(password))
   })
 
   ipcMain.handle(

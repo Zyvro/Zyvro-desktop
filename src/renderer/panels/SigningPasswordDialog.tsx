@@ -16,10 +16,13 @@ import { KeyRound } from "lucide-react"
 
 export function SigningPasswordDialog({
   count,
+  what = "pack",
   onCancel,
   onSubmit,
 }: {
   count: number
+  /** Ce qu'on signe : un pack de nœuds, ou un plugin d'agent. */
+  what?: "pack" | "plugin"
   onCancel: () => void
   onSubmit: (password: string) => void
 }) {
@@ -43,7 +46,7 @@ export function SigningPasswordDialog({
         >
           <Dialog.Title className="flex items-center gap-2 text-sm font-semibold">
             <KeyRound className="h-4 w-4 text-muted-foreground" />
-            Sign {count === 1 ? "this pack" : `these ${count} packs`}
+            Sign {count === 1 ? `this ${what}` : `these ${count} ${what}s`}
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
             Everything you publish is signed, so whoever installs it can tell it is still coming from

@@ -164,8 +164,9 @@ const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx")
     mapThread: (_id, f) => { thread = f(thread) },
     persist: () => {}, threadById: () => thread,
     advance: (_id, ok) => { shouldAdvance = ok },
-    taskTurnEnded: (_id, status) => { taskStatus = status },
-    refreshMemory: () => {},
+    // La file de tâches et la mémoire sont des plugins : la fin de tour passe
+    // par eux tous (renderer/plugins), avec le même statut.
+    pluginsTurnEnded: (_id, status) => { taskStatus = status },
   }
   vm.runInNewContext(`${body}; endTurn("old")`, context)
   check("Stop is remembered before cleanup, so a queued prompt never advances", shouldAdvance === false)

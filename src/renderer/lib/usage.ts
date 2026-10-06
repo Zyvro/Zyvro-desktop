@@ -6,43 +6,24 @@
 // doit donc être allumée à la main.
 //
 // Et c'est un réglage parce qu'une ligne de chiffres sous chaque réponse est
-// utile un jour et bavarde le lendemain. La préférence vit dans le navigateur
-// de l'application : elle est propre à cette machine, pas au projet.
+// utile un jour et bavarde le lendemain. C'est le plugin « Token usage »
+// (shared/plugins) : il vit dans les réglages de l'agent, propres à cette
+// machine, avec les autres fonctions qu'on allume ou qu'on éteint. L'ancienne
+// clé, `zyvro.usage.shown`, est reprise une fois par state/settings.
 
-const STORAGE_KEY = "zyvro.usage.shown"
-
-let shown = read()
-const listeners = new Set<() => void>()
-
-function read(): boolean {
-  try {
-    // Absent veut dire « oui » : c'est ce qu'on a demandé en écrivant ceci, et
-    // seul un refus explicite l'éteint.
-    return window.localStorage.getItem(STORAGE_KEY) !== "off"
-  } catch {
-    // Un stockage refusé n'est pas une raison de perdre l'information.
-    return true
-  }
-}
+import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
+import { pluginOn } from "../../shared/plugins"
 
 export function usageShown(): boolean {
-  return shown
+  return pluginOn(getSettings().agent, "usage")
 }
 
 export function setUsageShown(on: boolean): void {
-  shown = on
-  try {
-    window.localStorage.setItem(STORAGE_KEY, on ? "on" : "off")
-  } catch {
-    // Tant pis pour la mémoire : le choix vaut pour cette session.
-  }
-  for (const listener of listeners) listener()
+  const agent = getSettings().agent
+  updateSettings({ agent: { ...agent, plugins: { ...agent.plugins, usage: on } } })
 }
 
-export function subscribeUsage(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
-}
+export const subscribeUsage = subscribeSettings
 
 // compact abrège un nombre de jetons sans mentir sur son ordre de grandeur.
 //

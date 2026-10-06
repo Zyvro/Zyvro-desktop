@@ -119,7 +119,7 @@ function TaskQueueDialog({ onClose }: { onClose: () => void }): JSX.Element {
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
             Tasks start one at a time, in this order, when the agent is free — a task that falls due during a turn waits for
-            it to end. Each runs in its own conversation, with the current permissions.
+            it to end. Each is sent into the session it was added from (or the one on screen if that one was closed), with the current permissions.
           </Dialog.Description>
 
           <div className="zy-scroll mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto">

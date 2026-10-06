@@ -41,6 +41,11 @@ export type ScheduledTask = {
   runNow?: boolean
   lastRunAt?: number
   lastStatus?: TaskStatus
+  /**
+   * La conversation où la tâche a été créée : elle y part, comme un message
+   * qu'on y aurait tapé. Absente ou fermée depuis : la session affichée.
+   */
+  thread?: string
   runs: number
   createdAt: number
 }
@@ -165,6 +170,7 @@ export function parseTasks(raw: unknown): TaskFile {
       lastRunAt: num(t.lastRunAt),
       lastStatus: t.lastStatus === "done" || t.lastStatus === "failed" || t.lastStatus === "stopped" ? t.lastStatus : undefined,
       runs: num(t.runs) ?? 0,
+      thread: typeof t.thread === "string" && t.thread ? t.thread : undefined,
       createdAt: num(t.createdAt) ?? 0,
     })
   }
