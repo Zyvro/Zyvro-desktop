@@ -2,9 +2,10 @@ Zyvro Studio is a desktop workspace for Zyvro workflows: a file tree, an editor,
 a terminal, source control, and an agent panel, with the graph editor opening in
 a tab beside the code it acts on.
 
-**This is an alpha.** It is built from three public repositories, it is not
-signed, and the parts that touch a store are new. Read the two warnings below
-before the first launch.
+**This is an alpha.** It is built from three public repositories, and the
+parts that touch a store are new. The macOS app is signed and notarized; the
+Windows installer is not signed yet. Read the warning below before the first
+launch on Windows.
 
 ## Why it exists
 
@@ -28,26 +29,167 @@ alpha.2 shipped without a `.dmg` at all, on a note in the build workflow saying
 had already failed for an unrelated reason, and the last error in the log was
 read as the cause. The `.dmg` is back.
 
-The app is ad-hoc signed but not notarized, so macOS says the developer cannot
-be verified: right-click it and choose
-**Open**, which offers the same dialog with a button that proceeds. Or:
-
-```sh
-xattr -dr com.apple.quarantine "/Applications/Zyvro Studio.app"
-```
+Since alpha.78 the app is signed with a Developer ID and notarized by Apple: it
+opens like any other downloaded app. Coming from alpha.76 or older, grant the
+screen-recording and accessibility permissions once more after updating (see
+alpha.77 below); later updates keep them.
 
 **Windows.** The installer is not signed, so SmartScreen shows "Windows
 protected your PC". Choose **More info**, then **Run anyway**.
 
-Both warnings are accurate: neither platform can tell you this download came
-from us rather than from someone who intercepted it. Every file's SHA-256 is at
-the bottom of this page, and checking it is the only verification available
-until the certificates are in place.
+That warning is accurate: Windows cannot tell you this installer came from us
+rather than from someone who intercepted it. Every file's SHA-256 is at the
+bottom of this page, and checking it is the only verification available there
+until the Windows certificate is in place.
 
 ```sh
 shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
+
+## New in alpha.79
+
+**Switching to AI mode no longer closes your shells.** The terminal panel was
+removed from the window whenever it was not shown, in AI mode or when it was
+collapsed in Dev mode, and removing it closed every terminal tab: the shell, and
+the agent or dev server running in it, died. The panel now stays mounted and is
+only hidden; shells, what they run and their scrollback survive the switch. A
+test instance answered from the same shell (same PID) before, during and after
+Dev → AI → Dev round trips.
+
+**Full screen on macOS: the window buttons and the menu bar should slide down
+again.** With a hidden title bar, Electron hides the traffic lights by hiding
+the whole title-bar container, which is the one macOS slides down from the top
+of the screen in full screen. Electron only restores it when leaving full
+screen, so a window that opened straight into a full-screen space kept it
+hidden. Zyvro now asks for the buttons when entering full screen and when the
+window first shows. This could not be checked on screen from the build machine;
+tell us if moving the pointer to the top of the screen still shows nothing.
+
+## New in alpha.78
+
+**Notarized.** The macOS app is now notarized by Apple and the ticket is
+stapled to it. A fresh download opens without the "developer cannot be
+verified" warning, and no `xattr` command is needed. The build runs under the
+hardened runtime that notarization requires; the release refuses to publish
+unless Gatekeeper accepts the app as "Notarized Developer ID". In-place updates
+carry the stapled ticket with them.
+
+## New in alpha.77
+
+**Signed with a Developer ID, so macOS permissions survive updates.** The app
+is signed "Developer ID Application: Jeremy Guyet (SQW729T8BD)". Until now each
+build carried an ad-hoc signature of its own, so macOS took every update for a
+new app: the screen-recording and accessibility permissions granted to the
+previous one stopped applying, and ticking them again in System Settings did
+nothing. macOS now ties them to the team, which every release shares.
+
+In-place updates keep the signature: they bring the signed executable and its
+seal (`_CodeSignature`) instead of re-signing the app ad hoc. An ad-hoc install
+(alpha.76 or older) finds no patch under the new name and downloads the full
+signed app once.
+
+**Once, after updating to alpha.77 or later,** grant the permissions again:
+
+```sh
+tccutil reset ScreenCapture ro.zyv.studio
+tccutil reset Accessibility ro.zyv.studio
+```
+
+then reopen Zyvro and accept its requests. Later updates keep them.
+
+**Full screen: no more empty gap or folder icon.** The title bar style changed
+to the one Electron supports with a custom traffic-light position, the project
+folder is no longer set as the window's document (macOS showed its icon in the
+bar it slides down in full screen), and in full screen the title bar gives back
+the 86 points it kept for the buttons, as Chrome does.
+
+## New in alpha.76
+
+**Layout fixes in the agent panel and the terminal.**
+
+- The agent header and the row of session tabs span the whole panel again; the
+  icon bar starts below them.
+- The agent panel reaches the right edge of the window. The site's stylesheet
+  reserved a scrollbar gutter on a window that never scrolls, which left an
+  11-point empty strip.
+- Pointing at the code editor no longer outlines the shell panel too, and a
+  capture of the "Editor" zone no longer includes the terminal.
+- **The terminal scrollbar can be grabbed again.** The terminal text covered
+  its own scrollbar (its container's padding was counted as columns), and with
+  thousands of lines the thumb was a few dark pixels. It is now 12 points wide,
+  at least 40 points tall, and lighter.
+- The hover outline runs along panel borders instead of painting over them.
+
+## New in alpha.75
+
+**`/login` and `/auth` sign in to the agent's CLI.** Typed in the agent box,
+they open the selected harness's own sign-in (Claude, Codex, Qwen or MiMo
+Code) in a dedicated terminal. The panel and the terminal share the CLI's
+credential store; these commands are never sent to a model, queued, or
+rewritten.
+
+**Find your sessions.** A session list searches the project's conversations by
+title, harness or model, filters the ones running, shows queued messages, and
+renaming a session is saved. Agent actions are in the command palette.
+
+**Windows updates are sturdier.** Zyvro waits for the update helper to start
+before closing and stays open with the error if it cannot. The helper stops
+the remaining Zyvro processes of that installation, swaps the resources (or
+runs the full installer in place), restores the previous version on failure,
+and relaunches. Diagnostics are written as UTF-8 in the `updates` folder.
+Preparing an update shows its progress and cannot run twice; interrupted
+downloads are cleaned up.
+
+**Smaller fixes.** Answers to an agent's questions are kept if sending fails or
+the project changes; conversation saves are serialized per project; an image
+can be sent alone; IME composition is respected; Quick Open navigates while
+loading; a slow auto-synthesis keeps drafts edited in the meantime and sends
+nothing if you changed session or project.
+
+## New in alpha.74
+
+**An icon bar beside the agent.** Permissions, auto-synthesis, skills,
+compaction and bug report move from the row under the prompt to a thin
+vertical bar on the right of the panel: icons only, with the state in the
+tooltip, so the width goes to the conversation.
+
+**Task queue (calendar icon).** Each project can queue prompts for the agent,
+kept in `.zyvro/tasks.json`: run now, sequential order, a date and time, and a
+repeat (hourly, daily, weekdays, weekly). A task only starts when the agent is
+free, one at a time; a task due during a turn waits for it to end. Each runs in
+its own conversation, without taking the tab you are reading. A missed
+schedule (the app was closed) runs once, not once per missed day.
+
+**Project memory (brain icon).** `ZYVRO.md` at the project root is given to
+every new agent turn, whatever the harness. The icon shows whether it is
+missing, up to date or stale (20 commits since it was written, or two weeks
+with at least one commit). Click to read and edit it, open it in the editor,
+or start an agent that explores the repository and writes or updates it.
+
+## New in alpha.73
+
+**Each project has an icon, and the agent box says where the prompt goes.** A
+generated icon (two letters on a colour of the folder's own) or an image you
+choose, cropped square and stored as `.zyvro/icon.png`. It appears in the
+project tabs and under the agent's prompt with the project name: with several
+projects open, you see which one the next prompt goes to.
+
+## New in alpha.72
+
+**Ctrl+C with queued messages stops the turn and sends the next one.** Before,
+it stopped the agent and put the queued messages back in the box.
+
+## New in alpha.71
+
+**A bug button.** In the agent panel, it opens a window to describe what went
+wrong and sends the report with the complete state of the app: open
+conversations, what the main process holds for each agent turn, and the errors
+recorded since the last report (secrets are redacted). It turns red when an
+
+**Stop always unsticks a turn.** A conversation could stay on "Writing…" with no
+way to stop it; Stop now releases it in every case, and records the incident
+for the next bug report.
 
 ## New in alpha.70
 
