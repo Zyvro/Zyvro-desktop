@@ -51,15 +51,11 @@ mac:
   target:
     - target: dmg
       arch: [arm64, x64]
-  # Not signed for distribution, and that is a fact about this build rather
-  # than a preference. The only certificate available is an Apple Development
-  # one, which signs for the machines on a provisioning profile and satisfies
-  # Gatekeeper nowhere else; using it would add a step and change nothing.
-  # Distribution needs a Developer ID Application certificate and notarization.
-  #
-  # null makes electron-builder ad-hoc sign instead, which is the minimum an
-  # Apple Silicon Mac needs to run a binary at all. RELEASE.md says what the
-  # person who downloads it will see.
+  # null here, the Developer ID on the release CI: it passes
+  # `-c.mac.identity="Jeremy Guyet (SQW729T8BD)"` with the certificate from the
+  # repository secrets (.github/workflows/release.yml). A local build has no
+  # certificate and stays ad-hoc signed, which is the minimum an Apple Silicon
+  # Mac needs to run a binary at all. RELEASE.md says what this means.
   identity: null
   # identity: null skips signing, and what that leaves on arm64 does not run.
   # scripts/adhoc-sign.cjs signs it properly afterwards; see the comment there.

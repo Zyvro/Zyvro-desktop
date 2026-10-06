@@ -56,7 +56,13 @@ for (const { dir, platform, arch } of DOSSIERS) {
     const app = readdirSync(racine).find((n) => n.endsWith(".app"))
     if (!app) continue
     cwd = path.join(racine, app, "Contents")
-    entrees = ["Resources", "Info.plist"]
+    // Avec la signature : l'exécutable principal (sa signature scelle
+    // Info.plist et la liste des ressources) et `_CodeSignature` (le sceau de
+    // Resources). Posés ensemble, la signature Developer ID reste valide sans
+    // rien re-signer ; les frameworks, inchangés pour une même version
+    // d'Electron, sont scellés par leur exigence de signature, pas par leur
+    // empreinte.
+    entrees = ["Resources", "Info.plist", "MacOS", "_CodeSignature"].filter((e) => existsSync(path.join(cwd, e)))
   } else {
     cwd = racine
     entrees = ["resources"]

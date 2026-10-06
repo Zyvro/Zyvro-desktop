@@ -65,8 +65,8 @@ const release = (tag, extra = {}) => ({
     asset(`Zyvro.Studio-${tag.slice(1)}.dmg`),
     asset(`Zyvro.Studio-${tag.slice(1)}-mac.zip`),
     asset(`Zyvro.Studio-${tag.slice(1)}-arm64-mac.zip`),
-    asset(`Zyvro.Studio-${tag.slice(1)}-mac-arm64-app-e33.0.0.tar.gz`),
-    asset(`Zyvro.Studio-${tag.slice(1)}-mac-x64-app-e33.0.0.tar.gz`),
+    asset(`Zyvro.Studio-${tag.slice(1)}-mac-arm64-signed-e33.0.0.tar.gz`),
+    asset(`Zyvro.Studio-${tag.slice(1)}-mac-x64-signed-e33.0.0.tar.gz`),
     asset(`Zyvro.Studio-${tag.slice(1)}-win-x64-app-e33.0.0.tar.gz`),
     asset(`Zyvro.Studio.Setup.${tag.slice(1)}.exe`),
   ],
@@ -89,8 +89,8 @@ const release = (tag, extra = {}) => ({
     const c = t.pickUpdate(r, platform, arch, electron, inPlace)
     return c ? `${c.kind} ${c.asset.name}` : null
   }
-  check("**le correctif d'abord, sur un Mac Apple Silicon**", choix("darwin", "arm64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-arm64-app-e33.0.0.tar.gz", choix("darwin", "arm64", "33.0.0", true))
-  check("et le sien sur un Mac Intel", choix("darwin", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-x64-app-e33.0.0.tar.gz")
+  check("**le correctif d'abord, sur un Mac Apple Silicon**", choix("darwin", "arm64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-arm64-signed-e33.0.0.tar.gz", choix("darwin", "arm64", "33.0.0", true))
+  check("et le sien sur un Mac Intel", choix("darwin", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-mac-x64-signed-e33.0.0.tar.gz")
   check("**Electron a changé : le zip complet, de la bonne architecture**", choix("darwin", "arm64", "32.1.0", true) === "full Zyvro.Studio-0.1.0-alpha.24-arm64-mac.zip" && choix("darwin", "x64", "32.1.0", true) === "full Zyvro.Studio-0.1.0-alpha.24-mac.zip", choix("darwin", "x64", "32.1.0", true))
   check("**une application qui ne peut pas s'écrire : l'image à ouvrir**", choix("darwin", "arm64", "33.0.0", false) === "manual Zyvro.Studio-0.1.0-alpha.24-arm64.dmg")
   check("Windows : le correctif, sinon l'installeur sans questions", choix("win32", "x64", "33.0.0", true) === "patch Zyvro.Studio-0.1.0-alpha.24-win-x64-app-e33.0.0.tar.gz" && choix("win32", "x64", "33.0.0", false) === "full Zyvro.Studio.Setup.0.1.0-alpha.24.exe")
@@ -99,7 +99,12 @@ const release = (tag, extra = {}) => ({
     "**les versions 24 à 29 ne trouvent plus de correctif : elles prennent le paquet complet**",
     !t.patchName("0.1.0-alpha.30", "darwin", "arm64", "44.4.0").includes("-patch-e")
   )
-  check("le nom du correctif ignore le `v` du tag", t.patchName("v1.0.0", "darwin", "arm64", "33.0.0") === "Zyvro.Studio-1.0.0-mac-arm64-app-e33.0.0.tar.gz")
+  check(
+    "**un Mac signé ad hoc (avant Developer ID) ne trouve plus de correctif : il prend le .zip complet, signé**",
+    !t.patchName("0.1.0-alpha.77", "darwin", "arm64", "44.4.0").includes("-app-e") &&
+      t.patchName("0.1.0-alpha.77", "win32", "x64", "44.4.0").includes("-app-e")
+  )
+  check("le nom du correctif ignore le `v` du tag", t.patchName("v1.0.0", "darwin", "arm64", "33.0.0") === "Zyvro.Studio-1.0.0-mac-arm64-signed-e33.0.0.tar.gz")
 }
 
 // ---- le correctif fabriqué a la forme que l'application attend ----------------
@@ -154,7 +159,7 @@ if (process.platform !== "win32") {
     }
     const traces = path.join(racine, "traces")
     doublure("ditto", `[ -n "$DITTO_RATE" ] && exit 1; cp -R "$1" "$2"`)
-    doublure("codesign", `echo "codesign $*" >> "${traces}"`)
+    doublure("codesign", `echo "codesign $*" >> "${traces}"; [ "$1" = "--verify" ] && [ -n "$SIGNATURE_CASSEE" ] && exit 1; exit 0`)
     doublure("xattr", `echo "xattr $*" >> "${traces}"`)
     doublure("open", `echo "open $*" >> "${traces}"`)
     // Un PID qui n'existe plus : l'application est déjà fermée.
@@ -195,7 +200,46 @@ if (process.platform !== "win32") {
       check("Electron n'est pas touché", lire(path.join(app, "Contents/MacOS/Zyvro Studio")) === "electron")
       check("rien ne traîne à côté", !existsSync(path.join(app, "Contents/Resources.old")) && !existsSync(path.join(app, "Contents/Resources.new")) && !existsSync(stage))
       const t2 = lire(traces) ?? ""
-      check("**la signature ad hoc est refaite, puis l'application relancée**", t2.includes(`codesign --force --deep --sign - ${app}`) && t2.trim().endsWith(`open ${app}`), t2)
+      check(
+        "**une signature qui se vérifie n'est pas réécrite en ad hoc, et l'application est relancée**",
+        t2.includes(`codesign --verify --deep --strict ${app}`) && !t2.includes("--sign -") && t2.trim().endsWith(`open ${app}`),
+        t2
+      )
+    }
+    // Le correctif signé : l'exécutable et le sceau de la nouvelle version.
+    {
+      const app = fausseApp("S.app", "v1")
+      mkdirSync(path.join(app, "Contents", "_CodeSignature"), { recursive: true })
+      writeFileSync(path.join(app, "Contents", "_CodeSignature", "CodeResources"), "sceau v1")
+      const stage = correctif("stage-s", "v2")
+      mkdirSync(path.join(stage, "MacOS"), { recursive: true })
+      mkdirSync(path.join(stage, "_CodeSignature"), { recursive: true })
+      writeFileSync(path.join(stage, "MacOS", "Zyvro Studio"), "exécutable v2 signé")
+      writeFileSync(path.join(stage, "_CodeSignature", "CodeResources"), "sceau v2")
+      rmSync(traces, { force: true })
+      const r = lancer(app, stage)
+      check(
+        "**le correctif signé pose l'exécutable et le sceau de sa version**",
+        r.status === 0 &&
+          lire(path.join(app, "Contents/MacOS/Zyvro Studio")) === "exécutable v2 signé" &&
+          lire(path.join(app, "Contents/_CodeSignature/CodeResources")) === "sceau v2" &&
+          lire(path.join(app, "Contents/Resources/app.asar")) === "v2",
+        lire(path.join(racine, "apply.log"))
+      )
+      check(
+        "sans rien laisser à côté",
+        !existsSync(path.join(app, "Contents/MacOS.old")) && !existsSync(path.join(app, "Contents/MacOS.new")) && !existsSync(path.join(app, "Contents/_CodeSignature.old"))
+      )
+      check("et sans re-signer", !(lire(traces) ?? "").includes("--sign -"))
+    }
+    // Une signature cassée après le correctif : l'application doit quand même démarrer.
+    {
+      const app = fausseApp("C.app", "v1")
+      const stage = correctif("stage-c", "v2")
+      rmSync(traces, { force: true })
+      lancer(app, stage, { SIGNATURE_CASSEE: "1" })
+      const t3 = lire(traces) ?? ""
+      check("**une signature qui ne se vérifie plus est refaite ad hoc, en dernier recours**", t3.includes(`codesign --force --deep --sign - ${app}`) && t3.trim().endsWith(`open ${app}`), t3)
     }
     // Une copie qui échoue.
     {

@@ -229,9 +229,24 @@ if [ -d "$STAGE/Resources" ]; then
     [ -d "$C/Resources" ] || mv "$C/Resources.old" "$C/Resources"
     rm -rf "$C/Resources.new"; relancer; exit 1
   fi
-  # Le sceau de la signature ad hoc couvre Resources et Info.plist : on la
-  # refait, comme scripts/adhoc-sign.cjs à la construction.
-  codesign --force --deep --sign - "$APP" || echo "signature ad hoc ratée"
+  # L'exécutable principal et le sceau viennent avec : c'est eux qui portent
+  # la signature Developer ID de cette version, et la poser telle quelle est
+  # ce qui garde les autorisations de macOS d'une mise à jour à l'autre.
+  for D in MacOS _CodeSignature; do
+    [ -d "$STAGE/$D" ] || continue
+    rm -rf "$C/$D.new"
+    if ditto "$STAGE/$D" "$C/$D.new"; then
+      rm -rf "$C/$D.old"; mv "$C/$D" "$C/$D.old" 2>/dev/null; mv "$C/$D.new" "$C/$D" && rm -rf "$C/$D.old"
+    else
+      echo "copie de $D ratée"; rm -rf "$C/$D.new"
+    fi
+  done
+  # Une signature qui ne se vérifie plus empêcherait l'application de
+  # démarrer : en dernier recours seulement, on la refait ad hoc.
+  if ! codesign --verify --deep --strict "$APP" 2>/dev/null; then
+    echo "signature invalide après le correctif : re-signature ad hoc"
+    codesign --force --deep --sign - "$APP" || echo "signature ad hoc ratée"
+  fi
 else
   NEW=$(find "$STAGE" -maxdepth 1 -name '*.app' | head -n 1)
   if [ -z "$NEW" ]; then echo "pas d'application dans le paquet"; relancer; exit 1; fi

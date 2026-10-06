@@ -66,19 +66,25 @@ downgrade.
 
 ## What is signed, and what happens to the person who downloads it
 
-Nothing is signed for distribution. That is a statement about this release, not
-a preference, and it is the first thing a user meets.
+**macOS.** Since alpha.77 the release CI signs the app with a *Developer ID
+Application* certificate (Jeremy Guyet, team `SQW729T8BD`), taken from the
+repository secrets `MAC_CERT_P12_BASE64` and `MAC_CERT_PASSWORD`. The
+certificate, its key and their password live outside every repository, in
+`~/project/Zyvro/signing/` (see the README there). A Mac release without the
+secret fails rather than shipping ad-hoc.
 
-**macOS.** The only certificate on the build machine is an *Apple Development*
-one. That kind signs builds for the machines on a developer's provisioning
-profile; it does not satisfy Gatekeeper anywhere else, so signing with it would
-add a step and change nothing. Distribution needs a *Developer ID Application*
-certificate, which needs the paid Apple Developer Program, and then
-notarization, which needs an Apple ID and an app-specific password.
+What the signature buys: macOS keys its privacy permissions (screen recording,
+accessibility) on the app's designated requirement. Ad-hoc, that was the
+build's own hash, so every update looked like a new app and the old
+permission silently stopped applying. Signed, it is the team ID, which every
+release shares. The in-place patches (`-signed-e…`) carry the main executable
+and `_CodeSignature` so the signature survives them; an ad-hoc install finds no
+patch under that name and takes the full signed `.zip` once.
 
-So the app is ad-hoc signed, which is the minimum an Apple Silicon Mac needs to
-run a binary at all, and it is not notarized. A user who double-clicks it is
-told the developer cannot be verified. They can open it with a right-click and
+It is not notarized yet: that needs the App Store Connect API key
+(`AuthKey_2RRPKR23SB.p8`), its issuer ID, and the hardened runtime. Until then
+a user who double-clicks a fresh download is still told the developer cannot
+be verified. They can open it with a right-click and
 **Open**, which offers the same dialog with a button that proceeds, or remove
 the quarantine flag:
 
@@ -109,7 +115,8 @@ The release script prints hashes. Beyond that, on macOS:
 
 ```sh
 codesign -dv --verbose=4 "dist/mac-arm64/Zyvro Studio.app" 2>&1 | head
-spctl -a -vv "dist/mac-arm64/Zyvro Studio.app"     # expected to fail: not notarized
+codesign --verify --deep --strict "dist/mac-arm64/Zyvro Studio.app"
+spctl -a -vv "dist/mac-arm64/Zyvro Studio.app"     # expected to fail until notarized
 "dist/mac-arm64/Zyvro Studio.app/Contents/Resources/bin/zyvrod" --version
 ```
 

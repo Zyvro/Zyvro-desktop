@@ -172,12 +172,48 @@ jobs:
 
       - name: Package
         working-directory: Zyvro-desktop
-        # Nothing is signed. RELEASE.md says what that means for whoever
-        # downloads it; CSC_IDENTITY_AUTO_DISCOVERY off stops electron-builder
-        # picking up a certificate that would not help anyway.
+        shell: bash
+        # macOS : signé Developer ID (Jeremy Guyet, SQW729T8BD). Le certificat
+        # et sa clé arrivent des secrets du dépôt, en base64 dans CSC_LINK, et
+        # electron-builder les pose dans un trousseau à lui le temps du build.
+        # Sans le secret, une release Mac échoue plutôt que de partir ad hoc :
+        # ses correctifs (`-signed-e…`) seraient posés sur des applications
+        # signées et casseraient leur signature — et avec elle les
+        # autorisations de macOS (capture d'écran, accessibilité).
+        #
+        # Windows : pas de certificat Authenticode ; CSC_LINK reste vide pour
+        # qu'electron-builder n'essaie pas de signer un .exe avec un
+        # certificat Apple. Voir RELEASE.md.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
-        run: npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} ${{ matrix.arches }} --publish never
+          CSC_LINK: ${{ matrix.platform == 'mac' && secrets.MAC_CERT_P12_BASE64 || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.platform == 'mac' && secrets.MAC_CERT_PASSWORD || '' }}
+        run: |
+          if [ "${{ matrix.platform }}" = "mac" ]; then
+            if [ -z "$CSC_LINK" ]; then
+              echo "::error::MAC_CERT_P12_BASE64 is not set: a Mac release must be signed Developer ID."
+              exit 1
+            fi
+            npx electron-builder --mac ${{ matrix.target }} ${{ matrix.arches }} --publish never "-c.mac.identity=Jeremy Guyet (SQW729T8BD)"
+          else
+            npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} ${{ matrix.arches }} --publish never
+          fi
+
+      # La signature vérifiée sur ce qui part, pas supposée : Developer ID de
+      # l'équipe, valide en profondeur (moteur et modules natifs compris).
+      - name: Verify the macOS signature
+        if: matrix.platform == 'mac'
+        working-directory: Zyvro-desktop
+        shell: bash
+        run: |
+          for app in dist/mac*/"Zyvro Studio.app"; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+            codesign -dv --verbose=2 "$app" 2>&1 | grep -q "Authority=Developer ID Application: Jeremy Guyet (SQW729T8BD)" \
+              || { echo "::error::$app is not signed Developer ID"; exit 1; }
+            codesign -dv "$app/Contents/Resources/bin/zyvrod" 2>&1 | grep -q "TeamIdentifier=SQW729T8BD" \
+              || { echo "::error::the engine in $app is not signed by the team"; exit 1; }
+            echo "signed: $app"
+          done
 
       # Le correctif que l'application installée télécharge et pose sur
       # elle-même : notre code sans Electron (scripts/make-patch.mjs).

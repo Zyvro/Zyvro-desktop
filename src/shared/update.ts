@@ -124,11 +124,18 @@ const plateformeNom = (platform: string): string | null =>
  * cherchent `-patch-e…` et dépliaient mal un correctif (voir main/updater,
  * `fsBrut`). Ne le trouvant plus, elles prennent le paquet complet, qu'elles
  * savent poser — une seule fois, puis les correctifs reprennent.
+ *
+ * Sur Mac, `-signed-e…` depuis la signature Developer ID : une application
+ * signée ad hoc ne doit pas recevoir de correctif — elle garderait ses
+ * frameworks ad hoc sous un exécutable signé, et réécrirait sa propre
+ * signature en ad hoc. Ne trouvant plus `-app-e…`, elle prend le `.zip`
+ * complet, déjà signé : une fois, et les autorisations de macOS tiennent
+ * ensuite d'une mise à jour à l'autre.
  */
 export function patchName(version: string, platform: string, arch: string, electron: string): string | null {
   const p = plateformeNom(platform)
   if (!p) return null
-  return `Zyvro.Studio-${version.replace(/^v/, "")}-${p}-${arch}-app-e${electron}.tar.gz`
+  return `Zyvro.Studio-${version.replace(/^v/, "")}-${p}-${arch}-${p === "mac" ? "signed" : "app"}-e${electron}.tar.gz`
 }
 
 // pickUpdate : le paquet à télécharger, du plus léger au plus lourd.

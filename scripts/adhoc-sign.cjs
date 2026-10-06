@@ -14,6 +14,13 @@ const path = require("node:path")
 
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== "darwin") return
+  // Un certificat Developer ID est fourni (la CI de release) : electron-builder
+  // signe lui-même après ce crochet, et une signature ad hoc posée ici serait
+  // remplacée — autant ne pas la poser.
+  if (process.env.CSC_LINK || context.packager.platformSpecificBuildOptions.identity) {
+    console.log("  • Developer ID certificate provided: electron-builder signs, no ad-hoc signature")
+    return
+  }
 
   const app = path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`)
 
