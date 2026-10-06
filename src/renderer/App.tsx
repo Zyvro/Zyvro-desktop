@@ -235,16 +235,23 @@ export default function App() {
             {layout.agentCentre ? <AgentPanel /> : <EditorArea />}
           </div>
           {layout.terminal && (
-            <>
-              <Splitter
-                orientation="horizontal"
-                onResize={(delta) => setTerminal((h) => clamp(h - delta, [LIMITS.terminal[0], terminalMax()]))}
-              />
-              <div data-shot-zone="Terminal" className="shrink-0" style={{ height: terminal }}>
-                <TerminalPanel />
-              </div>
-            </>
+            <Splitter
+              orientation="horizontal"
+              onResize={(delta) => setTerminal((h) => clamp(h - delta, [LIMITS.terminal[0], terminalMax()]))}
+            />
           )}
+          {/* Masqué, jamais démonté. Démonter le panneau appelle
+              `terminal.dispose` sur chaque onglet et tue ses shells : passer en
+              mode AI (qui n'a pas de terminal) ou replier le panneau fermait
+              un `claude` en plein travail, un serveur de dev, tout. Caché, il
+              garde ses ptys et leur historique, et revient tel quel. */}
+          <div
+            data-shot-zone={layout.terminal ? "Terminal" : undefined}
+            className={cn("shrink-0", !layout.terminal && "hidden")}
+            style={{ height: terminal }}
+          >
+            <TerminalPanel />
+          </div>
         </main>
 
         {layout.agentBeside && (
