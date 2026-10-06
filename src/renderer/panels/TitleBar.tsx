@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react"
 import { Code2, FolderOpen, PanelBottom, PanelLeft, PanelRight, Plus, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Mode } from "~/state/workspace"
@@ -121,6 +122,30 @@ function ProjectChip({
   )
 }
 
+// Le plein écran de la fenêtre, tenu hors de React : un abonnement au
+// principal, pas un effet — ce dépôt n'en veut pas.
+let plein = false
+const abonnes = new Set<() => void>()
+let ecoute = false
+function subscribeFullScreen(listener: () => void): () => void {
+  abonnes.add(listener)
+  if (!ecoute && window.zyvro?.window) {
+    ecoute = true
+    const poser = (on: boolean) => {
+      plein = on
+      for (const l of abonnes) l()
+    }
+    window.zyvro.window.onFullScreen(poser)
+    void window.zyvro.window.isFullScreen().then(poser).catch(() => {})
+  }
+  return () => {
+    abonnes.delete(listener)
+  }
+}
+function isFullScreen(): boolean {
+  return plein
+}
+
 export function TitleBar() {
   const project = useWorkspace((s) => s.project)
   const projects = useWorkspace((s) => s.projects)
@@ -128,12 +153,15 @@ export function TitleBar() {
   const mode = useWorkspace((s) => s.mode)
   const togglePanel = useWorkspace((s) => s.togglePanel)
   const isMac = window.zyvro.platform === "darwin"
+  const fullScreen = useSyncExternalStore(subscribeFullScreen, isFullScreen, () => false)
 
   return (
     <header
       className={cn(
         "zy-drag flex h-11 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-background pr-2",
-        isMac ? "pl-[86px]" : "pl-2"
+        // La place des trois boutons de macOS, sauf en plein écran : ils n'y
+        // sont plus, comme dans Chrome, et la barre reprend sa gauche.
+        isMac && !fullScreen ? "pl-[86px]" : "pl-2"
       )}
     >
       {projects.length === 0 ? (

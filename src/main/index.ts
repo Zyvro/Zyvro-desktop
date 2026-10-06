@@ -81,7 +81,12 @@ function createWindow(): BrowserWindow {
     icon: appIcon(),
     // A hidden title bar with inset traffic lights is what makes the window
     // read as an editor rather than a web page in a frame.
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    //
+    // « hidden » et pas « hiddenInset » : `trafficLightPosition` n'est pris en
+    // charge qu'avec « hidden » (ou « customButtonsOnHover »). Mélangés, les
+    // trois boutons manquaient en plein écran : la souris en haut de l'écran
+    // déroulait une barre de titre vide, sans fermer ni réduire.
+    titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
     trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -102,6 +107,15 @@ function createWindow(): BrowserWindow {
   })
 
   trackZoom(win)
+
+  // Le plein écran, dit au rendu : les trois boutons n'y sont plus dans la
+  // barre de l'app (macOS les montre dans la barre qu'il déroule en haut), et
+  // la place de 86 px qu'on leur gardait à gauche devient de la place perdue.
+  const fullScreen = (on: boolean) => () => {
+    if (!win.isDestroyed()) win.webContents.send("window:fullscreen", on)
+  }
+  win.on("enter-full-screen", fullScreen(true))
+  win.on("leave-full-screen", fullScreen(false))
 
   // Ce qu'une <webview> a le droit d'être, décidé ici et pas dans le HTML qui
   // la demande : les préférences arrivent du rendu, et un rendu compromis

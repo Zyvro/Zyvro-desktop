@@ -487,6 +487,8 @@ export function registerIpc(onRecents?: () => void): void {
     writeMemory(openProjectFor(event, project), typeof text === "string" ? text : "")
   )
 
+  ipcMain.handle("window:is-fullscreen", async (event) => requireWorkspace(event).win.isFullScreen())
+
   ipcMain.handle("project:choose", async (event) => {
     const { win } = requireWorkspace(event)
     const result = await dialog.showOpenDialog(win, {
@@ -543,7 +545,6 @@ export function registerIpc(onRecents?: () => void): void {
       ws.root = dir
       ws.startupPending = false
       win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
-      win.setRepresentedFilename?.(dir)
       return { project: dir, name: path.basename(dir), daemon: ws.daemon.current }
     }
     const slot = ws.activate(dir)
@@ -556,7 +557,6 @@ export function registerIpc(onRecents?: () => void): void {
       slot.project = dir
       slot.gitRepo = ""
       win.setTitle(`${path.basename(dir)} — Zyvro Studio`)
-      win.setRepresentedFilename?.(dir)
       // Only a folder that opened successfully is worth offering again.
       rememberRecent(dir)
       onRecentsChanged?.()
@@ -584,7 +584,6 @@ export function registerIpc(onRecents?: () => void): void {
     const daemon = ws.daemon.current
     if (!project || !daemon) return null
     win.setTitle(`${path.basename(project)} — Zyvro Studio`)
-    win.setRepresentedFilename?.(project)
     return { project, name: path.basename(project), daemon }
   })
 
@@ -598,7 +597,6 @@ export function registerIpc(onRecents?: () => void): void {
     ws.activateHome()
     const daemon = await ensureEngine(ws)
     win.setTitle("Zyvro Studio")
-    win.setRepresentedFilename?.("")
     return { root: ws.root, daemon }
   })
 

@@ -724,6 +724,12 @@ const api = {
 
   openExternal: (url: string): Promise<boolean> => invoke("shell:open-external", url),
 
+  window: {
+    /** La fenêtre est-elle en plein écran, maintenant. */
+    isFullScreen: (): Promise<boolean> => invoke("window:is-fullscreen"),
+    onFullScreen: (cb: (on: boolean) => void): Unsubscribe => on("window:fullscreen", cb),
+  },
+
   menu: {
     onOpenProject: (cb: () => void): Unsubscribe => on("menu:open-project", cb),
     onNewProject: (cb: () => void): Unsubscribe => on("menu:new-project", cb),
