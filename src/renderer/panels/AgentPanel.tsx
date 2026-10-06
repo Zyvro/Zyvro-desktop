@@ -2265,7 +2265,7 @@ export function AgentPanel(): JSX.Element {
   return (
     <div
       className={cn(
-        "relative flex h-full min-h-0 bg-background",
+        "relative flex h-full min-h-0 flex-col bg-background",
         dropping && "ring-2 ring-inset ring-primary/60"
       )}
       onDragEnter={onDragEnter}
@@ -2273,7 +2273,6 @@ export function AgentPanel(): JSX.Element {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Ce qu'on s'apprête à lâcher, dit en grand plutôt que par un liseré :
           on arrive avec un fichier au bout du curseur et on veut savoir que
           c'est ici que ça tombe. Sans `pointer-events`, sinon le voile
@@ -2388,6 +2387,10 @@ export function AgentPanel(): JSX.Element {
         </div>
       )}
 
+      {/* Sous l'en-tête et les onglets, qui gardent toute la largeur : la
+          conversation à gauche, la barre d'icônes à droite. */}
+      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       {/* Le but, épinglé.
           Au-dessus du défilement et pas dedans : une session qui travaille vers
           quelque chose doit le dire en permanence, et un but tapé au troisième
@@ -2733,7 +2736,7 @@ export function AgentPanel(): JSX.Element {
       </div>
       </div>
 
-      {/* La barre verticale, sur toute la hauteur à droite : ce qui gouverne
+      {/* La barre verticale, à droite, de sous les onglets jusqu'en bas : ce qui gouverne
           la conversation sans être la conversation. Des icônes seules — le
           nom et l'état sont dans l'infobulle — pour rendre la largeur au
           texte : sur une rangée sous la boîte, ces réglages mangeaient la
@@ -2813,6 +2816,7 @@ export function AgentPanel(): JSX.Element {
             agentSettings: getSettings().agent,
           })}
         />
+      </div>
       </div>
     </div>
   )
