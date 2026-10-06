@@ -117,6 +117,23 @@ function createWindow(): BrowserWindow {
   win.on("enter-full-screen", fullScreen(true))
   win.on("leave-full-screen", fullScreen(false))
 
+  // Les trois boutons en plein écran. Avec une barre de titre cachée,
+  // Electron range les boutons dans le conteneur de la barre de titre, et le
+  // masque en entier quand il les cache (window_buttons_proxy.mm, setVisible).
+  // En plein écran, c'est ce conteneur que macOS fait glisser du haut de
+  // l'écran avec la barre des menus : masqué, rien ne descend — ni fermer, ni
+  // réduire, ni l'heure. Electron ne le réaffiche qu'à la sortie du plein
+  // écran ; une fenêtre qui s'ouvre directement dans un espace plein écran
+  // (macOS s'en souvient) ne passe jamais par là. On le redemande donc à
+  // l'entrée, et au premier affichage.
+  if (process.platform === "darwin") {
+    const boutons = () => {
+      if (!win.isDestroyed()) win.setWindowButtonVisibility(true)
+    }
+    win.on("enter-full-screen", boutons)
+    win.once("show", boutons)
+  }
+
   // Ce qu'une <webview> a le droit d'être, décidé ici et pas dans le HTML qui
   // la demande : les préférences arrivent du rendu, et un rendu compromis
   // demanderait Node dans la page qu'il affiche. On les remplace.
