@@ -13,6 +13,14 @@ body,
   overflow: hidden;
 }
 
+/* Le site réserve en permanence la gouttière de la barre de défilement, pour
+   que son en-tête centré ne glisse pas d'une page à l'autre. La fenêtre, elle,
+   ne défile jamais : la gouttière y était une bande vide de 11 px à droite,
+   et le panneau de l'agent n'arrivait pas au bord. */
+html {
+  scrollbar-gutter: auto;
+}
+
 body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
