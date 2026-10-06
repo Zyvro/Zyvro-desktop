@@ -81,10 +81,12 @@ release shares. The in-place patches (`-signed-e…`) carry the main executable
 and `_CodeSignature` so the signature survives them; an ad-hoc install finds no
 patch under that name and takes the full signed `.zip` once.
 
-It is not notarized yet: that needs the App Store Connect API key
-(`AuthKey_2RRPKR23SB.p8`), its issuer ID, and the hardened runtime. Until then
-a user who double-clicks a fresh download is still told the developer cannot
-be verified. They can open it with a right-click and
+Since alpha.78 it is also notarized: the CI turns on the hardened runtime
+(entitlements in `resources/entitlements.mac.plist`), submits the app with the
+App Store Connect API key (secrets `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`,
+`APPLE_API_ISSUER`; key `2RRPKR23SB`), staples the ticket, and refuses to
+publish unless `spctl` accepts it as "Notarized Developer ID". A fresh
+download opens without the unidentified-developer warning. They can open it with a right-click and
 **Open**, which offers the same dialog with a button that proceeds, or remove
 the quarantine flag:
 

@@ -62,7 +62,10 @@ for (const { dir, platform, arch } of DOSSIERS) {
     // rien re-signer ; les frameworks, inchangés pour une même version
     // d'Electron, sont scellés par leur exigence de signature, pas par leur
     // empreinte.
-    entrees = ["Resources", "Info.plist", "MacOS", "_CodeSignature"].filter((e) => existsSync(path.join(cwd, e)))
+    // `CodeResources` est le ticket de notarisation agrafé, quand il y en a un.
+    entrees = ["Resources", "Info.plist", "MacOS", "_CodeSignature", "CodeResources"].filter((e) =>
+      existsSync(path.join(cwd, e))
+    )
   } else {
     cwd = racine
     entrees = ["resources"]

@@ -205,17 +205,48 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
           echo "CSC_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
 
+      # La clé d'API App Store Connect, pour la notarisation. electron-builder
+      # la lit depuis APPLE_API_KEY (un chemin), APPLE_API_KEY_ID et
+      # APPLE_API_ISSUER, et passe par notarytool.
+      - name: Prepare notarization
+        if: matrix.platform == 'mac'
+        shell: bash
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -z "$P8" ] || [ -z "$KEY_ID" ] || [ -z "$ISSUER" ]; then
+            echo "::error::APPLE_API_KEY_P8, APPLE_API_KEY_ID and APPLE_API_ISSUER must be set: a Mac release is notarized."
+            exit 1
+          fi
+          printf '%s\n' "$P8" > "$RUNNER_TEMP/AuthKey.p8"
+          {
+            echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY_ID=$KEY_ID"
+            echo "APPLE_API_ISSUER=$ISSUER"
+          } >> "$GITHUB_ENV"
+
       - name: Package
         working-directory: Zyvro-desktop
         shell: bash
         # macOS : signé Developer ID (Jeremy Guyet, SQW729T8BD), avec le
-        # trousseau de l'étape précédente. Windows : pas de certificat
-        # Authenticode. Voir RELEASE.md.
+        # trousseau de l'étape précédente, sous le hardened runtime que la
+        # notarisation exige, puis notarisé et agrafé avant d'être mis en dmg et
+        # en zip. Les entitlements (resources/entitlements.mac.plist) sont ce
+        # que le runtime durci retire et dont Electron et les shells lancés ont
+        # besoin : JIT, mémoire exécutable, bibliothèques d'une autre équipe.
+        # Windows : pas de certificat Authenticode. Voir RELEASE.md.
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
           if [ "${{ matrix.platform }}" = "mac" ]; then
-            npx electron-builder --mac ${{ matrix.target }} ${{ matrix.arches }} --publish never "-c.mac.identity=Jeremy Guyet (SQW729T8BD)"
+            npx electron-builder --mac ${{ matrix.target }} ${{ matrix.arches }} --publish never \
+              "-c.mac.identity=Jeremy Guyet (SQW729T8BD)" \
+              -c.mac.hardenedRuntime=true \
+              -c.mac.entitlements=resources/entitlements.mac.plist \
+              -c.mac.entitlementsInherit=resources/entitlements.mac.plist \
+              -c.mac.notarize=true
           else
             npx electron-builder --${{ matrix.platform }} ${{ matrix.target }} ${{ matrix.arches }} --publish never
           fi
@@ -233,6 +264,11 @@ jobs:
               || { echo "::error::$app is not signed Developer ID"; exit 1; }
             codesign -dv "$app/Contents/Resources/bin/zyvrod" 2>&1 | grep -q "TeamIdentifier=SQW729T8BD" \
               || { echo "::error::the engine in $app is not signed by the team"; exit 1; }
+            # Notarisée et agrafée : Gatekeeper l'accepte hors ligne, sans
+            # « développeur non identifié » au premier lancement.
+            xcrun stapler validate "$app"
+            spctl -a -vv -t exec "$app" 2>&1 | tee /dev/stderr | grep -q "source=Notarized Developer ID" \
+              || { echo "::error::$app is not accepted as notarized"; exit 1; }
             echo "signed: $app"
           done
 

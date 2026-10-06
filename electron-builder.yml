@@ -57,6 +57,9 @@ mac:
   # certificate and stays ad-hoc signed, which is the minimum an Apple Silicon
   # Mac needs to run a binary at all. RELEASE.md says what this means.
   identity: null
+  # The release CI also turns on the hardened runtime with
+  # resources/entitlements.mac.plist and notarizes (`-c.mac.notarize=true`);
+  # a local build keeps both off.
   # identity: null skips signing, and what that leaves on arm64 does not run.
   # scripts/adhoc-sign.cjs signs it properly afterwards; see the comment there.
   # The hardened runtime exists to be paired with notarization. Without it the

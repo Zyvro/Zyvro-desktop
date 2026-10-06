@@ -241,6 +241,8 @@ if [ -d "$STAGE/Resources" ]; then
       echo "copie de $D ratée"; rm -rf "$C/$D.new"
     fi
   done
+  # Le ticket de notarisation agrafé, s'il vient avec.
+  [ -f "$STAGE/CodeResources" ] && cp "$STAGE/CodeResources" "$C/CodeResources"
   # Une signature qui ne se vérifie plus empêcherait l'application de
   # démarrer : en dernier recours seulement, on la refait ad hoc.
   if ! codesign --verify --deep --strict "$APP" 2>/dev/null; then
