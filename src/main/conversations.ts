@@ -150,7 +150,25 @@ export async function load(projectDir: string): Promise<Conversation[]> {
   }
 }
 
-export async function save(projectDir: string, conversations: Conversation[]): Promise<void> {
+// All sessions in a project share one file. Serialize the whole read/modify/
+// write, not just rename: otherwise simultaneous agent completions each read
+// the old list and the last writer silently drops the other conversations.
+const writes = new Map<string, Promise<void>>()
+function serial(projectDir: string, operation: () => Promise<void>): Promise<void> {
+  const key = fileFor(projectDir)
+  const previous = writes.get(key) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(operation)
+  writes.set(key, next)
+  const clear = (): void => { if (writes.get(key) === next) writes.delete(key) }
+  void next.then(clear, clear)
+  return next
+}
+
+export function save(projectDir: string, conversations: Conversation[]): Promise<void> {
+  return serial(projectDir, () => write(projectDir, conversations))
+}
+
+async function write(projectDir: string, conversations: Conversation[]): Promise<void> {
   const file = fileFor(projectDir)
   await fs.mkdir(path.dirname(file), { recursive: true })
   // Written beside and renamed: a crash halfway through a write would
@@ -162,20 +180,21 @@ export async function save(projectDir: string, conversations: Conversation[]): P
 }
 
 // remember updates one conversation in place, creating it if it is new.
-export async function remember(projectDir: string, conversation: Conversation): Promise<void> {
-  const all = await load(projectDir)
-  const index = all.findIndex((c) => c.id === conversation.id)
-  const next = { ...conversation, updatedAt: new Date().toISOString() }
-  if (index === -1) all.unshift(next)
-  else all[index] = next
-  await save(projectDir, all)
+export function remember(projectDir: string, conversation: Conversation): Promise<void> {
+  return serial(projectDir, async () => {
+    const all = await load(projectDir)
+    const index = all.findIndex((c) => c.id === conversation.id)
+    const next = { ...conversation, updatedAt: new Date().toISOString() }
+    if (index === -1) all.unshift(next)
+    else all[index] = next
+    await write(projectDir, all)
+  })
 }
 
-export async function forget(projectDir: string, id: string): Promise<void> {
-  await save(
-    projectDir,
-    (await load(projectDir)).filter((c) => c.id !== id)
-  )
+export function forget(projectDir: string, id: string): Promise<void> {
+  return serial(projectDir, async () => {
+    await write(projectDir, (await load(projectDir)).filter((c) => c.id !== id))
+  })
 }
 
 // titleFrom names a conversation after what was first asked of it, which is

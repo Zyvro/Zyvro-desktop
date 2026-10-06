@@ -31,6 +31,7 @@ export type Demande =
   | { sorte: "persistante"; label: string }
   | { sorte: "harnais"; harnais: AgentKind; model: string | null; conversation: string | null }
   | { sorte: "installation"; harnais: AgentKind }
+  | { sorte: "connexion"; harnais: AgentKind }
 
 let demande: Demande | null = null
 let jeton = 0
@@ -52,6 +53,10 @@ export function askHarness(harnais: AgentKind, model: string | null, conversatio
 /** Installer ce harnais, dans un onglet du terminal qui montre ce que npm fait. */
 export function askInstall(harnais: AgentKind): void {
   poser({ sorte: "installation", harnais })
+}
+
+export function askLogin(harnais: AgentKind): void {
+  poser({ sorte: "connexion", harnais })
 }
 
 function poser(valeur: Demande): void {

@@ -119,6 +119,12 @@ const check = (name, ok, detail = "") => {
 
   useWorkspace.getState().movePath("lib/src/a.ts", "lib/src/renamed.ts")
   check("un renommage change aussi le titre", useWorkspace.getState().tabs[0].title === "renamed.ts")
+  useWorkspace.setState({ closedFiles: ["src-old/keep.ts", "closed/a.ts", "closed/sub/b.ts"] })
+  useWorkspace.getState().movePath("closed", "renamed")
+  check("les fichiers fermés suivent un dossier déplacé sans onglet ouvert", useWorkspace.getState().closedFiles.join(",") === "src-old/keep.ts,renamed/a.ts,renamed/sub/b.ts")
+  useWorkspace.getState().reopenClosed()
+  check("Reopen Closed ouvre le nouveau chemin", useWorkspace.getState().activeTabId === "file:renamed/sub/b.ts")
+
 }
 
 // ---- à la racine d'un projet --------------------------------------------

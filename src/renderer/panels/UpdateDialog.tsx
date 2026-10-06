@@ -74,6 +74,7 @@ export function UpdateDialog() {
                   </p>
                 </div>
               )}
+              {etat.phase === "installing" && <p role="status" className="flex items-center gap-2"><Loader2 className="h-3.5 w-3.5 zy-spin" />Preparing the update. Zyvro will close once the installer is ready.</p>}
               {etat.phase === "ready" && (
                 <p>
                   Downloaded
@@ -132,7 +133,7 @@ export function UpdateDialog() {
 // attend, comme la roue dentée de VS Code.
 export function UpdatePill() {
   const etat = useSyncExternalStore(subscribeUpdate, updateState, updateState)
-  if (etat.phase !== "available" && etat.phase !== "downloading" && etat.phase !== "ready") return null
+  if (etat.phase !== "available" && etat.phase !== "downloading" && etat.phase !== "ready" && etat.phase !== "installing") return null
   return (
     <button
       className="flex items-center gap-1 rounded px-1 text-sky-300 hover:bg-white/[0.08]"
@@ -140,7 +141,7 @@ export function UpdatePill() {
       onClick={() => setUpdateDialog(true)}
     >
       <ArrowUpCircle className="h-3 w-3" />
-      {etat.phase === "downloading" ? "Downloading update…" : etat.phase === "ready" ? "Update ready" : `Update to ${etat.info.latest}`}
+      {etat.phase === "installing" ? "Preparing update…" : etat.phase === "downloading" ? "Downloading update…" : etat.phase === "ready" ? "Update ready" : `Update to ${etat.info.latest}`}
     </button>
   )
 }

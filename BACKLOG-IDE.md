@@ -16,7 +16,8 @@ rapporté à l'effort. Les bugs qui perdent du travail passent devant tout.
 
 Petits correctifs repérés en passant :
 
-- `movePath` pourrait aussi faire suivre la pile des onglets fermés ;
+- Le suivi des onglets fermés après renommage est corrigé dans la passe du
+  4 octobre 2026 (pas encore publié). Voir [la feuille de route agents](features/agent-workspace-roadmap.md).
 
 ## Livré
 

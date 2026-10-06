@@ -12,7 +12,8 @@ import { aimFor, aimableModels } from "./aim"
 import { known as knownCommands } from "./commands"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "../shared/permission"
 import * as agentModule from "./agent"
-import { adoptHomeBins, helpOf, installed, locate, outputOf } from "./cli"
+import { loginArgs } from "../shared/login"
+import { adoptHomeBins, direct, helpOf, installed, locate, outputOf } from "./cli"
 import fs from "node:fs/promises"
 import * as files from "./files"
 import { mediaUrlFor } from "./media"
@@ -947,21 +948,24 @@ export function registerIpc(onRecents?: () => void): void {
   // « télécharge », pas « télécharge cette adresse » — elle ne choisit ni ce
   // qu'on télécharge ni ce qu'on exécute.
   let proposee: updater.UpdateInfo | null = null
-  let telecharge: string | null = null
+  let telecharge: { file: string; info: updater.UpdateInfo } | null = null
   ipcMain.handle("update:check", async () => {
     proposee = await updater.checkForUpdate()
     return proposee
   })
   ipcMain.handle("update:download", async (event) => {
     if (!proposee) throw new Error("There is no update to download.")
-    const r = await updater.downloadUpdate(proposee, event.sender)
-    telecharge = r.file
+    const info = proposee
+    telecharge = null
+    const r = await updater.downloadUpdate(info, event.sender)
+    telecharge = { file: r.file, info }
     return r
   })
   ipcMain.handle("update:install", async () => {
     if (!telecharge) throw new Error("Download the update first.")
-    if (!proposee) throw new Error("There is no update to install.")
-    return updater.installUpdate(telecharge, proposee)
+    // Another window may have checked for a newer release meanwhile. Install
+    // the version that belongs to these verified bytes, not the latest check.
+    return updater.installUpdate(telecharge.file, telecharge.info)
   })
 
   // La palette de commandes lit le menu, et passe par lui pour agir : une
@@ -1557,6 +1561,23 @@ export function registerIpc(onRecents?: () => void): void {
    * même démon, la même visée. Ce qu'il n'a pas, c'est la permission décidée
    * d'avance — dans une interface interactive, c'est la CLI qui demande.
    */
+  ipcMain.handle("agent:login-shell", async (event, kind: string, cols: number, rows: number) => {
+    const { ws } = requireWorkspace(event)
+    if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
+    const table = harness(kind)
+    const found = locate(table.bin)
+    if (!found) throw new Error(`"${table.bin}" was not found on this machine. Install it with: ${table.install}`)
+    const how = direct(found)
+    const args = [...how.prefix, ...loginArgs(kind)]
+    const command = how.shell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", how.file, ...args] }
+      : { file: how.file, args }
+    // No gateway, model, MCP or permission overrides during authentication.
+    // Inherit the same HOME/config environment as the panel's agent process.
+    const session = ws.terminals.create(event.sender, requireRoot(ws), cols || 80, rows || 24, null, { command, label: `login ${kind}` })
+    return { ...session, banner: `Sign in with ${table.bin} below. Once the CLI confirms sign-in, return to the agent panel and send your message.\r\n` }
+  })
+
   ipcMain.handle("agent:shell", async (event, kind: string, model: string | null, cols: number, rows: number, conversationId?: string | null) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)
@@ -1607,9 +1628,11 @@ export function registerIpc(onRecents?: () => void): void {
     // Sous Windows, `claude` est `claude.cmd` : un script pour l'interpréteur
     // de commandes, que rien ne lance directement. `cli.ts` le signale, et ici
     // la réponse est de lancer l'interpréteur avec lui.
-    const command = found.needsShell
-      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", found.file, ...args], env }
-      : { file: found.file, args, env }
+    const how = direct(found)
+    const nativeArgs = [...how.prefix, ...args]
+    const command = how.shell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", how.file, ...nativeArgs], env }
+      : { file: how.file, args: nativeArgs, env }
 
     return ws.terminals.create(
       event.sender,

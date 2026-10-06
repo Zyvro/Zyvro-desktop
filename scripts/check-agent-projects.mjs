@@ -19,7 +19,8 @@ mkdirSync(dir, { recursive: true })
 await build({
   stdin: {
     contents:
-      `export { chatState } from "${path.join(ROOT, "src/renderer/panels/AgentPanel").replace(/\\/g, "/")}"\n` +
+      `export { chatState, renameThread } from "${path.join(ROOT, "src/renderer/panels/AgentPanel").replace(/\\/g, "/")}"\n` +
+      `export { settle } from "${path.join(ROOT, "src/renderer/state/prompt").replace(/\\/g, "/")}"\n` +
       `export { useWorkspace } from "${path.join(ROOT, "src/renderer/state/workspace").replace(/\\/g, "/")}"\n`,
     resolveDir: ROOT,
     loader: "ts",
@@ -46,9 +47,11 @@ const surDisque = {
   "/p/b": [],
   "/p/c": [{ id: "conv-c", title: "Chat de C", kind: "claude", messages: [{ role: "user", text: "question de C", parts: [{ kind: "text", text: "question de C" }] }] }],
 }
+const savedConversations = []
 const rien = () => () => {}
 const agent = new Proxy(
   {
+    remember: async (conversation) => { savedConversations.push(conversation) },
     conversations: async () => {
       const pour = actif
       if (lenteur) await new Promise((r) => setTimeout(r, lenteur))
@@ -64,7 +67,7 @@ globalThis.window = { zyvro: pont, localStorage: { getItem: () => null, setItem(
 globalThis.localStorage = globalThis.window.localStorage
 globalThis.document = { addEventListener() {}, createElement: () => ({ style: {} }) }
 
-const { chatState, useWorkspace } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
+const { chatState, renameThread, settle, useWorkspace } = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
 const S = () => useWorkspace.getState()
 const d = { ready: true, port: 1, token: "t", project: "", origin: "http://x" }
 const ouvrir = async (p) => {
@@ -106,6 +109,32 @@ check("**une relecture qui revient après une bascule ne se pose pas dans le mau
 lenteur = 0
 await ouvrir("/p/c")
 check("et C, quitté avant la fin de sa lecture, se relit en revenant", titres() === "Chat de C", titres())
+
+await ouvrir("/p/a")
+chatState().asks = [{ id: "pending-answer", tool: "Read", input: {} }]
+await ouvrir("/p/b")
+check("changer de projet conserve la question qui attend", chatState().asks[0]?.id === "pending-answer")
+chatState().asks = []
+await ouvrir("/p/a")
+check("revenir dans un projet ne ressuscite pas une question réglée", chatState().asks.length === 0)
+const renamed = renameThread("conv-a")
+settle("Windows update fix")
+await renamed
+check("renommer une session garde le nouveau titre", chatState().threads[0].title === "Windows update fix")
+check("le titre est sauvegardé avec le transcript", savedConversations.at(-1)?.title === "Windows update fix")
+const renamedAgain = renameThread("conv-a")
+settle("Login and updates")
+await renamedAgain
+check("un deuxième renommage sans nouveau message se sauvegarde aussi", savedConversations.at(-1)?.title === "Login and updates" && savedConversations.length === 2)
+const canceledRename = renameThread("conv-a")
+settle(null)
+await canceledRename
+check("annuler le renommage ne change rien", savedConversations.length === 2 && chatState().threads[0].title === "Login and updates")
+const switchedRename = renameThread("conv-a")
+await ouvrir("/p/b")
+settle("Wrong project")
+await switchedRename
+check("un renommage ouvert avant une bascule ne touche pas l'autre projet", savedConversations.length === 2 && titres() === "New chat")
 
 console.log(failures === 0 ? "\nChaque projet a son chat, et rien ne passe de l'un à l'autre." : `\n${failures} échec(s)`)
 process.exit(failures === 0 ? 0 : 1)

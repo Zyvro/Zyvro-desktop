@@ -10,6 +10,7 @@ import { clearActiveTerminal } from "~/panels/TerminalPanel"
 import { openFiles } from "./windowDrop"
 import { isAbsolutePath } from "../../shared/external"
 import { requestTerminalSplit } from "~/state/terminalSplit"
+import { requestAgentAction } from "~/state/agentActions"
 import { openTreeFilter } from "~/state/treeFilter"
 
 // Menu commands arrive from the main process as IPC events, which is a
@@ -162,6 +163,10 @@ window.zyvro.menu.onToggleTerminal(() => {
 })
 window.zyvro.menu.onToggleAgent(() => {
   useWorkspace.getState().togglePanel("agent")
+})
+window.zyvro.menu.onAgentAction((action) => {
+  useWorkspace.getState().setPanel("agent", true)
+  requestAgentAction(action)
 })
 
 // ⌘F appartient à l'éditeur ouvert : c'est lui qui a une barre de recherche, et

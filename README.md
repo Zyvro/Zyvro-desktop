@@ -81,6 +81,24 @@ forwarded explicitly in print mode. Only Zyvro's MCP tools are pre-approved;
 other tools remain subject to the selected permission mode and the CLI's rules.
 The Advanced skills switch controls Zyvro's additional catalog, not native skills.
 
+Type `/login` (or `/auth`) to sign in to the selected Claude, Codex, Qwen or
+MiMo CLI in a dedicated integrated terminal. Finish the CLI's sign-in flow,
+then return to the panel and send your message. The terminal and panel share
+the CLI's normal credential store; login commands are never sent as model
+prompts, queued behind a running turn, or rewritten by auto-synthesis.
+
+Use **Find an agent session** in the panel header to search the current project's
+conversations by name, harness or model, and filter to running agents. Rename a
+started session with the pencil button or by double-clicking its tab. The command
+palette also offers **New Agent Session**, **Find Agent Session**, **Focus Agent
+Input**, and **Sign In to Agent**. Opening a session in the terminal creates a
+dedicated tab and preserves its model and native session.
+
+Questions and permission requests stay visible while an answer is being sent.
+If delivery fails, the form keeps its entries and offers another attempt. Switching
+projects preserves pending questions. Conversation writes are serialized per
+project so agents finishing together cannot overwrite each other's history.
+
 Stop ends the displayed turn immediately and terminates its process group,
 including tools that ignore the first termination signal. A final Claude/Codex
 result also ends the displayed turn even if the CLI takes time to shut down;
@@ -259,3 +277,20 @@ reads its origin once at module load, and the daemon's port is only known at
 runtime. `src/renderer/lib/daemon.ts` intercepts `fetch`, rewrites the build-time
 placeholder to the live origin and attaches the token. The web app's code is
 untouched.
+
+## Installing desktop updates
+
+On Windows, Zyvro waits for the update helper to initialize before closing. If
+the helper cannot start, the app stays open and displays the error. Canceling
+window closure leaves the update pending until the app actually quits. The
+helper runs outside the installation folder, stops remaining Zyvro processes
+from that installation, replaces the resources (or runs the full installer in
+the same directory), and relaunches Zyvro. A failed resource swap restores the
+previous version. Diagnostics are kept in the app's user-data `updates` folder:
+`apply-bootstrap.log` for startup and `apply.log` for installation/relaunch.
+Downloads also handle network and disk errors without crashing the app; incomplete
+packages are removed. Preparing an update shows progress and blocks duplicate
+installation requests across windows.
+
+The next larger agent/project features are tracked in
+[the agent workspace roadmap](features/agent-workspace-roadmap.md).

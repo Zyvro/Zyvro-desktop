@@ -461,6 +461,8 @@ const api = {
      * serveurs MCP, et le modèle choisi — visé chez un fournisseur local s'il
      * l'est.
      */
+    loginShell: (kind: AgentKind, cols: number, rows: number): Promise<{ id: string; pty: boolean; banner?: string }> =>
+      invoke("agent:login-shell", kind, cols, rows),
     shell: (
       kind: AgentKind,
       model: string | null,
@@ -756,6 +758,7 @@ const api = {
     onToggleTerminal: (cb: () => void): Unsubscribe => on("menu:toggle-terminal", cb),
     onFindInFile: (cb: () => void): Unsubscribe => on("menu:find-in-file", cb),
     onFindInProject: (cb: () => void): Unsubscribe => on("menu:find-in-project", cb),
+    onAgentAction: (cb: (action: "focus" | "new" | "sessions" | "login") => void): Unsubscribe => on("menu:agent-action", cb),
     onToggleAgent: (cb: () => void): Unsubscribe => on("menu:toggle-agent", cb),
   },
 }
