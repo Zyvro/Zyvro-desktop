@@ -482,7 +482,14 @@ function TerminalSession({ sessionKey, active }: { sessionKey: string; active: b
     <div className={cn("absolute inset-0 flex flex-col", !active && "hidden")}>
       {/* The React key is the restart mechanism: bumping the generation remounts
           this node, which runs the ref teardown and then a fresh mount. */}
-      <div key={status.generation} ref={attach} className="min-h-0 flex-1 overflow-hidden px-2 py-1" />
+      {/* La marge est sur ce cadre et pas sur le nœud du terminal. L'addon
+          « fit » prend la largeur CSS du parent direct d'xterm, et avec
+          `border-box` elle inclut le padding : 16 px de colonnes en trop, et
+          le texte recouvrait la barre de défilement — un clic sur la poignée
+          tombait sur le texte, et on ne pouvait plus la tirer. */}
+      <div className="flex min-h-0 flex-1 flex-col px-2 py-1">
+        <div key={status.generation} ref={attach} className="min-h-0 flex-1 overflow-hidden" />
+      </div>
 
       {status.exitCode !== null ? (
         <div className="flex items-center gap-3 border-t border-white/[0.06] bg-white/[0.04] px-3 py-1.5 text-[11px]">

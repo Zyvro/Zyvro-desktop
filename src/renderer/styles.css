@@ -115,6 +115,35 @@ button,
   background-color: transparent !important;
 }
 
+/* La barre du terminal, qu'on doit pouvoir attraper.
+ *
+ * Avec la barre commune du site (8 px dont 2 de bordure transparente de
+ * chaque côté), 5 000 lignes d'historique dans un panneau de 185 px donnaient
+ * une poignée de quelques pixels de haut et 4 de large, gris foncé sur noir :
+ * impossible à saisir. Plus large, une hauteur minimale, et plus claire.
+ *
+ * Le site pose aussi `scrollbar-width: thin` et `scrollbar-color` partout ; tant
+ * qu'ils sont là, Chromium ignore tout `::-webkit-scrollbar` — d'où le retour à
+ * `auto`, sans quoi les règles ci-dessous ne s'appliquent pas. */
+.xterm .xterm-viewport {
+  scrollbar-width: auto;
+  scrollbar-color: auto;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  width: 12px;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  background: hsl(var(--muted-foreground) / 0.35);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover,
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:active {
+  background: hsl(var(--muted-foreground) / 0.6);
+  background-clip: content-box;
+}
+
 /* Le damier derrière une image : il dit ce qui est transparent. Un fond uni le
    cache, et un logo blanc sur fond blanc a l'air vide. */
 .zy-checker {
