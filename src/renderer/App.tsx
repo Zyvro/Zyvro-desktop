@@ -226,11 +226,14 @@ export default function App() {
           </>
         )}
 
-        <main
-          data-shot-zone={layout.agentCentre ? "Agent" : "Editor"}
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
-        >
-          {layout.agentCentre ? <AgentPanel /> : <EditorArea />}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* La zone de l'éditeur (ou de l'agent au centre) s'arrête au-dessus
+              du terminal. Posée sur tout le <main>, elle l'englobait : viser
+              le code allumait un cadre autour du panneau shell aussi, et une
+              capture « Editor » emportait le terminal avec elle. */}
+          <div data-shot-zone={layout.agentCentre ? "Agent" : "Editor"} className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {layout.agentCentre ? <AgentPanel /> : <EditorArea />}
+          </div>
           {layout.terminal && (
             <>
               <Splitter
