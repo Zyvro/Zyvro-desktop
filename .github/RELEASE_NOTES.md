@@ -47,6 +47,15 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.81
+
+**Generation nodes let you choose their provider.** Generate image, Edit image
+and Vision had no provider or model field, although the engine reads both: you
+could not pick FLUX, Gemini or an image server on your own machine, nor a model.
+They now have them. The LLM and Brain nodes list every text provider the engine
+knows, including Qwen Code, Ollama and LM Studio running on this machine, and a
+custom endpoint (Brain offered only three before).
+
 ## New in alpha.80
 
 **Agent plugins, in the store.** A plugin is a `zyvro-plugin.json` manifest,
