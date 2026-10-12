@@ -39,7 +39,7 @@ writeFileSync(
 writeFileSync(
   path.join(dir, "h.ts"),
   `export { translateNotification, newTranslateState, CodexServerTurn, codexServerPolicy, codexInput } from "${from("src/main/codexserver")}"\n` +
-    `export { argsFor, claudeUserLine, configPairs, replayText, AgentRunner } from "${from("src/main/agent")}"\n`
+    `export { argsFor, claudeUserLine, configPairs, replayText, AgentRunner, STEER_LINGER } from "${from("src/main/agent")}"\n`
 )
 await build({
   entryPoints: [path.join(dir, "h.ts")],
@@ -231,6 +231,22 @@ const attendre = (ms) => new Promise((r) => setTimeout(r, ms))
     setInterval(() => {}, 1000)
     return
   }
+  if (mode === "stranded") {
+    // Vu le 11/10 sur le vrai : un message écrit juste avant la réponse finale,
+    // annoncé en file (queued_turn_count: 1), que la CLI ne reprend pas tant
+    // que rien d'autre n'arrive sur l'entrée — sa fermeture, ici.
+    out({ type: "assistant", message: { content: [{ type: "text", text: "réponse finale" }] } })
+    await attendre(500)
+    out({ type: "result", subtype: "success", result: "réponse finale", queued_turn_count: lignes.length, usage: {} })
+    while (!fin) await attendre(20)
+    while (lignes.length > 0) {
+      const s = lignes.shift()
+      out({ type: "user", isReplay: true, message: { role: "user", content: [{ type: "text", text: texte(s) }] } })
+      out({ type: "assistant", message: { content: [{ type: "text", text: "SECOND:" + texte(s) }] } })
+      out({ type: "result", subtype: "success", result: "x", queued_turn_count: lignes.length, usage: {} })
+    }
+    process.exit(0)
+  }
   if (mode === "late") {
     out({ type: "assistant", message: { content: [{ type: "text", text: "réponse finale" }] } })
     await attendre(500)
@@ -331,6 +347,19 @@ function recu(r) {
     const ordre = r.events.map((e) => e.channel)
     check(
       "**Claude, sans point d'arrêt : il devient un second tour du même processus, et rien n'est perdu**",
+      r.accepte === true && r.texte.includes("SECOND:change de plan") && ordre.includes("agent:steered") && ordre.includes("agent:done"),
+      ordre.join(",")
+    )
+  }
+  {
+    // Le délai est raccourci pour le test : en vrai, dix secondes.
+    const avant = m.STEER_LINGER.ms
+    m.STEER_LINGER.ms = 300
+    const r = await tourDe("claude", "stranded", 150)
+    m.STEER_LINGER.ms = avant
+    const ordre = r.events.map((e) => e.channel)
+    check(
+      "**Claude annonce un tour en file qu'il ne reprend pas : l'entrée se ferme quand même, le message passe et le tour finit**",
       r.accepte === true && r.texte.includes("SECOND:change de plan") && ordre.includes("agent:steered") && ordre.includes("agent:done"),
       ordre.join(",")
     )

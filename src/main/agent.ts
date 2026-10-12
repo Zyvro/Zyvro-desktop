@@ -30,6 +30,13 @@ import { memoryPreamble } from "../shared/memory"
 // Les harnais vivent dans un module partagé : le principal les lance, le pont
 // les fait traverser, le rendu les affiche. Une déclaration par côté, c'est la
 // déclaration d'un côté qui oublie le troisième harnais.
+
+// Combien de temps l'entrée de Claude reste ouverte après un résultat, quand un
+// message glissé n'a pas encore été repris (voir le résultat dans `emitEvent`).
+// Un objet plutôt qu'une constante pour que `scripts/check-steer.mjs` le
+// raccourcisse.
+export const STEER_LINGER = { ms: 10_000 }
+
 export type { AgentKind } from "../shared/harness"
 
 // Ce que l'agent a le droit de faire vit dans un module que les trois côtés
@@ -1704,11 +1711,19 @@ export class AgentRunner {
           if (live.closer) clearTimeout(live.closer)
           live.closer = null
           if (live.pending > 0 || attendus > 0) {
-            if (attendus === 0) {
-              live.closer = setTimeout(() => {
-                if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
-              }, 30_000)
-            }
+            // Un délai dans TOUS les cas, y compris quand Claude annonce un
+            // tour en file. Avant, `queued_turn_count > 0` faisait attendre
+            // sans fin : vu le 11/10, un message glissé juste avant la réponse
+            // finale n'a jamais été repris, le processus est resté ouvert
+            // trente-cinq minutes, le panneau croyait le tour en cours et la
+            // file ne partait pas — jusqu'à ce qu'une autre ligne écrite sur
+            // l'entrée réveille la CLI. Fermer l'entrée ne perd rien : un
+            // message déjà écrit est traité même après la fermeture (mesuré),
+            // et s'il ne l'est pas, le tour se termine et la file du panneau
+            // le renvoie comme un tour ordinaire.
+            live.closer = setTimeout(() => {
+              if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
+            }, STEER_LINGER.ms)
             return
           }
           if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
