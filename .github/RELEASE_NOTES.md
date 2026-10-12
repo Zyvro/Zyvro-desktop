@@ -47,6 +47,19 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.82
+
+**A queued message no longer gets stuck.** A message written just before the
+agent's final answer could be announced as queued by Claude and never picked
+up. Studio then waited with no time limit: the panel believed the turn was
+still running, and the queued message only left when another one woke the
+CLI up (35 minutes in the case reported). Studio now closes Claude's input
+ten seconds after the answer; the message is either handled in the same
+process or sent as an ordinary turn.
+
+**The agent chat has its own text size.** Settings › Agents › Chat text size,
+from 10 to 24 px. It scales the conversation and the message box together.
+
 ## New in alpha.81
 
 **Generation nodes let you choose their provider.** Generate image, Edit image
