@@ -61,7 +61,8 @@ import { speakingId, speechAvailable, subscribeSpeech, toggleSpeech } from "~/li
 import { HarnessPicker } from "~/panels/HarnessPicker"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
-import { getSettings } from "~/state/settings"
+import { getSettings, subscribeSettings } from "~/state/settings"
+import { chatZoom } from "../../shared/settings"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { activeSynthesis } from "~/state/synthesis"
 import { AgentRail, pluginsTurnEnded, usePluginEnabled } from "~/plugins"
@@ -1689,6 +1690,10 @@ function InstallBanner({ kind, npm }: { kind: AgentKind; npm: boolean }): JSX.El
 }
 
 export function AgentPanel(): JSX.Element {
+  // La taille du texte du chat (Settings › Agents) : un facteur appliqué à
+  // la conversation et à la boîte, pas une police — le panneau écrit ses
+  // tailles en pixels, et seul un zoom les agrandit toutes ensemble.
+  const zoom = useSyncExternalStore(subscribeSettings, () => chatZoom(getSettings().chatFontSize))
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const project = useWorkspace((workspace) => workspace.project)
   // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
@@ -2407,7 +2412,7 @@ export function AgentPanel(): JSX.Element {
         />
       )}
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3" style={zoom === 1 ? undefined : { zoom }}>
         {!started ? (
           <div className="space-y-3 text-xs text-muted-foreground">
             {/* Le choix se fait ici, avant le premier message, et pas dans la
@@ -2675,6 +2680,7 @@ export function AgentPanel(): JSX.Element {
           <textarea
             ref={poserComposer}
             rows={1}
+            style={zoom === 1 ? undefined : { zoom }}
             value={draft}
             disabled={disabled}
             placeholder={disabled ? "Starting the local engine…" : `Ask ${kind}… (↑ for earlier prompts)`}

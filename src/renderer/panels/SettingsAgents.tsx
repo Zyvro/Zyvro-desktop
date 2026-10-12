@@ -7,6 +7,7 @@ import { useWorkspace } from "~/state/workspace"
 import { HarnessPicker } from "./HarnessPicker"
 import { ModelPicker } from "./ModelPicker"
 import { PermissionPicker } from "./PermissionPicker"
+import { CHAT_FONT_SIZES, DEFAULT_SETTINGS } from "../../shared/settings"
 
 export function SettingRow({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] py-4">
@@ -36,6 +37,11 @@ export function SettingsAgents({ permissionsOnly = false }: { permissionsOnly?: 
     </SettingRow>
     <SettingRow title="Default model" hint="Remembered separately for each agent. You can still change the model in a conversation.">
       <ModelPicker kind={a.defaultKind} model={a.defaultModels[a.defaultKind] ?? null} ranWith={null} onChange={(model) => updateSettings({ agent: { ...a, defaultModels: { ...a.defaultModels, [a.defaultKind]: model } } })} />
+    </SettingRow>
+    <SettingRow title="Chat text size" hint={`Scales the conversation and the message box. Default ${DEFAULT_SETTINGS.chatFontSize} px.`}>
+      <select aria-label="Chat text size" value={settings.chatFontSize} onChange={(e) => updateSettings({ chatFontSize: Number(e.target.value) })} className="rounded-md border border-white/10 bg-background p-2 text-xs">
+        {CHAT_FONT_SIZES.map((size) => <option key={size} value={size}>{size} px{size === DEFAULT_SETTINGS.chatFontSize ? " (default)" : ""}</option>)}
+      </select>
     </SettingRow>
     <button onClick={() => useWorkspace.getState().openProviders()} className="mt-6 flex items-center gap-2 rounded-lg border border-white/10 p-3 text-sm hover:bg-white/5"><KeyRound className="h-4 w-4" />Providers and API keys</button>
   </>

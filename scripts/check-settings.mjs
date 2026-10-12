@@ -68,6 +68,10 @@ const check = (name, ok, detail = "") => {
 {
   let prevenu = 0
   t.subscribeSettings(() => prevenu++)
+  // La taille du texte du chat : bornée, et 13 ne zoome pas.
+  check("**le chat garde sa taille d'origine par défaut**", t.getSettings().chatFontSize === 13 && t.chatZoom(13) === 1, String(t.getSettings().chatFontSize))
+  check("une taille de chat hors bornes est ramenée", t.sanitizeSettings({ chatFontSize: 99 }).chatFontSize === 24 && t.sanitizeSettings({ chatFontSize: "x" }).chatFontSize === 13)
+  check("et 26 points font deux fois plus grand", t.chatZoom(26) === 2)
   t.updateSettings({ fontSize: 16 })
   check("**un changement prévient les éditeurs ouverts**", prevenu === 1 && t.getSettings().fontSize === 16)
   check("et se garde sur cette machine", JSON.parse(stockage.get("zyvro.editorSettings")).fontSize === 16)

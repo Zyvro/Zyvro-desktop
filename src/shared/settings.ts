@@ -52,6 +52,13 @@ export type EditorSettings = {
   workingIndicator: WorkingIndicatorId
   /** L'image téléversée pour l'indicateur « Your own », ou rien. */
   customIndicator: CustomIndicator | null
+  /**
+   * La taille du texte du chat d'agent, en pixels, 13 par défaut. Le panneau
+   * écrit ses tailles en dur (text-[11px], text-[12px]…), donc ce réglage ne
+   * change pas une police : il agrandit la conversation et la boîte d'un même
+   * facteur (`chatZoom`), comme un zoom, et tout garde ses proportions.
+   */
+  chatFontSize: number
 }
 
 export const DEFAULT_SETTINGS: EditorSettings = {
@@ -75,6 +82,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   chatTheme: "zyvro",
   workingIndicator: "sparkle",
   customIndicator: null,
+  chatFontSize: 13,
 }
 
 function entre(value: unknown, min: number, max: number, defaut: number): number {
@@ -117,6 +125,7 @@ export function sanitizeSettings(raw: unknown): EditorSettings {
       return choisi === "custom" && !sanitizeCustomIndicator(r.customIndicator) ? d.workingIndicator : choisi
     })(),
     customIndicator: sanitizeCustomIndicator(r.customIndicator),
+    chatFontSize: entre(r.chatFontSize, CHAT_FONT_SIZES[0], CHAT_FONT_SIZES[CHAT_FONT_SIZES.length - 1], d.chatFontSize),
   }
 }
 
@@ -144,6 +153,15 @@ export function sanitizeAgentSettings(raw: unknown): AgentSettings {
 
 // lineHeight : la hauteur de ligne qui suit la police. Écrite en dur à 20, elle
 // faisait se chevaucher les lignes dès 16 pixels.
+// Les tailles proposées pour le chat. 13 est la taille d'origine du panneau :
+// c'est par rapport à elle que se calcule le facteur.
+export const CHAT_FONT_SIZES = [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24] as const
+
+/** Le facteur d'agrandissement du chat pour une taille donnée (13 → 1). */
+export function chatZoom(size: number): number {
+  return Math.round((size / 13) * 1000) / 1000
+}
+
 export function lineHeightFor(fontSize: number): number {
   return Math.round(fontSize * 1.54)
 }
