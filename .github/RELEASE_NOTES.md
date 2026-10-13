@@ -47,6 +47,23 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.83
+
+**Background tasks survive the end of the agent's turn.** When the agent
+started something in the background (a download, a server) and said it would
+wait, Studio ended Claude's process with the turn, and the task died with it.
+The process now stays alive while a task runs: the turn ends for the panel,
+Claude resumes by itself when the task finishes, a message you send in the
+meantime goes to the same process, and Stop or closing the window ends it all.
+
+**And you can follow them.** A banner above the conversation lists the running
+tasks with their elapsed time, the end of their log (Output) and a Stop button.
+The tool row that started a task says "in background", then "finished",
+"failed" or "stopped". The conversation tab gets a blue dot, the status bar a
+count, and a system notification tells you when a task ends while Studio is in
+the background. Claude's resumption is shown as a "Background" event rather
+than as a message from you.
+
 ## New in alpha.82
 
 **A queued message no longer gets stuck.** A message written just before the
