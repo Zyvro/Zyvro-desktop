@@ -1692,6 +1692,17 @@ export function registerIpc(onRecents?: () => void): void {
 
   // Arrêter une session qui se réveille toute seule. Le bouton du panneau, et
   // ce que `ScheduleWakeup {stop:true}` demande depuis le flux.
+  // Arrêter les tâches de fond d'une conversation garée (main/agent.ts).
+  ipcMain.handle("agent:stop-background", async (event, conversationId: string) => {
+    const { ws } = requireWorkspace(event)
+    return ws.agent.stopBackground(String(conversationId))
+  })
+
+  ipcMain.handle("agent:background-output", async (event, taskId: string) => {
+    const { ws } = requireWorkspace(event)
+    return ws.agent.backgroundOutput(String(taskId))
+  })
+
   ipcMain.handle("agent:unschedule", async (event, conversationId: string) => {
     const { ws } = requireWorkspace(event)
     ws.agent.unschedule(String(conversationId))

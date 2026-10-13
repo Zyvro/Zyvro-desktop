@@ -12,7 +12,7 @@ import { nextRunIn, type Pending, type Wake, wakeIn } from "./schedule"
 import { startGateway, type GatewayHandle } from "./responses"
 import { randomUUID } from "node:crypto"
 import path from "node:path"
-import { readFileSync } from "node:fs"
+import { readFileSync, promises as fsp } from "node:fs"
 import os from "node:os"
 import type { WebContents } from "electron"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig, type McpDialect, type McpTarget } from "./mcp"
@@ -36,6 +36,11 @@ import { memoryPreamble } from "../shared/memory"
 // Un objet plutôt qu'une constante pour que `scripts/check-steer.mjs` le
 // raccourcisse.
 export const STEER_LINGER = { ms: 10_000 }
+
+// Un processus garé dont les tâches de fond sont toutes finies, sans reprise de
+// Claude : combien de temps on attend sa reprise avant de le fermer. Mesuré :
+// la reprise arrive en quelques secondes après `task_notification`.
+export const PARKED_IDLE = { ms: 30_000 }
 
 export type { AgentKind } from "../shared/harness"
 
@@ -917,6 +922,8 @@ type Turn = {
    * du tour, dans la file de la fenêtre.
    */
   steer?: (text: string) => Promise<boolean>
+  /** Claude : des tâches de fond tournent dans ce processus (voir « garer »). */
+  hasBackground?: () => boolean
   /** Claude : les messages écrits pas encore repris, et les reprises vues. */
   live?: { pending: number; replays: number; closer: ReturnType<typeof setTimeout> | null }
 }
@@ -939,6 +946,78 @@ function stopProcess(child: ChildProcess): void {
   signal("SIGTERM")
   // Keep this even if the parent exits: a tool in its group may ignore SIGTERM.
   setTimeout(() => signal("SIGKILL"), 1500).unref()
+}
+
+/** Une tâche de fond de Claude (Bash `run_in_background`, Monitor…), telle qu'il l'annonce. */
+export type BackgroundTask = {
+  id: string
+  description: string
+  /** L'appel d'outil qui l'a lancée : c'est sa ligne, dans le fil, qui porte le badge. */
+  toolUseId: string | null
+  /** Quand Studio l'a vue partir, pour dire depuis combien de temps elle tourne. */
+  startedAt: number
+  /** Son journal, tel que Claude l'annonce : le bandeau en montre la fin. */
+  outputFile: string | null
+}
+
+/** Comment une tâche de fond s'est terminée, tel que Claude le dit (ou « stopped » quand Studio l'arrête). */
+export type BackgroundEnd = BackgroundTask & { status: string; summary: string; endedAt: number }
+
+/**
+ * Ce qu'une ligne de Claude dit d'UNE tâche de fond : son départ (et l'appel
+ * qui l'a lancée), son journal, sa fin. Relevé sur claude 2.1.296 :
+ * `system/task_started` porte `tool_use_id` ; le résultat de l'outil dit
+ * « Command running in background with ID: X. Output is being written to:
+ * CHEMIN » ; `system/task_notification` porte `status`, `summary` et
+ * `output_file`.
+ */
+export function backgroundEventIn(parsed: Record<string, unknown>):
+  | { kind: "started"; id: string; toolUseId: string | null }
+  | { kind: "output"; id: string; file: string }
+  | { kind: "ended"; id: string; status: string; summary: string; file: string | null }
+  | null {
+  if (parsed.type === "system" && parsed.subtype === "task_started" && typeof parsed.task_id === "string") {
+    return { kind: "started", id: parsed.task_id, toolUseId: typeof parsed.tool_use_id === "string" ? parsed.tool_use_id : null }
+  }
+  if (parsed.type === "system" && parsed.subtype === "task_notification" && typeof parsed.task_id === "string") {
+    return {
+      kind: "ended",
+      id: parsed.task_id,
+      status: typeof parsed.status === "string" ? parsed.status : "completed",
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      file: typeof parsed.output_file === "string" && parsed.output_file ? parsed.output_file : null,
+    }
+  }
+  if (parsed.type === "user") {
+    const content = (parsed.message as { content?: unknown } | undefined)?.content
+    for (const block of Array.isArray(content) ? content : []) {
+      const b = block as { type?: string; content?: unknown }
+      if (b?.type !== "tool_result") continue
+      const text = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((c) => (c as { text?: string })?.text ?? "").join("") : ""
+      const match = /in background with ID: ([\w-]+)\. Output is being written to: (\S+?\.output)(?![\w-])/.exec(text)
+      if (match) return { kind: "output", id: match[1], file: match[2] }
+    }
+  }
+  return null
+}
+
+/**
+ * Les tâches de fond annoncées par une ligne de Claude, ou null si la ligne
+ * n'en parle pas. Claude publie la liste entière à chaque changement
+ * (`system/background_tasks_changed`, relevé sur claude 2.1.296) : c'est elle
+ * qu'on garde, sans tenir de compte à côté.
+ */
+export function backgroundTasksIn(parsed: Record<string, unknown>): BackgroundTask[] | null {
+  if (parsed.type !== "system" || parsed.subtype !== "background_tasks_changed" || !Array.isArray(parsed.tasks)) return null
+  return parsed.tasks.flatMap((t) => {
+    const task = t as { task_id?: unknown; description?: unknown }
+    return typeof task?.task_id === "string" ? [{ id: task.task_id, description: typeof task.description === "string" ? task.description : "", toolUseId: null, startedAt: 0, outputFile: null }] : []
+  })
+}
+
+/** Ce que la fenêtre affiche à la place de la question, quand Claude reprend seul. */
+export function backgroundWakeText(summary: string): string {
+  return summary.trim() ? `Background task finished: ${summary.trim()}` : "A background task finished."
 }
 
 /** Une question à Claude en `--input-format stream-json` : une ligne JSON. */
@@ -1015,6 +1094,13 @@ export class AgentRunner {
   // Le dernier but connu de chaque conversation, pour ne prévenir la fenêtre
   // que quand il bouge.
   private goals = new Map<string, Goal>()
+  /** Le journal de chaque tâche de fond vue, par id : seul chemin que `backgroundOutput` lira. */
+  private taskFiles = new Map<string, string>()
+  /**
+   * Les processus de Claude gardés en vie entre deux tours parce qu'ils ont
+   * des tâches de fond, par conversation. Voir `send`, « garer ».
+   */
+  private residents = new Map<string, { adopt: (prompt: string, text: string) => string; stop: () => void; tasks: () => BackgroundTask[] }>()
 
   // Ce qu'il faut pour refaire un tour de cette conversation sans que personne
   // ne tape : où l'envoyer, avec quel harnais, dans quel projet, sur quel
@@ -1134,8 +1220,16 @@ export class AgentRunner {
     // quels serveurs ce projet a allumés.
     aim: Aim | null = null
   ): string {
-    const id = randomUUID()
     this.repeats.set(conversationId, { target, kind, ctx, model, aim })
+    // Un processus de Claude garé avec des tâches de fond : la question part
+    // dans CE processus. En lancer un second (`--resume`) laisserait le premier
+    // sans personne, et le fermer tuerait le téléchargement qu'on attend.
+    const gare = kind === "claude" ? this.residents.get(conversationId) : undefined
+    if (gare) {
+      const userText = promptWith(kind, prompt, images)
+      return gare.adopt(prompt, promptWithSkills(userText, ctx.skills, ctx.advancedSkills))
+    }
+    const id = randomUUID()
     const resume = this.sessionFor(kind, conversationId)
     const bin = this.available(kind)
     const env: NodeJS.ProcessEnv = { ...process.env }
@@ -1242,39 +1336,200 @@ export class AgentRunner {
     const turn: Turn = { id, conversationId, startedAt: Date.now(), projectDir: ctx.projectDir, kind, prompt: prompt, lines: [], bytes: 0, wake: null, child, sentText: false }
     this.turns.set(id, turn)
 
+    // Un processus peut porter plusieurs tours : Claude garé avec des tâches de
+    // fond (« garer », plus bas) reprend seul quand elles finissent, ou reçoit
+    // la question suivante. `current` est le tour que sa sortie alimente.
+    let current = turn
+    let parked = false
+    let tasks: BackgroundTask[] = []
+    // Ce qu'on sait de chaque tâche au-delà de la liste : l'appel qui l'a
+    // lancée, son départ, son journal. La liste de Claude ne porte que l'id.
+    const known = new Map<string, BackgroundTask>()
+    let lastSummary = ""
+    let idle: ReturnType<typeof setTimeout> | null = null
+
     // Ce que la sortie du processus devient : des événements au format du
     // harnais, sauf pour le serveur de codex, qui parle JSON-RPC et que son
     // pilote traduit.
     let settled = false
     let onLine = (line: string): void => {
       if (settled) return
-      this.remember(id, line)
-      this.emitEvent(target, id, kind, line)
+      if (kind === "claude" && background(line)) return
+      this.remember(current.id, line)
+      this.emitEvent(target, current.id, kind, line)
     }
     let serverTurn: CodexServerTurn | null = null
     let exitTimer: ReturnType<typeof setTimeout> | null = null
+    // La fin d'un tour, pour la fenêtre. Le processus, lui, peut continuer.
+    const endTurn = (t: Turn, message?: string): void => {
+      if (!this.turns.has(t.id)) return
+      if (t.live?.closer) clearTimeout(t.live.closer)
+      if (!target.isDestroyed()) {
+        if (message) this.sendError(target, { id: t.id, message })
+        else target.send("agent:done", { id: t.id })
+      }
+      this.turns.delete(t.id)
+    }
+    const announce = (): void => {
+      if (kind === "claude" && !target.isDestroyed()) target.send("agent:background", { conversationId, tasks })
+    }
+    // La fin du processus : le tour en cours s'il y en a un, et tout le reste.
     const finish = (message?: string): void => {
       if (settled) return
       settled = true
-      this.turns.delete(id)
-      if (turn.live?.closer) clearTimeout(turn.live.closer)
+      if (idle) clearTimeout(idle)
+      if (this.residents.get(conversationId) === resident) this.residents.delete(conversationId)
+      // Garé, il n'y a plus de tour à clore : la fenêtre a eu son « done ».
+      // Une sortie en erreur d'un processus garé ne mérite pas une bulle rouge
+      // sous une réponse finie depuis longtemps ; elle va au journal.
+      if (parked) {
+        if (message) recordIncident("agent:claude", `background process ended: ${message}`)
+      } else endTurn(current, message)
+      if (tasks.length > 0) {
+        // Ce qui tournait encore meurt avec le processus : la fenêtre doit
+        // l'apprendre comme une fin, pas voir la tâche s'effacer sans un mot.
+        if (!target.isDestroyed()) {
+          for (const task of tasks) target.send("agent:background-ended", { conversationId, task: { ...task, status: "stopped", summary: task.description, endedAt: Date.now() } satisfies BackgroundEnd })
+        }
+        tasks = []
+        announce()
+      }
       serverTurn?.closed()
       disposeConfig?.()
       disposeConfig = null
-      if (!target.isDestroyed()) {
-        if (message) this.sendError(target, { id, message })
-        else target.send("agent:done", { id })
-      }
     }
-    turn.cancel = () => {
+
+    // Un nouveau tour sur ce même processus : la question suivante, ou la
+    // reprise que Claude décide seul quand une tâche de fond se termine.
+    const nextTurn = (prompt: string): Turn => {
+      const t: Turn = { id: randomUUID(), conversationId, startedAt: Date.now(), projectDir: ctx.projectDir, kind, prompt, lines: [], bytes: 0, wake: null, child, sentText: false }
+      wire(t)
+      this.turns.set(t.id, t)
+      current = t
+      parked = false
+      if (idle) clearTimeout(idle)
+      idle = null
+      if (this.residents.get(conversationId) === resident) this.residents.delete(conversationId)
+      return t
+    }
+
+    // background lit ce que Claude dit de ses tâches de fond. Vrai quand la
+    // ligne est entièrement prise en charge ici, et ne doit pas aller au tour.
+    //
+    // Mesuré sur claude 2.1.296, entrée gardée ouverte : la tâche annoncée
+    // (`background_tasks_changed`, `task_started`), le résultat du tour, puis à
+    // la fin de la tâche `task_notification` et un nouvel `init`, et Claude
+    // répond de lui-même. Fermer l'entrée au résultat — ce que faisait chaque
+    // tour — fait sortir le processus et tue la tâche avec lui : « j'attends la
+    // fin du téléchargement », et le téléchargement mourait trois secondes
+    // après (rapport bug_e073d4b2bdc5053f).
+    const background = (line: string): boolean => {
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(line) as Record<string, unknown>
+      } catch {
+        return false
+      }
+      const event = backgroundEventIn(parsed)
+      if (event) {
+        const before = known.get(event.id) ?? { id: event.id, description: "", toolUseId: null, startedAt: Date.now(), outputFile: null }
+        if (event.kind === "started") known.set(event.id, { ...before, toolUseId: event.toolUseId ?? before.toolUseId })
+        if (event.kind === "output") known.set(event.id, { ...before, outputFile: event.file })
+        if (event.kind === "ended") {
+          const task = { ...before, outputFile: event.file ?? before.outputFile }
+          known.set(event.id, task)
+          if (task.outputFile) this.taskFiles.set(event.id, task.outputFile)
+          if (!target.isDestroyed()) {
+            target.send("agent:background-ended", { conversationId, task: { ...task, status: event.status, summary: event.summary, endedAt: Date.now() } satisfies BackgroundEnd })
+          }
+        }
+        const t = known.get(event.id)
+        if (t?.outputFile) this.taskFiles.set(event.id, t.outputFile)
+        // Une mise à jour de ce qu'on sait d'une tâche listée : la fenêtre la
+        // reçoit tout de suite (le badge, le journal).
+        if (event.kind !== "ended" && tasks.some((x) => x.id === event.id)) {
+          tasks = tasks.map((x) => known.get(x.id) ?? x)
+          announce()
+        }
+      }
+      const listed = backgroundTasksIn(parsed)
+      if (listed) {
+        tasks = listed.map((x) => {
+          const k = known.get(x.id) ?? { ...x, startedAt: Date.now() }
+          const merged = { ...k, description: x.description || k.description }
+          known.set(x.id, merged)
+          return merged
+        })
+        announce()
+        // Plus rien en fond et personne n'a repris : on laisse à Claude le temps
+        // de lancer sa reprise, puis on ferme pour de bon.
+        if (parked && tasks.length === 0 && !idle) {
+          idle = setTimeout(() => {
+            idle = null
+            if (parked && !child.stdin.writableEnded) child.stdin.end()
+          }, PARKED_IDLE.ms)
+        }
+        return parked
+      }
+      if (parsed.type === "system" && parsed.subtype === "task_notification" && typeof parsed.summary === "string") {
+        lastSummary = parsed.summary
+      }
+      if (!parked) return false
+      // Garé, une ligne qui ouvre un tour : Claude reprend de lui-même. La
+      // fenêtre l'apprend comme un réveil (`agent:woke`), avec ses deux bulles.
+      if ((parsed.type === "system" && parsed.subtype === "init") || parsed.type === "assistant") {
+        const t = nextTurn(backgroundWakeText(lastSummary))
+        lastSummary = ""
+        if (!target.isDestroyed()) target.send("agent:woke", { conversationId, turnId: t.id, prompt: t.prompt })
+        return false
+      }
+      // Le reste, entre deux tours (notifications, mises à jour), n'a pas de
+      // bulle où aller.
+      return true
+    }
+    const stop = (): void => {
       if (settled) return
       this.unschedule(conversationId)
       finish()
       child.stdin.destroy()
       stopProcess(child)
     }
-    turn.complete = () => {
-      if (settled) return
+    const resident = {
+      adopt: (prompt: string, text: string): string => {
+        const t = nextTurn(prompt)
+        child.stdin.write(claudeUserLine(text))
+        return t.id
+      },
+      stop,
+      tasks: () => tasks,
+    }
+    // Chaque tour de ce processus a les mêmes poignées : arrêter (tout, tâches
+    // de fond comprises), finir, glisser un message.
+    const wire = (t: Turn): void => {
+      t.cancel = stop
+      t.complete = () => complete(t)
+      t.hasBackground = () => tasks.length > 0
+      if (kind === "claude") {
+        t.live = { pending: 0, replays: 0, closer: null }
+        t.steer = async (message) => {
+          if (child.stdin.writableEnded || !this.turns.has(t.id)) return false
+          child.stdin.write(claudeUserLine(message))
+          t.live!.pending++
+          return true
+        }
+      }
+    }
+    const complete = (t: Turn): void => {
+      if (settled || t !== current) return
+      // Garer : des tâches de fond tournent. Le tour est fini pour la fenêtre,
+      // le processus reste — l'entrée ouverte, pour que Claude reprenne quand
+      // elles finissent, ou reçoive la question suivante.
+      if (kind === "claude" && tasks.length > 0 && !child.stdin.writableEnded) {
+        endTurn(t)
+        parked = true
+        this.residents.set(conversationId, resident)
+        return
+      }
       if (!child.stdin.writableEnded) child.stdin.end()
       finish()
       // A final protocol result ends the UI turn. Give hooks/MCP teardown time
@@ -1284,6 +1539,7 @@ export class AgentRunner {
       }, 3000)
       exitTimer.unref()
     }
+    wire(turn)
     child.stdin.on("error", (err: Error) => {
       if (settled) return
       finish(`Could not send input to ${bin}: ${err.message}`)
@@ -1323,13 +1579,6 @@ export class AgentRunner {
       // L'entrée reste ouverte : c'est par là qu'un message glissé arrive. Elle
       // se ferme au résultat, quand plus rien n'attend (voir emitEvent).
       child.stdin.write(claudeUserLine(text))
-      turn.live = { pending: 0, replays: 0, closer: null }
-      turn.steer = async (message) => {
-        if (child.stdin.writableEnded || !this.turns.has(id)) return false
-        child.stdin.write(claudeUserLine(message))
-        turn.live!.pending++
-        return true
-      }
     } else {
       child.stdin.write(text)
       child.stdin.end()
@@ -1721,12 +1970,18 @@ export class AgentRunner {
             // message déjà écrit est traité même après la fermeture (mesuré),
             // et s'il ne l'est pas, le tour se termine et la file du panneau
             // le renvoie comme un tour ordinaire.
+            //
+            // Sauf avec des tâches de fond : fermer les tuerait. Le message
+            // attend alors que Claude reprenne — ce qu'il fait seul quand elles
+            // finissent, et il prend au passage ce qui attendait sur l'entrée.
             live.closer = setTimeout(() => {
+              if (turn.hasBackground?.()) return
               if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
             }, STEER_LINGER.ms)
             return
           }
-          if (!turn.child.stdin?.writableEnded) turn.child.stdin?.end()
+          // Plus rien n'attend : c'est `complete`, juste en dessous, qui ferme
+          // l'entrée — ou la garde ouverte quand des tâches de fond tournent.
         }
         // Le tour est fini : c'est maintenant qu'on tient ce qu'il a demandé.
         if (turn && !rejeu) {
@@ -1850,6 +2105,38 @@ export class AgentRunner {
     turn.cancel?.()
   }
 
+  /**
+   * La fin du journal d'une tâche de fond, pour le bandeau. Seulement le
+   * fichier que Claude a annoncé pour CETTE tâche, et nommé d'après elle : la
+   * fenêtre donne un id, jamais un chemin.
+   */
+  async backgroundOutput(taskId: string, bytes = 6000): Promise<string | null> {
+    const file = this.taskFiles.get(taskId)
+    if (!file || path.basename(file) !== `${taskId}.output`) return null
+    try {
+      const handle = await fsp.open(file, "r")
+      try {
+        const { size } = await handle.stat()
+        const start = Math.max(0, size - bytes)
+        const buffer = Buffer.alloc(size - start)
+        await handle.read(buffer, 0, buffer.length, start)
+        return buffer.toString("utf8")
+      } finally {
+        await handle.close()
+      }
+    } catch {
+      return null
+    }
+  }
+
+  /** Arrêter les tâches de fond d'une conversation garée, et son processus. */
+  stopBackground(conversationId: string): boolean {
+    const resident = this.residents.get(conversationId)
+    if (!resident) return false
+    resident.stop()
+    return true
+  }
+
   // sendError : l'échec d'un tour, à la fenêtre et au journal du bouton bug.
   private sendError(target: WebContents, payload: { id: string; message: string }): void {
     const turn = this.turns.get(payload.id)
@@ -1893,6 +2180,7 @@ export class AgentRunner {
         lines: turn.lines.slice(-40).map((line) => line.slice(0, 4000)),
       })),
       scheduled: [...this.repeats.keys()],
+      background: [...this.residents.entries()].map(([conversationId, r]) => ({ conversationId, tasks: r.tasks() })),
     }
   }
 
@@ -1911,6 +2199,8 @@ export class AgentRunner {
   // mémoire jusqu'à son réveil.
   cancelAll(): void {
     for (const id of [...this.turns.keys()]) this.cancel(id)
+    // Les processus garés aussi : une tâche de fond ne survit pas à sa fenêtre.
+    for (const resident of [...this.residents.values()]) resident.stop()
     for (const id of [...this.waking.keys()]) this.clearTimer(id)
     this.repeats.clear()
     this.gateway?.close()

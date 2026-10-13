@@ -95,6 +95,8 @@ import type {
 import type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem } from "../main/agentPlugins"
 export type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem, StoreAgentPlugin, PluginInstallResult }
 import type { PublisherVerdict } from "../main/knownpublishers"
+import type { BackgroundEnd, BackgroundTask } from "../main/agent"
+export type { BackgroundEnd, BackgroundTask }
 import type { Conversation, StoredMessage, StoredTool } from "../main/conversations"
 import type { PlanItem, ToolShape } from "../main/tooltalk"
 import type { Importable, ImportableWorkflow } from "../main/importing"
@@ -517,6 +519,18 @@ const api = {
     // rien envoyé : c'est par là qu'elle l'apprend et lui fait une place.
     onWoke: (cb: (p: { conversationId: string; turnId: string; prompt: string }) => void): Unsubscribe =>
       on("agent:woke", cb),
+    // Les tâches de fond de Claude dans une conversation (main/agent.ts,
+    // « garer ») : la liste entière à chaque changement, vide quand il n'y en a
+    // plus.
+    onBackground: (cb: (p: { conversationId: string; tasks: BackgroundTask[] }) => void): Unsubscribe =>
+      on("agent:background", cb),
+    /** Arrêter ces tâches, et le processus qui les porte. */
+    stopBackground: (conversationId: string): Promise<boolean> => invoke("agent:stop-background", conversationId),
+    /** Une tâche de fond vient de finir (ou d'être arrêtée), avec son statut. */
+    onBackgroundEnded: (cb: (p: { conversationId: string; task: BackgroundEnd }) => void): Unsubscribe =>
+      on("agent:background-ended", cb),
+    /** La fin du journal d'une tâche de fond, par son id ; null s'il n'y en a pas. */
+    backgroundOutput: (taskId: string): Promise<string | null> => invoke("agent:background-output", taskId),
     conversations: (): Promise<Conversation[]> => invoke("agent:conversations"),
     remember: (conversation: Conversation): Promise<void> =>
       invoke("agent:remember", conversation),

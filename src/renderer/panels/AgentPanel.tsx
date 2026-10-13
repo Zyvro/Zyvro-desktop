@@ -20,6 +20,7 @@ import {
   X,
   Volume2,
   VolumeX,
+  Loader2,
 } from "lucide-react"
 import { Markdown } from "@/components/Markdown"
 import { cn } from "@/lib/utils"
@@ -62,6 +63,7 @@ import { HarnessPicker } from "~/panels/HarnessPicker"
 import { useWorkspace } from "../state/workspace"
 import { ModelPicker } from "~/panels/ModelPicker"
 import { getSettings, subscribeSettings } from "~/state/settings"
+import { backgroundTasks, isBackgroundWake, setBackground, subscribeBackground } from "~/state/background"
 import { chatZoom } from "../../shared/settings"
 import { commandsFor, commandsKey, matching, noteCommands, slashPrefix, subscribeCommands } from "~/state/commands"
 import { activeSynthesis } from "~/state/synthesis"
@@ -72,7 +74,7 @@ import { setTaskRunner } from "~/state/tasks"
 import { reportIncident } from "~/state/bugReport"
 import { QuestionCard } from "~/panels/QuestionCard"
 import type { AgentQuestion, QuestionAnswers } from "../../shared/questions"
-import type { Goal, Pending } from "../../preload"
+import type { BackgroundTask, Goal, Pending } from "../../preload"
 import { Thumb, type Attached } from "~/panels/Thumb"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { engineReady, subscribeEngine } from "~/state/engine"
@@ -1228,6 +1230,79 @@ function ScheduleBanner({ pending, onStop }: { pending: Pending; onStop: () => v
   )
 }
 
+// Les tâches de fond de Claude qui tournent encore (main/agent.ts, « garer »).
+//
+// Le tour est fini, mais le processus vit : c'est lui qui porte le
+// téléchargement ou le serveur qu'on a demandé, et l'agent reprendra seul
+// quand ils finiront. Sans ce bandeau, rien ne dit que quelque chose tourne
+// encore — ni comment l'arrêter, ce qui pour un serveur lancé en fond est la
+// seule façon de le faire depuis l'app.
+function BackgroundBanner({ tasks, onStop }: { tasks: BackgroundTask[]; onStop: () => void }): JSX.Element {
+  const maintenant = useSyncExternalStore(everySecond, () => Math.floor(Date.now() / 1000), () => 0)
+  const [lu, setLu] = useState<string | null>(null)
+  return (
+    <div className="shrink-0 border-b border-sky-400/20 bg-sky-400/[0.06] px-3 py-1.5 text-[11px] leading-snug" data-background-tasks>
+      <div className="flex items-center gap-2">
+        <Loader2 className="h-3 w-3 shrink-0 zy-spin text-sky-300" />
+        <span className="min-w-0 flex-1 text-foreground">
+          {tasks.length === 1 ? "1 background task running" : `${tasks.length} background tasks running`}
+          <span className="text-muted-foreground"> · the agent resumes when {tasks.length === 1 ? "it finishes" : "they finish"}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onStop}
+          title="Stop the background tasks and the agent process that runs them"
+          className="shrink-0 rounded border border-white/[0.1] bg-white/[0.04] px-2 py-0.5 text-[11px] text-foreground hover:bg-white/[0.08]"
+        >
+          Stop
+        </button>
+      </div>
+      <ul className="mt-1 space-y-0.5">
+        {tasks.map((task) => (
+          <li key={task.id} data-background-task={task.id}>
+            <div className="flex items-center gap-2 pl-5">
+              <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-foreground/80" title={task.description || task.id}>
+                {task.description || task.id}
+              </span>
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground" title="Running for">
+                {task.startedAt ? duree(Math.max(0, maintenant * 1000 - task.startedAt)) : ""}
+              </span>
+              {task.outputFile && (
+                <button
+                  type="button"
+                  onClick={() => setLu(lu === task.id ? null : task.id)}
+                  className="shrink-0 rounded px-1 text-[10px] text-sky-300 hover:bg-white/[0.06]"
+                  title={task.outputFile}
+                >
+                  {lu === task.id ? "Hide output" : "Output"}
+                </button>
+              )}
+            </div>
+            {lu === task.id && <BackgroundOutput taskId={task.id} />}
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+// La fin du journal d'une tâche de fond, relue toutes les deux secondes tant
+// qu'elle est ouverte : c'est ce qui dit qu'un téléchargement avance, ou qu'un
+// serveur a démarré.
+function BackgroundOutput({ taskId }: { taskId: string }): JSX.Element {
+  const output = useQuery({
+    queryKey: ["agent", "background-output", taskId],
+    queryFn: () => window.zyvro.agent.backgroundOutput(taskId),
+    refetchInterval: 2000,
+  })
+  const text = (output.data ?? "").split("\n").slice(-12).join("\n").trimEnd()
+  return (
+    <pre className="zy-scroll ml-5 mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-1.5 font-mono text-[10px] leading-relaxed text-foreground/75">
+      {output.isLoading ? "Reading…" : text || "(no output yet)"}
+    </pre>
+  )
+}
+
 // duree : « 4 min », « 1 h 20 min », « 12 s ». Pas de secondes au-delà d'une
 // minute — elles défilent sans rien apprendre — et pas de « 0 h » non plus.
 function duree(ms: number): string {
@@ -1694,6 +1769,7 @@ export function AgentPanel(): JSX.Element {
   // la conversation et à la boîte, pas une police — le panneau écrit ses
   // tailles en pixels, et seul un zoom les agrandit toutes ensemble.
   const zoom = useSyncExternalStore(subscribeSettings, () => chatZoom(getSettings().chatFontSize))
+  const background = useSyncExternalStore(subscribeBackground, backgroundTasks)
   const [sessionsOpen, setSessionsOpen] = useState(false)
   const project = useWorkspace((workspace) => workspace.project)
   // Pour ouvrir le panneau du bas quand on y envoie quelque chose.
@@ -2368,12 +2444,17 @@ export function AgentPanel(): JSX.Element {
               <button
                 type="button"
                 className="flex min-w-0 flex-1 items-center gap-1.5 truncate py-1 text-left"
-                title={`${t.title} · ${t.kind}${t.busy ? " · Running" : ""}`}
+                title={`${t.title} · ${t.kind}${t.busy ? " · Running" : ""}${(background.get(t.id)?.length ?? 0) > 0 ? ` · ${background.get(t.id)!.length} background task${background.get(t.id)!.length === 1 ? "" : "s"} running` : ""}`}
                 aria-current={t.id === chat.activeId ? "page" : undefined}
                 onDoubleClick={() => void renameThread(t.id)}
                 onClick={() => selectThread(t.id)}
               >
                 {t.busy && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
+                {/* Une tâche de fond tourne dans cette conversation : un point
+                    bleu qui pulse, même quand l'onglet n'est pas celui qu'on lit. */}
+                {!t.busy && (background.get(t.id)?.length ?? 0) > 0 && (
+                  <span className="zy-pulse h-1.5 w-1.5 shrink-0 rounded-full bg-sky-300" data-tab-background aria-label="Background task running" />
+                )}
                 <span className="truncate">{t.title}</span>
               </button>
               <button
@@ -2408,6 +2489,17 @@ export function AgentPanel(): JSX.Element {
           onStop={() => {
             mapThread(thread.id, (t) => ({ ...t, pending: null }))
             void window.zyvro.agent.unschedule(thread.id)
+          }}
+        />
+      )}
+
+      {/* Les tâches de fond qui tournent, pendant un tour comme après. */}
+      {(background.get(thread.id)?.length ?? 0) > 0 && (
+        <BackgroundBanner
+          tasks={background.get(thread.id)!}
+          onStop={() => {
+            setBackground(thread.id, [])
+            void window.zyvro.agent.stopBackground(thread.id)
           }}
         />
       )}
@@ -2808,6 +2900,17 @@ function Bubble({
    *  appartient à une conversation, pas à l'application. */
   conversationId: string
 }): JSX.Element {
+  if (message.role === "user" && isBackgroundWake(textOf(message))) {
+    // La reprise de Claude après une tâche de fond (main/agent.ts) : pas une
+    // question de la personne, un événement. Le dire « You » faisait croire
+    // qu'on avait écrit quelque chose.
+    return (
+      <div className="flex items-center gap-1.5 rounded-md border border-sky-400/20 bg-sky-400/[0.06] px-2.5 py-1.5 text-xs text-foreground" data-background-wake>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-sky-300">Background</span>
+        <span className="min-w-0 break-words text-foreground/85">{textOf(message)}</span>
+      </div>
+    )
+  }
   if (message.role === "user") {
     const images = message.images ?? []
     return (

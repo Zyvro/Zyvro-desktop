@@ -1,4 +1,5 @@
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
+import { backgroundState, endLabel, runningFor, subscribeBackground } from "~/state/background"
 import { Thumb } from "~/panels/Thumb"
 import {
   ChevronDown,
@@ -104,6 +105,40 @@ function Plan({ items }: { items: PlanItem[] }) {
   )
 }
 
+// Le badge d'une commande lancée en fond (main/agent.ts, « garer »).
+//
+// La ligne dit « Ran … » dès que Claude a rendu la main, alors que la commande
+// tourne encore : sans badge, on lit « terminé » sur un téléchargement qui a à
+// peine commencé. Il dit donc ce qui est vrai — en fond, depuis combien de
+// temps — puis comment ça s'est fini.
+function BackgroundBadge({ callId }: { callId: string }): JSX.Element | null {
+  const state = useSyncExternalStore(subscribeBackground, backgroundState)
+  const running = runningFor(state, callId)
+  const ended = running ? null : state.ended.get(callId)
+  if (running) {
+    return (
+      <span className="ml-1 flex shrink-0 items-center gap-1 rounded bg-sky-400/10 px-1 py-px text-[10px] text-sky-300" data-tool-background="running">
+        <Loader2 className="h-2.5 w-2.5 zy-spin" />
+        in background
+      </span>
+    )
+  }
+  if (!ended) return null
+  const status = endLabel(ended.status)
+  return (
+    <span
+      className={cn(
+        "ml-1 shrink-0 rounded px-1 py-px text-[10px]",
+        status === "finished" ? "bg-emerald-400/10 text-emerald-300" : status === "failed" ? "bg-red-400/10 text-red-300" : "bg-white/[0.06] text-muted-foreground"
+      )}
+      data-tool-background={status}
+      title={ended.summary || ended.description}
+    >
+      background · {status}
+    </span>
+  )
+}
+
 export function ToolRow({ call, conversationId }: { call: ToolCall; conversationId: string }) {
   const [open, setOpen] = useState(false)
   const Icon = ICONS[call.shape] ?? Wrench
@@ -159,6 +194,7 @@ export function ToolRow({ call, conversationId }: { call: ToolCall; conversation
           <span className={cn("font-medium", tint)}>{verb}</span>
           <span className={call.isError ? "text-red-300/80" : "text-foreground/80"}>{subject}</span>
         </span>
+        <BackgroundBadge callId={call.callId} />
       </button>
 
       {call.shape === "plan" && call.plan.length > 0 && (

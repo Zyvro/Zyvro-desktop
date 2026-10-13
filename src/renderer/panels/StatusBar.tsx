@@ -7,6 +7,7 @@ import { CompletionToggle } from "~/panels/CompletionToggle"
 import { UsageToggle } from "~/panels/UsageToggle"
 import { ShotButton } from "~/panels/ShotPicker"
 import { focusedTabId, useWorkspace } from "~/state/workspace"
+import { backgroundState, subscribeBackground, totalBackground } from "~/state/background"
 import { UpdatePill } from "~/panels/UpdateDialog"
 import { ProblemsPill } from "~/panels/ProblemsTab"
 import { gitActions, useGitAction, useGitStatus } from "~/lib/git"
@@ -228,6 +229,28 @@ function GitPill() {
   )
 }
 
+// Les tâches de fond de l'agent, toutes conversations confondues : le signal
+// qui reste quand le panneau de l'agent est fermé, ou sur une autre
+// conversation. Un clic ouvre le panneau.
+function BackgroundPill() {
+  const state = useSyncExternalStore(subscribeBackground, backgroundState)
+  const total = totalBackground(state)
+  if (total === 0) return null
+  const names = [...state.active.values()].flat().map((t) => t.description || t.id)
+  return (
+    <button
+      type="button"
+      className="flex items-center gap-1 text-sky-300 hover:text-sky-200"
+      title={names.join("\n")}
+      onClick={() => useWorkspace.getState().setPanel("agent", true)}
+      data-status-background
+    >
+      <Loader2 className="h-3 w-3 zy-spin" />
+      {total} background task{total === 1 ? "" : "s"}
+    </button>
+  )
+}
+
 export function StatusBar() {
   const project = useWorkspace((s) => s.project)
   const stopped = useSyncExternalStore(subscribeEngine, engineDown, () => null)
@@ -276,6 +299,7 @@ export function StatusBar() {
 
       <GitPill />
       <ProblemsPill />
+      <BackgroundPill />
 
       <div className="flex-1" />
 
