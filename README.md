@@ -104,6 +104,57 @@ including tools that ignore the first termination signal. A final Claude/Codex
 result also ends the displayed turn even if the CLI takes time to shut down;
 remaining teardown processes are stopped after a short grace period.
 
+## Shell + Agents
+
+The bottom panel is a shell **and** an agent launcher. An agent is a shell whose
+program is the harness: `claude`, `codex`, `qwen` or `mimo` in its own native
+interface, in a tab, with everything you configured translated into native
+flags. The chat panel redraws the print-mode stream; this runs the real thing.
+
+**Run one.** Open the launcher (the *Run an agent* bar, the bot menu next to `+`,
+or *View › New Agent Shell…*, `⌘⌥A` / `Ctrl+Alt+A`), pick a configuration, write
+the task, press Enter. You choose, with the same pickers as the chat toolbar:
+
+| Setting | What the harness receives |
+|---|---|
+| Harness, model | the binary, `--model` / `-m` (a local server model keeps its gateway route) |
+| Permission | Read only → claude `plan`, codex `read-only`; Ask → it asks, on screen, in the terminal; Workspace → `acceptEdits` / `workspace-write`, nothing leaves the project; YOLO → everything lifted |
+| Effort | `--effort` (claude), `model_reasoning_effort` (codex, capped at `high`) |
+| Zyvro tools | the project's MCP servers (workflows, capture), wired like a chat turn: a config file for claude and qwen, `-c` flags and an env token for codex, env for MiMo. Tokens never reach `ps` |
+| Skills | the catalog of local skills, in the system prompt (claude, qwen) or ahead of the task |
+| Instructions | appended to the system prompt, or ahead of the task for harnesses without one |
+
+The task is the last argument for claude (after `--`: its variadic options would
+swallow it otherwise) and codex. Qwen and MiMo have no prompt argument we could
+verify, so the task is pasted into their prompt once they are ready, **without
+Enter** — you read it, then send. Plain shells (`+`) are untouched, and both
+kinds live side by side, split and grouped like any tab.
+
+**Profiles** save a configuration under a name (*Save* in the launcher, or
+Settings › Agents › Shell + Agents). The bot menu opens a profile straight onto
+its prompt; each harness has one by default.
+
+**Sessions persist.** Every agent shell is recorded per project in the app's data
+directory (`agent-shells/`), with its configuration and the harness's session id:
+claude gets `--session-id <uuid>` up front, so it is known from the first second;
+codex chooses its own id, which is read from its rollout log
+(`~/.codex/sessions/…`, matched by folder, never shared between two tabs). When
+Zyvro closes, the agents that were open come back at the next launch (up to six,
+switchable in Settings) with `--resume`, `codex resume`, the same permission and
+model. Closing a tab, or an agent that exits, keeps its session in the sidebar's
+**Agent sessions** list, one click to resume, but it no longer reopens by itself.
+A claude session where nothing was said yet has no log to resume, so it restarts
+under the same id instead of failing. Qwen and MiMo do not tell us a new
+session's id: they reopen a new conversation (use their own `/resume`), except
+when opened from a chat thread that already has one.
+
+The chat panel's *Open in terminal* button now opens this too: the thread's model,
+the permission from the chat toolbar (no longer an implicit YOLO) and the
+thread's session.
+
+Run `npm run check:agent-shells` to verify the translation, the session store and
+the wiring; it launches no model.
+
 ## Settings and advanced skills
 
 Settings (`⌘,` / `Ctrl+,`) are grouped into General, Editor, Agents,

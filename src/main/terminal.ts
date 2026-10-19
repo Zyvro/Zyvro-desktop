@@ -169,6 +169,15 @@ type Session = {
    * `pty.onData` partait droit vers la fenêtre, et rien n'était gardé.
    */
   seen: string
+  /** L'enregistrement de session d'agent que cet onglet incarne, quand c'en est un. */
+  agentShell?: string
+  /** Ce qui n'avait de sens que pour ce shell : un fichier MCP qui porte un jeton. */
+  cleanup?: () => void
+  /** Prévenu quand le shell se termine de lui-même, ou qu'on le ferme à la main. */
+  onEnd?: (why: "exit" | "closed", code?: number) => void
+  /** Vrai dès qu'on a décidé de sa fin : l'arrêt qui suit n'est plus un événement. */
+  ending?: boolean
+  stopPaste?: () => void
 }
 
 // Ce qu'on garde de chaque shell. Un demi-mégaoctet : de quoi retrouver
@@ -236,15 +245,26 @@ export class Terminals {
        * disparaîtrait à la deuxième réouverture.
        */
       seed?: string
+      /**
+       * Pour un agent natif (shared/agentShell) : l'enregistrement qu'il incarne,
+       * le nettoyage de ce qu'il a écrit (la configuration MCP porte un jeton),
+       * et ce qu'on fait quand il finit. La fin NATURELLE ou la croix de
+       * l'onglet préviennent `onEnd` ; l'arrêt de l'application, d'un projet ou
+       * d'une page qui se recharge, non — la session reste « ouverte » et se
+       * rouvre au prochain démarrage.
+       */
+      agentShell?: string
+      cleanup?: () => void
+      onEnd?: (why: "exit" | "closed", code?: number) => void
     } = {}
   ): { id: string; pty: boolean; banner?: string } {
-    const { command = null, label, attached = false, seed = "" } = options
+    const { command = null, label, attached = false, seed = "", agentShell, cleanup, onEnd } = options
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
     const lieu = cwd || os.homedir()
     const pty = makePty(lieu, cols, rows, wired?.env, command)
     const vu = seed ? `${seed.slice(-SHELL_MAX_BYTES)}\r\n` : ""
-    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, attached, label })
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, attached, label, agentShell, cleanup, onEnd })
 
     pty.onData((data) => {
       this.remember(id, data)
@@ -252,7 +272,8 @@ export class Terminals {
       target.send("terminal:data", { id, data })
     })
     pty.onExit((code) => {
-      this.drop(id)
+      const fini = this.drop(id)
+      if (fini && !fini.ending) fini.onEnd?.("exit", code)
       if (target.isDestroyed()) return
       target.send("terminal:exit", { id, code })
     })
@@ -294,7 +315,7 @@ export class Terminals {
    * dans un projet le shell d'un autre donnerait une invite qui ment sur l'endroit
    * où l'on se trouve.
    */
-  running(cwd: string): { id: string; pty: boolean; label?: string; tab: number }[] {
+  running(cwd: string): { id: string; pty: boolean; label?: string; tab: number; agentShell?: string }[] {
     const lieu = cwd || os.homedir()
     // Les sessions persistantes y sont aussi : après un rechargement du rendu,
     // leur client d'attachement est bien vivant — il faut le reprendre, sinon
@@ -306,7 +327,13 @@ export class Terminals {
     return inLayoutOrder(
       ici.map((session) => session.id),
       this.layout
-    ).map(({ id, tab }) => ({ id, pty: ptyAvailable(), label: parId.get(id)?.label, tab }))
+    ).map(({ id, tab }) => ({
+      id,
+      pty: ptyAvailable(),
+      label: parId.get(id)?.label,
+      tab,
+      agentShell: parId.get(id)?.agentShell,
+    }))
   }
 
   /**
@@ -345,7 +372,9 @@ export class Terminals {
     const session = this.sessions.get(id)
     if (!session) return null
     this.sessions.delete(id)
+    session.stopPaste?.()
     session.dispose?.()
+    session.cleanup?.()
     return session
   }
 
@@ -358,7 +387,54 @@ export class Terminals {
   }
 
   dispose(id: string): void {
+    const session = this.sessions.get(id)
+    if (session) session.ending = true
     this.drop(id)?.pty.kill()
+  }
+
+  /** Le shell vivant qui incarne cette session d'agent, s'il y en a un. */
+  byAgentShell(agentShell: string): string | null {
+    for (const session of this.sessions.values()) if (session.agentShell === agentShell) return session.id
+    return null
+  }
+
+  /**
+   * Coller un texte dans l'invite d'un harnais quand il est prêt.
+   *
+   * Pour les harnais qui ne prennent pas leur tâche en argument. « Prêt » : il
+   * a écrit quelque chose, puis s'est tu un moment — l'écran de confiance ou
+   * l'invite sont dessinés. Collé entre crochets de collage, SANS retour à la
+   * ligne final : le texte arrive dans la boîte de saisie, la personne le relit
+   * et valide. Rien n'est jamais envoyé à sa place, surtout pas à un écran qui
+   * demande « faites-vous confiance à ce dossier ? ».
+   */
+  pasteWhenReady(id: string, text: string, quietMs = 1500, giveUpMs = 30_000): void {
+    const session = this.sessions.get(id)
+    if (!session || !text) return
+    const started = Date.now()
+    let last = session.seen.length
+    let still = Date.now()
+    let timer: NodeJS.Timeout | null = null
+    const tick = (): void => {
+      timer = null
+      const current = this.sessions.get(id)
+      if (!current) return
+      if (current.seen.length !== last) {
+        last = current.seen.length
+        still = Date.now()
+      }
+      const ready = current.seen.length > 0 && Date.now() - still >= quietMs
+      if (ready) {
+        current.pty.write(text)
+        return
+      }
+      if (Date.now() - started > giveUpMs) return
+      timer = setTimeout(tick, 250)
+    }
+    timer = setTimeout(tick, 250)
+    session.stopPaste = () => {
+      if (timer) clearTimeout(timer)
+    }
   }
 
   /**
@@ -394,6 +470,11 @@ export class Terminals {
    * Fermer un shell parce qu'on n'en veut plus — la croix de son onglet.
    */
   close(id: string, _projectDir: string | null): void {
+    const session = this.sessions.get(id)
+    if (session && !session.ending) {
+      session.ending = true
+      session.onEnd?.("closed")
+    }
     this.dispose(id)
   }
 }

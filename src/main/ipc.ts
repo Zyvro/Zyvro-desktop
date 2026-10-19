@@ -60,7 +60,22 @@ import { listAgentPlugins, pluginSkillDirs, removeInstalledPlugin, type PluginRo
 import { PLUGIN_NAME } from "../shared/pluginPackage"
 import { pluginOn } from "../shared/plugins"
 import { sanitizeAgentSettings } from "../shared/settings"
-import { skillEnabled } from "../shared/skills"
+import { skillCatalogPrompt, skillEnabled } from "../shared/skills"
+import * as agentShells from "./agentShells"
+import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
+import {
+  bracketedPaste,
+  hasSystemPromptFlag,
+  nativeArgs,
+  promptDelivery,
+  recordTitle,
+  sanitizeSpec,
+  sessionIdOk,
+  taskText,
+  toRestore,
+  type AgentShellRecord,
+} from "../shared/agentShell"
+import { speaksCodex } from "../shared/harness"
 
 // One Workspace per window, holding every project folder the person opened in
 // that window. Each project keeps its own daemon, file watcher and git repo
@@ -369,6 +384,46 @@ function pluginRoots(root: string | null): PluginRoot[] {
 function requireRoot(ws: Workspace): string {
   if (!ws.root) throw new Error("The local engine is not running.")
   return ws.root
+}
+
+// harnessLaunch : ce qu'il faut pour lancer un harnais dans son interface à lui,
+// et qui ne dépend pas de ce qu'on lui demande — le binaire, la visée du modèle
+// (fournisseur local, passerelle) et l'environnement qui l'accompagne.
+//
+// Partagé par le bouton « terminal » du panneau et par les shells d'agent : deux
+// copies de cette logique finiraient par viser deux fournisseurs différents pour
+// le même modèle.
+async function harnessLaunch(ws: Workspace, kind: AgentKind, pinned: string | null) {
+  const table = harness(kind)
+  const found = locate(table.bin)
+  if (!found) {
+    throw new Error(`"${table.bin}" was not found on this machine. Install it with: ${table.install}`)
+  }
+  const aim = table.aimable ? await aimFor(pinned, ws.daemon.current) : null
+  // La passerelle n'est allumée que si ce harnais en a besoin ET qu'il vise
+  // quelque chose — exactement comme pour un tour du panneau, et c'est la
+  // même passerelle : elle route sur le nom du modèle, donc deux shells visant
+  // deux fournisseurs ne peuvent pas se marcher dessus.
+  if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
+  const passerelle = ws.agent.gatewayAim()
+
+  const env: Record<string, string> = {}
+  if (aim && kind === "qwen") Object.assign(env, agentModule.aimEnv(aim))
+  // MiMo Code : les serveurs MCP du projet, par son environnement.
+  if (kind === "mimo") {
+    const config = agentModule.mimoConfig({ daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token })
+    if (config) env.MIMOCODE_CONFIG_CONTENT = config
+  }
+  if (aim && passerelle && table.gateway) {
+    env[agentModule.GATEWAY_KEY_VAR] = passerelle.token
+    if (kind === "claude") Object.assign(env, agentModule.claudeAimEnv(passerelle.origin, passerelle.token))
+  }
+  // `codexAimArgs` déclare la passerelle comme un fournisseur, et il lui faut
+  // le NOM de la variable qui porte la clef, pas la clef : `env_key` dans sa
+  // configuration. C'est ce que `GatewayAim` ajoute à la poignée.
+  const vise =
+    aim && passerelle ? { baseUrl: passerelle.baseUrl, keyVar: agentModule.GATEWAY_KEY_VAR } : null
+  return { table, found, aim, vise, env }
 }
 
 // requireGitRoot rend le dossier du dépôt choisi dans l'onglet Git. Le nom
@@ -1628,44 +1683,14 @@ export function registerIpc(onRecents?: () => void): void {
     // contraire, et « lance ce harnais » deviendrait sinon « lance ce que je
     // veux ».
     if (!isAgentKind(kind)) throw new Error(`"${String(kind)}" is not a harness this app knows.`)
-    const table = harness(kind)
-
-    const found = locate(table.bin)
-    if (!found) {
-      throw new Error(`"${table.bin}" was not found on this machine. Install it with: ${table.install}`)
-    }
-
     const pinned = typeof model === "string" && model.trim() ? model.trim() : null
-    const aim = table.aimable ? await aimFor(pinned, ws.daemon.current) : null
     // La conversation du panneau à reprendre, quand le shell la continue. Son
     // identifiant de session part sur la ligne de commande : lettres, chiffres
     // et tirets, ou rien.
     const session = conversationId ? ws.agent.sessionFor(kind, String(conversationId)) : null
     const resume = session && /^[A-Za-z0-9_-]+$/.test(session) ? session : null
-    // La passerelle n'est allumée que si ce harnais en a besoin ET qu'il vise
-    // quelque chose — exactement comme pour un tour du panneau, et c'est la
-    // même passerelle : elle route sur le nom du modèle, donc deux shells visant
-    // deux fournisseurs ne peuvent pas se marcher dessus.
-    if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
-    const passerelle = ws.agent.gatewayAim()
+    const { found, aim, vise, env } = await harnessLaunch(ws, kind, pinned)
 
-    const env: Record<string, string> = {}
-    if (aim && kind === "qwen") Object.assign(env, agentModule.aimEnv(aim))
-    // MiMo Code : les serveurs MCP du projet, par son environnement.
-    if (kind === "mimo") {
-      const config = agentModule.mimoConfig({ daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token })
-      if (config) env.MIMOCODE_CONFIG_CONTENT = config
-    }
-    if (aim && passerelle && table.gateway) {
-      env[agentModule.GATEWAY_KEY_VAR] = passerelle.token
-      if (kind === "claude") Object.assign(env, agentModule.claudeAimEnv(passerelle.origin, passerelle.token))
-    }
-
-    // `codexAimArgs` déclare la passerelle comme un fournisseur, et il lui faut
-    // le NOM de la variable qui porte la clef, pas la clef : `env_key` dans sa
-    // configuration. C'est ce que `GatewayAim` ajoute à la poignée.
-    const vise =
-      aim && passerelle ? { baseUrl: passerelle.baseUrl, keyVar: agentModule.GATEWAY_KEY_VAR } : null
     const args = agentModule.shellArgsFor(kind, pinned, aim, vise, resume)
 
     // Sous Windows, `claude` est `claude.cmd` : un script pour l'interpréteur
@@ -1688,6 +1713,269 @@ export function registerIpc(onRecents?: () => void): void {
       // raison d'être de ce bouton pour qui compare.
       { command, label: pinned ? `${kind} · ${pinned}` : kind }
     )
+  })
+
+  // ---------- Shell + Agents ----------
+  //
+  // Un agent est un shell dont le programme est un harnais. La fenêtre envoie
+  // une configuration (shared/agentShell) et une tâche ; ce côté la traduit en
+  // drapeaux natifs, branche les serveurs MCP du projet, garde la session sur le
+  // disque et rend un shell ordinaire du panneau.
+  const agentShellsDir = (): string => path.join(app.getPath("userData"), "agent-shells")
+  // Les sondages qui attendent que codex dise quelle est sa session.
+  const sessionWatchers = new Map<string, () => void>()
+
+  const liveAgentShells = (ws: Workspace, root: string): Set<string> =>
+    new Set(ws.terminals.running(root).flatMap((shell) => (shell.agentShell ? [shell.agentShell] : [])))
+
+  // Les workflows viennent de la fenêtre (elle les a déjà demandés au démon) :
+  // des chaînes, en nombre borné, jamais autre chose sur une ligne de commande.
+  const cleanWorkflows = (raw: unknown): AgentContext["workflows"] =>
+    Array.isArray(raw)
+      ? raw.slice(0, 200).flatMap((item) => {
+          const w = item as { id?: unknown; name?: unknown; description?: unknown }
+          return typeof w?.id === "string" && typeof w?.name === "string"
+            ? [{ id: w.id.slice(0, 200), name: w.name.slice(0, 200), description: typeof w.description === "string" ? w.description.slice(0, 400) : undefined }]
+            : []
+        })
+      : []
+
+  ipcMain.handle("agentshell:open", async (event, rawSpec: unknown, rawContext: unknown, cols: number, rows: number) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    const asked = sanitizeSpec(rawSpec)
+    if (!asked) throw new Error("That is not an agent this app knows how to start.")
+    const context = (rawContext && typeof rawContext === "object" ? rawContext : {}) as { workflows?: unknown; agentSettings?: unknown }
+    const dir = agentShellsDir()
+    const notify = (): void => {
+      if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
+    }
+
+    // Reprendre : la configuration et la session viennent de l'enregistrement,
+    // pas de la fenêtre. Une session rouverte demain garde sa permission.
+    const known = await agentShells.load(dir, root)
+    const previous = asked.resume ? known.find((item) => item.id === asked.resume) : undefined
+    if (asked.resume && !previous) throw new Error("That agent session is no longer in the list.")
+    if (previous) {
+      const live = ws.terminals.byAgentShell(previous.id)
+      // Déjà ouverte : on la montre au lieu d'en lancer une seconde sur la même
+      // conversation, deux processus qui écrivent le même journal.
+      if (live) return { id: live, pty: true, existing: true, record: previous }
+    }
+    const spec = previous
+      ? { ...asked, kind: previous.kind, model: previous.model, permission: previous.permission, effort: previous.effort,
+          instructions: previous.instructions, mcp: previous.mcp, skills: previous.skills, name: previous.name,
+          profileId: previous.profileId, prompt: "" }
+      : asked
+    const kind = spec.kind
+    const { found, aim, vise, env } = await harnessLaunch(ws, kind, spec.model)
+
+    // ---- la session
+    const fromChat = !previous && spec.conversation ? ws.agent.sessionFor(kind, spec.conversation) : null
+    let sessionId = previous?.sessionId ?? (sessionIdOk(fromChat) ? fromChat : null)
+    let assign = false
+    let notice = ""
+    if (kind === "claude") {
+      if (!(sessionId && agentShells.claudeSessionExists(sessionId))) {
+        // Pas de journal : rien à reprendre. Neuve, avec cet identifiant — on le
+        // connaît donc dès le départ, sans attendre que la CLI le dise.
+        if (previous?.sessionId) notice = "Nothing was said in the previous session yet: starting it again under the same id."
+        sessionId = sessionId ?? randomUUID()
+        assign = true
+      }
+    } else if (speaksCodex(kind)) {
+      if (sessionId && !agentShells.codexSessionExists(sessionId)) {
+        notice = "The previous codex session has no log on this machine: starting a new one."
+        sessionId = null
+      }
+    } else if (previous && !sessionId) {
+      notice = `${kind} does not tell us its session id: this opens a new conversation. Use its own /resume to go back.`
+    }
+
+    // ---- ce que l'agent sait de ce projet
+    const agentSettings = sanitizeAgentSettings(context.agentSettings)
+    const skillsOn = spec.skills && pluginOn(agentSettings, "skills")
+    const catalog = skillsOn
+      ? (
+          await discoverSkills(
+            kind, root, path.join(app.getPath("userData"), "skill-packs"), os.homedir(), process.env,
+            pluginSkillDirs(await listAgentPlugins(pluginRoots(root)), agentSettings.disabledPlugins)
+          )
+        ).skills.filter((skill) => skillEnabled(skill, agentSettings))
+      : []
+    const memory = pluginOn(agentSettings, "memory") ? await memoryForAgent(root) : null
+    const target = { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token }
+    const sections = [
+      agentModule.preamble({
+        projectDir: root, workflows: cleanWorkflows(context.workflows), memory, ...target,
+      }),
+    ]
+    if (spec.instructions.trim()) sections.push(`Additional instructions for this session:\n${spec.instructions.trim()}`)
+    if (skillsOn) sections.push(skillCatalogPrompt(catalog, true))
+    const systemPrompt = sections.join("\n\n")
+
+    // ---- les serveurs MCP du projet
+    let mcpArgs: string[] = []
+    let disposeMcp = (): void => undefined
+    const useMcp = spec.mcp && mcpAvailable(target)
+    if (!useMcp) delete env.MIMOCODE_CONFIG_CONTENT
+    if (useMcp) {
+      const servers = Object.keys(mcpServers(target))
+      if (kind === "claude") {
+        const config = writeMcpConfig(target)
+        disposeMcp = config.dispose
+        // Seuls les outils de Zyvro sont pré-accordés ; le reste suit la
+        // permission choisie.
+        mcpArgs = ["--mcp-config", config.path, "--allowedTools", servers.map((name) => `mcp__${name}`).join(",")]
+      } else if (kind === "qwen") {
+        const config = writeMcpConfig(target, "qwen")
+        disposeMcp = config.dispose
+        mcpArgs = ["--mcp-config", config.path, "--allowed-mcp-server-names", ...servers, "--allowed-tools", ...servers.map((name) => `mcp__${name}`)]
+      } else if (speaksCodex(kind)) {
+        Object.assign(env, mcpTokenEnv(target))
+        mcpArgs = codexMcpArgs(target)
+      }
+    }
+
+    // ---- la tâche : en argument si le harnais la prend et que la ligne le
+    // supporte, collée dans son invite sinon.
+    const how = direct(found)
+    // Sous Windows un harnais qui n'est qu'un script `.cmd` passe par cmd.exe, qui
+    // interprète ce qu'on lui donne (`&`, `|`, `%`, les retours à la ligne). Rien
+    // de libre ne part alors sur la ligne : ni prompt système, ni nom, et un
+    // modèle qui n'a que des caractères de nom de modèle. Le préambule suit la
+    // tâche, collée dans l'invite.
+    const viaCmd = how.shell
+    if (viaCmd && spec.model && !/^[\w.:/@+-]+$/.test(spec.model)) {
+      throw new Error(`"${spec.model}" cannot be passed to ${kind} through cmd.exe: use a plain model name.`)
+    }
+    const task =
+      viaCmd && spec.prompt ? `${systemPrompt}\n\n---\n\n${spec.prompt}` : taskText(kind, systemPrompt, spec.prompt)
+    // cmd.exe ne sait pas porter un retour à la ligne ni ses propres signes dans
+    // un argument ; une très longue tâche n'a rien à faire dans argv non plus.
+    const argvOk =
+      promptDelivery(kind) === "argv" && task.length <= 20_000 && (!how.shell || /^[\w .,:;'()\/@#$*+=~\[\]{}-]*$/.test(task))
+    const args = nativeArgs({
+      kind,
+      model: spec.model,
+      permission: spec.permission,
+      effort: spec.effort,
+      name: viaCmd ? "" : spec.name || recordTitle({ name: "", prompt: spec.prompt, kind, model: spec.model }),
+      sessionId,
+      assign,
+      systemPrompt: hasSystemPromptFlag(kind) && !viaCmd ? systemPrompt : "",
+      mcpArgs,
+      aimArgs: kind === "qwen" ? (aim ? agentModule.aimArgs(aim) : []) : speaksCodex(kind) && aim && vise ? agentModule.codexAimArgs(vise) : [],
+      prompt: argvOk ? task : "",
+    })
+    const nativeArgv = [...how.prefix, ...args]
+    const command = how.shell
+      ? { file: process.env.COMSPEC || "cmd.exe", args: ["/c", how.file, ...nativeArgv], env }
+      : { file: how.file, args: nativeArgv, env }
+
+    // ---- l'enregistrement
+    const now = new Date().toISOString()
+    const record: AgentShellRecord = {
+      id: previous?.id ?? randomUUID(),
+      kind,
+      model: spec.model,
+      permission: spec.permission,
+      effort: spec.effort,
+      instructions: spec.instructions,
+      mcp: spec.mcp,
+      skills: spec.skills,
+      name: spec.name,
+      profileId: spec.profileId,
+      sessionId,
+      prompt: previous?.prompt || spec.prompt,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+      state: "open",
+    }
+    const started = Date.now()
+    const session = ws.terminals.create(
+      event.sender,
+      root,
+      cols || 80,
+      rows || 24,
+      target,
+      {
+        command,
+        agentShell: record.id,
+        cleanup: () => {
+          disposeMcp()
+          sessionWatchers.get(record.id)?.()
+          sessionWatchers.delete(record.id)
+        },
+        // Terminé ou fermé à la main : la session reste dans la liste, et ne
+        // se rouvrira plus toute seule.
+        onEnd: () => {
+          void agentShells.patch(dir, root, record.id, { state: "closed" }).then(notify, notify)
+        },
+      }
+    )
+    await agentShells.upsert(dir, root, record)
+
+    // codex choisit lui-même son identifiant : on le retrouve par son journal.
+    if (speaksCodex(kind) && !sessionId) {
+      const stop = agentShells.watchCodexSession(
+        root,
+        started,
+        () => new Set(known.flatMap((item) => (item.sessionId ? [item.sessionId] : []))),
+        (id) => {
+          sessionWatchers.delete(record.id)
+          void agentShells.patch(dir, root, record.id, { sessionId: id }).then(notify, notify)
+        }
+      )
+      sessionWatchers.set(record.id, stop)
+    }
+    if (!argvOk && task) {
+      ws.terminals.pasteWhenReady(session.id, bracketedPaste(task))
+    }
+
+    notify()
+    const dim = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
+    const resumed = Boolean(sessionId && !assign)
+    const banner =
+      dim(`Zyvro · ${kind}${spec.model ? ` · ${spec.model}` : ""} · ${spec.permission} · ${resumed ? "resuming" : "new"} session${sessionId ? ` ${sessionId.slice(0, 8)}` : ""}`) +
+      (notice ? dim(notice) : "") +
+      (task && !argvOk ? dim("Your task is pasted into the prompt below: read it, then press Enter.") : "") +
+      (session.banner ?? "")
+    return { ...session, banner, record }
+  })
+
+  ipcMain.handle("agentshell:list", async (event) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    return { records: await agentShells.load(agentShellsDir(), root), live: [...liveAgentShells(ws, root)] }
+  })
+
+  // Ce qui était ouvert quand l'application s'est arrêtée, et ne l'est plus.
+  ipcMain.handle("agentshell:restorable", async (event, max: unknown) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.min(12, Math.floor(max))) : 6
+    return toRestore(await agentShells.load(agentShellsDir(), root), liveAgentShells(ws, root), limit)
+  })
+
+  ipcMain.handle("agentshell:rename", async (event, id: string, name: string) => {
+    const { ws } = requireWorkspace(event)
+    const clean = String(name ?? "").replace(/[\r\n\t]+/g, " ").trim().slice(0, 60)
+    await agentShells.patch(agentShellsDir(), requireRoot(ws), String(id), { name: clean })
+    if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
+    return true
+  })
+
+  ipcMain.handle("agentshell:forget", async (event, id: string) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    // Oublier une session qui tourne l'arrête : sa ligne a disparu, son
+    // processus n'a plus de nom.
+    const live = ws.terminals.byAgentShell(String(id))
+    if (live) ws.terminals.dispose(live)
+    await agentShells.forget(agentShellsDir(), root, String(id))
+    if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
+    return true
   })
 
   // Arrêter une session qui se réveille toute seule. Le bouton du panneau, et

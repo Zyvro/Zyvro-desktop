@@ -25,6 +25,8 @@ export type FileRead =
   | { path: string; binary: true }
 import type { AgentKind, ModelChoices } from "../shared/harness"
 import type { AgentSettings, SkillCatalog, SkillPack } from "../shared/skills"
+import type { AgentShellRecord, NativeSpec } from "../shared/agentShell"
+export type { AgentShellRecord, NativeSpec }
 export type { AgentKind }
 
 // Les formes de la recherche traversent le pont : elles sont redites ici parce
@@ -370,6 +372,27 @@ const api = {
     kill: (name: string): Promise<boolean> => invoke("persistent:kill", name),
   },
 
+  // Shell + Agents : un harnais lancé dans son interface native, avec la
+  // configuration choisie, et sa session gardée pour la rouvrir.
+  agentShell: {
+    /** Lancer (ou reprendre, si `spec.resume` nomme un enregistrement) un agent dans un shell. */
+    open: (
+      spec: NativeSpec,
+      context: { workflows: { id: string; name: string; description?: string }[]; agentSettings: AgentSettings },
+      cols: number,
+      rows: number
+    ): Promise<{ id: string; pty: boolean; banner?: string; existing?: boolean; record: AgentShellRecord }> =>
+      invoke("agentshell:open", spec, context, cols, rows),
+    list: (): Promise<{ records: AgentShellRecord[]; live: string[] }> => invoke("agentshell:list"),
+    /** Les sessions qui étaient ouvertes à l'arrêt de l'application. */
+    restorable: (max: number): Promise<AgentShellRecord[]> => invoke("agentshell:restorable", max),
+    rename: (id: string, name: string): Promise<boolean> => invoke("agentshell:rename", id, name),
+    /** L'oublier — et l'arrêter si elle tourne. */
+    forget: (id: string): Promise<boolean> => invoke("agentshell:forget", id),
+    /** La liste a changé : une session s'est ouverte, terminée, ou a appris son identifiant. */
+    onChanged: (cb: () => void): Unsubscribe => on("agentshell:changed", cb),
+  },
+
   terminal: {
     /**
      * Ouvrir un shell. `cwd` ne sert qu'à rouvrir là où on était : le principal
@@ -387,7 +410,8 @@ const api = {
      * Demandé au démarrage : un rechargement du rendu ne tue pas les ptys, il
      * les oublie — ce sont des enfants du processus principal.
      */
-    running: (): Promise<{ id: string; pty: boolean; label?: string; tab: number }[]> => invoke("terminal:running"),
+    running: (): Promise<{ id: string; pty: boolean; label?: string; tab: number; agentShell?: string }[]> =>
+      invoke("terminal:running"),
     /** Ce qu'un shell a déjà écrit. À demander une fois l'identifiant adopté. */
     replay: (id: string): Promise<boolean> => invoke("terminal:replay", id),
     layout: (groups: string[][]): Promise<boolean> => invoke("terminal:layout", groups),
@@ -780,6 +804,7 @@ const api = {
     onOpenFileDialog: (cb: () => void): Unsubscribe => on("menu:open-file", cb),
     onSplitEditor: (cb: () => void): Unsubscribe => on("menu:split-editor", cb),
     onSplitTerminal: (cb: () => void): Unsubscribe => on("menu:split-terminal", cb),
+    onAgentShell: (cb: () => void): Unsubscribe => on("menu:agent-shell", cb),
     onFilterFiles: (cb: () => void): Unsubscribe => on("menu:filter-files", cb),
     onOpenRecentFile: (cb: (relative: string) => void): Unsubscribe => on("menu:open-recent-file", cb),
     onProblems: (cb: () => void): Unsubscribe => on("menu:problems", cb),

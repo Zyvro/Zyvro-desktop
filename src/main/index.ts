@@ -459,6 +459,12 @@ function buildMenu(): void {
           accelerator: "CmdOrCtrl+Shift+5",
           click: (_item, win) => send(win as BrowserWindow, "menu:split-terminal"),
         },
+        // Un agent dans un shell : le lanceur du panneau Shell + Agents.
+        {
+          label: "New Agent Shell…",
+          accelerator: "CmdOrCtrl+Alt+A",
+          click: (_item, win) => send(win as BrowserWindow, "menu:agent-shell"),
+        },
         {
           label: "Toggle Agent",
           accelerator: "CmdOrCtrl+Shift+A",

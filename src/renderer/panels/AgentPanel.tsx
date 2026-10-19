@@ -33,7 +33,7 @@ import { clockTime, formatDuration } from "~/lib/duration"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { permission as agentPermission, subscribePermission } from "~/state/permission"
 import { isLoginCommand } from "../../shared/login"
-import { askLogin, askHarness } from "~/state/persistent"
+import { askLogin, askAgent } from "~/state/persistent"
 import { agentActionToken, subscribeAgentActions, takeAgentAction } from "~/state/agentActions"
 import { AgentSessions } from "./AgentSessions"
 import { askName, askConfirm } from "~/state/prompt"
@@ -614,24 +614,33 @@ function finishTurn(id: string): void {
 // Tout ce dont un envoi a besoin vit déjà au niveau du module : l'état des
 // conversations, le client de requêtes, le projet, la permission. Il ne restait
 // dans le composant que ce qui touche à la zone de saisie.
-// openInTerminal : la commande que le principal compose — il est le seul à
-// connaître l'identifiant de session de la CLI — tapée dans le terminal, que
-// l'on ouvre s'il est replié. Le shell a déjà les outils MCP de ce projet.
+// openInTerminal : cette conversation, dans l'interface native du harnais, dans
+// un onglet du panneau « Shell + Agents ».
 //
-// MiMo Code a besoin des serveurs MCP du projet dans son environnement, qu'une
-// ligne tapée ne peut pas lui donner : il s'ouvre dans un onglet à lui, qui les
-// reçoit, et reprend la même conversation.
+// Ce n'est plus un shell qui part en YOLO d'office : l'agent s'ouvre avec la
+// permission choisie dans la barre du chat, le modèle et les outils Zyvro du
+// panneau, et la session du fil — `--resume` — quand il en a une. Le principal
+// est le seul à connaître l'identifiant de session de la CLI ; on ne lui envoie
+// que le fil.
 //
-// Un onglet à lui, pour tous les harnais, et plus une ligne tapée dans le
-// shell actif. La ligne attendait que ce shell existe : sans aucun shell
-// ouvert (« No shell open. »), elle était jetée au bout de cinq secondes et le
-// bouton ne faisait rien. Et quand il y en avait un, elle pouvait tomber dans
-// un programme déjà lancé — un autre agent, un serveur. `agent:shell` lance le
-// harnais lui-même, avec le modèle, les serveurs MCP du projet et la session
-// de la conversation à reprendre.
-async function openInTerminal(kind: AgentKind, threadId: string, model: string | null): Promise<void> {
+// MiMo Code reçoit les serveurs MCP du projet par son environnement, ce qu'une
+// ligne tapée ne pourrait pas lui donner : un onglet à lui, pour tous.
+function openInTerminal(thread: Thread): void {
   useWorkspace.getState().setPanel("terminal", true)
-  askHarness(kind, model, threadId)
+  askAgent({
+    kind: thread.kind,
+    model: thread.model,
+    permission: agentPermission(),
+    effort: null,
+    instructions: "",
+    mcp: true,
+    skills: thread.advancedSkills,
+    name: thread.messages.length > 0 ? thread.title : "",
+    prompt: "",
+    profileId: null,
+    resume: null,
+    conversation: thread.id,
+  })
 }
 
 async function dispatch(threadId: string, text: string, images: Attached[]): Promise<void> {
@@ -2404,7 +2413,7 @@ export function AgentPanel(): JSX.Element {
             plein écran. Reprise là où le panneau l'a laissée. */}
         <button
           type="button"
-          onClick={() => void openInTerminal(kind, thread.id, thread.model)}
+          onClick={() => openInTerminal(thread)}
           title={started ? `Continue this session in the terminal (${kind})` : `Open ${kind} in the terminal`}
           className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
         >
@@ -2549,8 +2558,7 @@ export function AgentPanel(): JSX.Element {
                   // Demander une chose et ne pas voir l'endroit où elle arrive
                   // est un défaut à soi seul : le panneau du bas s'ouvre, comme
                   // il s'ouvre quand on clique une session persistante.
-                  setPanel("terminal", true)
-                  askHarness(kind, thread.model)
+                  openInTerminal(thread)
                 }}
                 title={
                   thread.model

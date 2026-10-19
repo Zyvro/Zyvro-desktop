@@ -20,6 +20,7 @@ import {
 } from "./chatThemes"
 import { AGENT_KINDS, isAgentKind } from "./harness"
 import { sanitizePlugins } from "./plugins"
+import { sanitizeProfiles } from "./agentShell"
 import { DEFAULT_AGENT_SETTINGS, type AgentSettings } from "./skills"
 
 export type AutoSave = "off" | "afterDelay" | "onFocusChange"
@@ -148,6 +149,20 @@ export function sanitizeAgentSettings(raw: unknown): AgentSettings {
     disabledSkills: ids(r.disabledSkills),
     enabledPacks: ids(r.enabledPacks),
     disabledPlugins: ids(r.disabledPlugins),
+    ...profilesOf(r),
+  }
+}
+
+// Les configurations d'agent et ce qui va avec. Le profil par défaut doit nommer
+// un profil qui existe : un nom resté après sa suppression ferait proposer un
+// lanceur vide.
+function profilesOf(r: Record<string, unknown>): Pick<AgentSettings, "profiles" | "defaultProfile" | "restoreAgentShells"> {
+  const profiles = sanitizeProfiles(r.profiles)
+  const wanted = typeof r.defaultProfile === "string" ? r.defaultProfile : null
+  return {
+    profiles,
+    defaultProfile: wanted && profiles.some((p) => p.id === wanted) ? wanted : null,
+    restoreAgentShells: r.restoreAgentShells !== false,
   }
 }
 

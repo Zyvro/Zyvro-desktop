@@ -1,5 +1,6 @@
 import type { AgentKind } from "./harness"
 import { DEFAULT_PLUGINS, type PluginStates } from "./plugins"
+import { DEFAULT_PROFILES, type AgentProfile } from "./agentShell"
 
 export type SkillEntry = {
   id: string
@@ -30,6 +31,12 @@ export type AgentSettings = {
    * d'écrire marche tout de suite, et c'est ce qu'on attend en cliquant Install.
    */
   disabledPlugins: string[]
+  /** Les configurations d'agent du panneau Shell + Agents (shared/agentShell). */
+  profiles: AgentProfile[]
+  /** Celle que le lanceur propose en premier. */
+  defaultProfile: string | null
+  /** Rouvrir au démarrage les agents qui étaient ouverts à la fermeture. */
+  restoreAgentShells: boolean
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -39,6 +46,9 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   disabledSkills: [],
   enabledPacks: [],
   disabledPlugins: [],
+  profiles: DEFAULT_PROFILES,
+  defaultProfile: null,
+  restoreAgentShells: true,
 }
 
 // skillFrontmatter lit le nom et la description dans le frontmatter d'un

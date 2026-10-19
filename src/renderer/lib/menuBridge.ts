@@ -11,6 +11,7 @@ import { openFiles } from "./windowDrop"
 import { isAbsolutePath } from "../../shared/external"
 import { requestTerminalSplit } from "~/state/terminalSplit"
 import { requestAgentAction } from "~/state/agentActions"
+import { openLauncher } from "~/state/launcher"
 import { openTreeFilter } from "~/state/treeFilter"
 
 // Menu commands arrive from the main process as IPC events, which is a
@@ -92,6 +93,9 @@ window.zyvro.menu.onSplitEditor(() => {
 window.zyvro.menu.onSplitTerminal(() => {
   useWorkspace.getState().setPanel("terminal", true)
   requestTerminalSplit()
+})
+window.zyvro.menu.onAgentShell(() => {
+  openLauncher()
 })
 window.zyvro.menu.onReopenTab(() => {
   useWorkspace.getState().reopenClosed()

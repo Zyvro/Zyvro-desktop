@@ -585,7 +585,7 @@ await appServer?.stop?.()
   check("**un identifiant qui n'en est pas un ne part pas dans le shell**", ic("claude", "x; rm -rf ~") === `claude ${CLAUDE_YOLO}`)
   check("**MiMo Code tapé dans un shell, en YOLO et sur sa session**", ic("mimo", "ses_1") === "mimo --dangerously-skip-permissions --trust --session ses_1", ic("mimo", "ses_1"))
   const panneau = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
-  check("le panneau a le bouton", /openInTerminal\(kind, thread\.id, thread\.model\)/.test(panneau))
+  check("le panneau a le bouton", /onClick=\{\(\) => openInTerminal\(thread\)\}/.test(panneau))
 }
 
 // ---- installer un harnais absent -----------------------------------------

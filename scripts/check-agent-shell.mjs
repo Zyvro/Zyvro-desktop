@@ -183,15 +183,19 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
 {
   const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
   const bloc = ipc.slice(ipc.indexOf('ipcMain.handle("agent:shell"'), ipc.indexOf('ipcMain.handle("agent:unschedule"'))
+  // Le binaire, la visée du modèle et l'environnement viennent d'une aide
+  // partagée avec les shells d'agent (Shell + Agents) : deux copies finiraient
+  // par viser deux fournisseurs différents pour le même modèle.
+  const aide = ipc.slice(ipc.indexOf("async function harnessLaunch"), ipc.indexOf("// requireGitRoot rend"))
   check("**le harnais reçu est vérifié**", /if \(!isAgentKind\(kind\)\)/.test(bloc), "« lance ce harnais » deviendrait « lance ce que je veux »")
   check(
     "**et c'est la table des harnais qui nomme l'exécutable**",
-    /harness\(kind\)/.test(bloc) && /locate\(table\.bin\)/.test(bloc),
+    /harness\(kind\)/.test(aide) && /locate\(table\.bin\)/.test(aide) && /harnessLaunch\(ws, kind, pinned\)/.test(bloc),
     "le rendu choisirait ce qui se lance"
   )
   check(
     "**un harnais absent le dit avec la commande pour l'installer**",
-    /was not found on this machine\. Install it with: \$\{table\.install\}/.test(bloc),
+    /was not found on this machine\. Install it with: \$\{table\.install\}/.test(aide),
     "« not found » sans dire par où commencer oblige à chercher ailleurs"
   )
   check(
@@ -199,24 +203,28 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
     /requireRoot\(ws\)/.test(bloc) && /daemonToken: ws\.daemon\.current\?\.token/.test(bloc),
     "un harnais sans les outils du projet est un harnais qu'on relance à la main"
   )
+  check(
+    "**les shells d'agent passent par la même aide**",
+    /harnessLaunch\(ws, kind, spec\.model\)/.test(ipc),
+    "un second chemin de lancement viserait autrement le même modèle"
+  )
 
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+  // « Open in terminal » : un onglet à lui, qui reprend la session du fil —
+  // pas une ligne tapée dans le shell actif, et plus un YOLO d'office : la
+  // permission est celle de la barre du chat.
+  const ouvrir = panel.slice(panel.indexOf("function openInTerminal"), panel.indexOf("async function dispatch"))
   check(
-    "**et le panneau du bas s'ouvre pour qu'on voie ce qu'on a demandé**",
-    /setPanel\("terminal", true\)[\s\S]{0,200}?askHarness\(kind, thread\.model\)/.test(panel),
+    "**le panneau du bas s'ouvre pour qu'on voie ce qu'on a demandé**",
+    /setPanel\("terminal", true\)[\s\S]{0,80}?askAgent\(/.test(ouvrir),
     "le clic ne fait rien quand le terminal est replié, et part tout seul plus tard"
   )
-  // « Continue in terminal » : un onglet à lui, qui reprend la session — pas
-  // une ligne tapée dans le shell actif. Sans shell ouvert, la ligne attendait
-  // cinq secondes puis était jetée, et le bouton ne faisait rien ; avec un
-  // shell, elle pouvait tomber dans un programme déjà lancé.
-  const ouvrir = panel.slice(panel.indexOf("async function openInTerminal"), panel.indexOf("async function dispatch"))
   check(
-    "**« Continue in terminal » ouvre un onglet dédié qui reprend la conversation, pour tous les harnais**",
-    /setPanel\("terminal", true\)\s*askHarness\(kind, model, threadId\)/.test(ouvrir) && !/handTo\(/.test(ouvrir) && !/kind === "mimo"/.test(ouvrir),
-    "le bouton écrit une ligne dans un shell qui n'existe peut-être pas"
+    "**« Open in terminal » ouvre un onglet d'agent qui reprend la conversation, avec la permission du chat**",
+    /conversation: thread\.id/.test(ouvrir) && /permission: agentPermission\(\)/.test(ouvrir) && !/handTo\(/.test(ouvrir) && !/kind === "mimo"/.test(ouvrir),
+    "le bouton écrit une ligne dans un shell qui n'existe peut-être pas, ou lève toute permission"
   )
-  check("et le bouton y mène", /onClick=\{\(\) => void openInTerminal\(kind, thread\.id, thread\.model\)\}/.test(panel))
+  check("et le bouton y mène", /onClick=\{\(\) => openInTerminal\(thread\)\}/.test(panel))
 }
 
 console.log(

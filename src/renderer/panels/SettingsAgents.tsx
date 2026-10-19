@@ -8,6 +8,7 @@ import { HarnessPicker } from "./HarnessPicker"
 import { ModelPicker } from "./ModelPicker"
 import { PermissionPicker } from "./PermissionPicker"
 import { CHAT_FONT_SIZES, DEFAULT_SETTINGS } from "../../shared/settings"
+import { SettingsProfiles } from "./SettingsProfiles"
 
 export function SettingRow({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
   return <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] py-4">
@@ -43,6 +44,8 @@ export function SettingsAgents({ permissionsOnly = false }: { permissionsOnly?: 
         {CHAT_FONT_SIZES.map((size) => <option key={size} value={size}>{size} px{size === DEFAULT_SETTINGS.chatFontSize ? " (default)" : ""}</option>)}
       </select>
     </SettingRow>
+    <h3 className="mt-6 text-[13px] font-semibold">Shell + Agents</h3>
+    <SettingsProfiles />
     <button onClick={() => useWorkspace.getState().openProviders()} className="mt-6 flex items-center gap-2 rounded-lg border border-white/10 p-3 text-sm hover:bg-white/5"><KeyRound className="h-4 w-4" />Providers and API keys</button>
   </>
 }

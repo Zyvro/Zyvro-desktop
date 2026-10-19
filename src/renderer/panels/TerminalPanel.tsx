@@ -2,7 +2,8 @@ import { useCallback, useRef, useState, useSyncExternalStore } from "react"
 import { Terminal, type ITheme } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
-import { Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
+import * as Menu from "@radix-ui/react-dropdown-menu"
+import { Bot, ChevronDown, Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { addGroup, groupOf, placeIn, removeKey, resizePair, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
 import { splitToken, subscribeSplit } from "~/state/terminalSplit"
 import { cn } from "@/lib/utils"
@@ -15,6 +16,14 @@ import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
 import { openToken, sessionsChanged, subscribeOpen, takeOpen } from "~/state/persistent"
 import { ShellPicker } from "./ShellPicker"
+import { AgentLauncher } from "./AgentLauncher"
+import { HarnessMark } from "./HarnessPicker"
+import { recordTitle, type NativeSpec } from "../../shared/agentShell"
+import type { AgentShellRecord } from "../../shared/agentShell"
+import { agentShellsVersion, noteRecord, recordOf, refreshAgentShells, subscribeAgentShells } from "~/state/agentShells"
+import { agentContext } from "~/lib/agentContext"
+import { getSettings } from "~/state/settings"
+import { openLauncher, runProfile } from "~/state/launcher"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -60,6 +69,14 @@ type SessionStatus = {
   /** Le harnais que ce shell installe : `npm install -g`, dans son onglet. */
   installation?: AgentKind
   connexion?: AgentKind
+  /**
+   * Un agent natif (shared/agentShell) : ce qu'on a demandé de lancer. Après
+   * l'ouverture il porte `resume`, pour qu'un « Restart » rouvre la MÊME session
+   * au lieu d'en commencer une autre.
+   */
+  agente?: { spec: NativeSpec }
+  /** L'enregistrement de session que cet onglet incarne. */
+  agentRecord?: string
 }
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
@@ -68,11 +85,30 @@ const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation
 // son nom et son modèle — deux shells du même harnais sur deux modèles sont
 // exactement ce qu'on ouvre quand on compare, et « Shell 2 » et « Shell 3 » ne
 // diraient pas lequel est lequel.
+// Le harnais d'un onglet d'agent, pour que sa marque remplace l'icône de shell.
+function agentKindOf(key: string): AgentKind | null {
+  const statut = readStatus(key)
+  if (statut.agentRecord) {
+    const fiche = recordOf(statut.agentRecord)
+    if (fiche) return fiche.kind
+  }
+  return statut.agente?.spec.kind ?? null
+}
+
 function nomOnglet(key: string, index: number): string {
   const statut = readStatus(key)
   if (statut.persistent !== undefined) return statut.persistent
   if (statut.connexion) return `login ${harness(statut.connexion).bin}`
   if (statut.installation) return `install ${harness(statut.installation).bin}`
+  if (statut.agentRecord || statut.agente) {
+    // Le nom que la session porte sur le disque — renommable depuis la barre
+    // latérale — sinon ce qu'on a demandé.
+    const fiche = statut.agentRecord ? recordOf(statut.agentRecord) : undefined
+    const spec = statut.agente?.spec
+    return recordTitle(
+      fiche ?? { name: spec?.name ?? "", prompt: spec?.prompt ?? "", kind: spec?.kind ?? "claude", model: spec?.model ?? null }
+    )
+  }
   const harnais = statut.harnais
   if (harnais) return harnais.model ? `${harnais.nom} · ${harnais.model}` : harnais.nom
   return `Shell ${index + 1}`
@@ -96,6 +132,30 @@ const projetsConnus = new Set<string>()
 // basculement aller-retour rapide ne doivent pas adopter deux fois les mêmes
 // shells — un pty branché à deux onglets meurt avec le premier qu'on ferme.
 const reprisesEnVol = new Set<string>()
+// Les dossiers dont on a déjà rouvert les agents dans cette fenêtre.
+const restaureesPour = new Set<string>()
+// Combien d'agents on rouvre d'un coup : chacun est un processus qui reprend sa
+// conversation, et les rouvrir tous à chaque lancement finirait par peser.
+const MAX_RESTAUREES = 6
+
+// resumeSpec : la demande qui rouvre une session enregistrée. Le principal relit
+// la configuration de l'enregistrement ; on ne lui envoie que de quoi le nommer.
+function resumeSpec(fiche: AgentShellRecord): NativeSpec {
+  return {
+    kind: fiche.kind,
+    model: fiche.model,
+    permission: fiche.permission,
+    effort: fiche.effort,
+    instructions: fiche.instructions,
+    mcp: fiche.mcp,
+    skills: fiche.skills,
+    name: fiche.name,
+    prompt: "",
+    profileId: fiche.profileId,
+    resume: fiche.id,
+    conversation: null,
+  }
+}
 
 // getSnapshot must return a cached value: building `{...}` here would hand
 // React a new object on every call and re-render forever.
@@ -367,8 +427,23 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const harnais = readStatus(key).harnais
   const installation = readStatus(key).installation
   const connexion = readStatus(key).connexion
+  const agente = readStatus(key).agente
   const ouvrir = dejaLa
     ? Promise.resolve({ id: dejaLa, pty: readStatus(key).pty, banner: undefined, reprise: true })
+    : agente !== undefined
+      ? // Un agent natif : le harnais dans son interface, avec la configuration
+        // choisie. `existing` : la session tournait déjà (un onglet fermé et
+        // rouvert) — on s'y rebranche et on rejoue ce qu'elle a écrit.
+        agentContext()
+          .then((contexte) => window.zyvro.agentShell.open(agente.spec, contexte, term.cols, term.rows))
+          .then((session) => {
+            noteRecord(session.record)
+            patchStatus(key, {
+              agentRecord: session.record.id,
+              agente: { spec: { ...agente.spec, resume: session.record.id, prompt: "" } },
+            })
+            return { ...session, reprise: session.existing === true }
+          })
     : connexion !== undefined
       ? window.zyvro.agent.loginShell(connexion, term.cols, term.rows).then((session) => ({ ...session, reprise: false }))
     : installation !== undefined
@@ -494,7 +569,7 @@ function TerminalSession({ sessionKey, active }: { sessionKey: string; active: b
       {status.exitCode !== null ? (
         <div className="flex items-center gap-3 border-t border-white/[0.06] bg-white/[0.04] px-3 py-1.5 text-[11px]">
           <span className="text-muted-foreground">
-            Shell exited with code{" "}
+            {status.agente ? "Agent" : "Shell"} exited with code{" "}
             <span className={cn("font-mono", status.exitCode === 0 ? "text-foreground" : "text-red-400")}>
               {status.exitCode}
             </span>
@@ -505,7 +580,7 @@ function TerminalSession({ sessionKey, active }: { sessionKey: string; active: b
             className="inline-flex items-center gap-1 rounded border border-white/[0.06] bg-white/[0.04] px-2 py-0.5 text-foreground transition-colors hover:bg-white/[0.08]"
           >
             <RotateCcw className="h-3 w-3" />
-            Restart
+            {status.agente ? "Resume" : "Restart"}
           </button>
         </div>
       ) : null}
@@ -536,6 +611,12 @@ export function TerminalPanel(): JSX.Element {
   // disposition ne basculait jamais, et les shells de deux projets se
   // retrouvaient dans les mêmes onglets — le même pty attaché deux fois.
   const [lie, setLie] = useState<string | null>(null)
+  const lieRef = useRef<string | null>(null)
+  lieRef.current = lie
+  // Les noms des onglets d'agent viennent des enregistrements : un
+  // renommage fait depuis la barre latérale doit se lire ici.
+  useSyncExternalStore(subscribeAgentShells, agentShellsVersion, () => 0)
+  const profils = getSettings().agent.profiles
   const groupsRef = useRef<Groups>([])
 
   // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
@@ -703,6 +784,55 @@ export function TerminalPanel(): JSX.Element {
   // liste latérale — l'ouvrir à la place de la personne contredirait ce qu'elle
   // y voit.
   const reprendre = async (dir: string): Promise<void> => {
+    void refreshAgentShells()
+    await adopter(dir)
+    await restaurer(dir)
+  }
+
+  // restaurer : rouvrir les agents qui étaient ouverts quand l'application s'est
+  // arrêtée — le sens de « garder la session et la rouvrir au prochain
+  // lancement ». Les shells ordinaires, eux, restent fermés : un agent a une
+  // conversation à reprendre, un shell mort n'a rien.
+  //
+  // Une fois par dossier et par fenêtre : `restorable` exclut les sessions déjà
+  // vivantes, mais deux passages de rendu simultanés (StrictMode) ouvriraient
+  // sinon chacun la leur.
+  const restaurer = async (dir: string): Promise<void> => {
+    if (restaureesPour.has(dir)) return
+    restaureesPour.add(dir)
+    if (!getSettings().agent.restoreAgentShells) return
+    let fiches: AgentShellRecord[] = []
+    try {
+      fiches = await window.zyvro.agentShell.restorable(MAX_RESTAUREES)
+    } catch {
+      return
+    }
+    for (const fiche of fiches) noteRecord(fiche)
+    const dejaLa = (fiche: AgentShellRecord, groupes: Groups): boolean =>
+      groupes.flat().some((k) => readStatus(k).agentRecord === fiche.id)
+    const aOuvrir = fiches.filter((fiche) => !dejaLa(fiche, layoutsByProject.get(dir)?.groups ?? groupsRef.current))
+    if (aOuvrir.length === 0) return
+    const keys = aOuvrir.map((fiche) => {
+      const key = nextSessionKey()
+      patchStatus(key, { agente: { spec: resumeSpec(fiche) }, agentRecord: fiche.id })
+      return key
+    })
+    if (useWorkspace.getState().root === dir && lieRef.current === dir) {
+      setGroups((actuels) => keys.reduce((acc, key) => addGroup(acc, key), actuels))
+      setActiveKey((actuelle) => actuelle || keys[0])
+    } else {
+      // Le dossier n'est plus à l'écran : ses onglets rejoignent la disposition
+      // rangée, et reviennent avec elle.
+      const rangee = layoutsByProject.get(dir) ?? { groups: [], activeKey: "", poids: {} }
+      layoutsByProject.set(dir, {
+        ...rangee,
+        groups: keys.reduce((acc, key) => addGroup(acc, key), rangee.groups),
+        activeKey: rangee.activeKey || keys[0],
+      })
+    }
+  }
+
+  const adopter = async (dir: string): Promise<void> => {
     if (reprisesEnVol.has(dir)) return
     reprisesEnVol.add(dir)
     let vivants: Awaited<ReturnType<typeof window.zyvro.terminal.running>> = []
@@ -725,8 +855,14 @@ export function TerminalPanel(): JSX.Element {
     const keys = vivants.map((vivant) => {
       const key = nextSessionKey()
       // L'étiquette suit : un onglet repris doit garder son nom de session,
-      // pas redevenir « Shell 2 ».
-      patchStatus(key, { ptyId: vivant.id, pty: vivant.pty, persistent: vivant.label })
+      // pas redevenir « Shell 2 ». Un agent natif se reconnaît à son
+      // enregistrement, et reprend son nom de là.
+      patchStatus(key, {
+        ptyId: vivant.id,
+        pty: vivant.pty,
+        persistent: vivant.agentShell ? undefined : vivant.label,
+        ...(vivant.agentShell ? { agentRecord: vivant.agentShell } : {}),
+      })
       return key
     })
     poser(
@@ -772,11 +908,22 @@ export function TerminalPanel(): JSX.Element {
           return
         }
       }
+      // Une session d'agent déjà affichée ici : on va à son onglet plutôt que
+      // de brancher une seconde fois le même pty.
+      if (ordre.sorte === "agent" && ordre.spec.resume) {
+        const deja = groupsRef.current.flat().find((k) => readStatus(k).agentRecord === ordre.spec.resume)
+        if (deja) {
+          activate(deja)
+          return
+        }
+      }
       const key = nextSessionKey()
       patchStatus(
         key,
         ordre.sorte === "persistante"
           ? { persistent: ordre.label }
+          : ordre.sorte === "agent"
+            ? { agente: { spec: ordre.spec }, ...(ordre.spec.resume ? { agentRecord: ordre.spec.resume } : {}) }
           : ordre.sorte === "connexion"
             ? { connexion: ordre.harnais }
           : ordre.sorte === "installation"
@@ -862,10 +1009,10 @@ export function TerminalPanel(): JSX.Element {
     return (
       <div className="flex h-full flex-col bg-background">
         <div className="flex h-8 shrink-0 items-center border-b border-white/[0.06] px-3 text-[11px] uppercase tracking-wide text-muted-foreground">
-          Terminal
+          Shell + Agents
         </div>
         <div className="flex flex-1 items-center justify-center px-4 text-center text-xs text-muted-foreground">
-          Open a project to start a shell here.
+          Open a project to start a shell or an agent here.
         </div>
       </div>
     )
@@ -898,7 +1045,13 @@ export function TerminalPanel(): JSX.Element {
                 title={nom}
                 data-terminal-tab={index}
               >
-                {group.length > 1 ? <Columns2 className="h-3 w-3" /> : <TerminalSquare className="h-3 w-3" />}
+                {group.length > 1 ? (
+                  <Columns2 className="h-3 w-3" />
+                ) : agentKindOf(principal) ? (
+                  <HarnessMark kind={agentKindOf(principal) as AgentKind} className="h-3.5 w-3.5" />
+                ) : (
+                  <TerminalSquare className="h-3 w-3" />
+                )}
                 {nom}
               </button>
               {/* Fermer l'onglet ferme le shell qu'on y regarde ; les autres
@@ -926,6 +1079,50 @@ export function TerminalPanel(): JSX.Element {
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
+        {/* Un agent, au lieu d'un shell : un profil s'ouvre vide sur son invite,
+            et « Run a task… » déplie le lanceur pour écrire la tâche d'abord. */}
+        <Menu.Root>
+          <Menu.Trigger
+            title="New agent shell — a harness in its native interface"
+            data-agent-menu
+            className="flex shrink-0 items-center gap-0.5 rounded p-1 text-muted-foreground outline-none transition-colors hover:bg-white/[0.06] hover:text-foreground data-[state=open]:bg-white/[0.08]"
+          >
+            <Bot className="h-3.5 w-3.5" />
+            <ChevronDown className="h-3 w-3 opacity-70" />
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Content
+              className="panel zy-scroll z-50 max-h-[var(--radix-dropdown-menu-content-available-height)] min-w-[230px] overflow-y-auto p-1"
+              align="start"
+              sideOffset={6}
+              collisionPadding={8}
+            >
+              <Menu.Item
+                onSelect={openLauncher}
+                className="flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-[12px] outline-none data-[highlighted]:bg-white/[0.09]"
+              >
+                <Bot className="h-3.5 w-3.5" />
+                Run a task…
+              </Menu.Item>
+              <div className="my-1 border-t border-white/[0.06]" />
+              {profils.map((profil) => (
+                <Menu.Item
+                  key={profil.id}
+                  onSelect={() => runProfile(profil)}
+                  className="flex cursor-default select-none items-center gap-2 rounded px-2 py-1.5 text-[12px] outline-none data-[highlighted]:bg-white/[0.09]"
+                >
+                  <HarnessMark kind={profil.kind} className="h-4 w-4" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">{profil.name}</span>
+                    <span className="block truncate text-[10.5px] text-muted-foreground">
+                      {profil.model ?? "default model"} · {profil.permission}
+                    </span>
+                  </span>
+                </Menu.Item>
+              ))}
+            </Menu.Content>
+          </Menu.Portal>
+        </Menu.Root>
         <button
           type="button"
           onClick={splitSession}
@@ -940,6 +1137,8 @@ export function TerminalPanel(): JSX.Element {
             un séparateur élastique entre eux et lui se ferait écraser. */}
         <ShellPicker />
       </div>
+
+      <AgentLauncher />
 
       {/* Every session stays mounted. Hiding the wrapper (never the xterm host
           itself) keeps the instance, its pty and its scrollback alive. */}
@@ -1008,7 +1207,7 @@ export function TerminalPanel(): JSX.Element {
         })}
         {allMountedKeys.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            No shell open.
+            No shell or agent open.
           </div>
         ) : null}
       </div>

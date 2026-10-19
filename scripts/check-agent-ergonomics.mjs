@@ -6,14 +6,27 @@ import assert from "node:assert/strict"
 import { createRequire } from "node:module"
 const root = path.resolve(import.meta.dirname, "..")
 const panel = readFileSync(path.join(root, "src/renderer/panels/AgentPanel.tsx"), "utf8")
-const terminalOpen = panel.slice(panel.indexOf("async function openInTerminal("), panel.indexOf("async function dispatch("))
+const terminalOpen = panel.slice(panel.indexOf("function openInTerminal("), panel.indexOf("async function dispatch("))
 const terminalCalls = []
-const terminalContext = vm.createContext({ useWorkspace: { getState: () => ({ setPanel: (...args) => terminalCalls.push(args) }) }, askHarness: (...args) => terminalCalls.push(args) })
+const terminalContext = vm.createContext({
+  useWorkspace: { getState: () => ({ setPanel: (...args) => terminalCalls.push(args) }) },
+  askAgent: (spec) => terminalCalls.push(["agent", spec]),
+  agentPermission: () => "ask",
+})
 vm.runInContext((await transform(`${terminalOpen}\nglobalThis.openInTerminal = openInTerminal`, { loader: "ts" })).code, terminalContext)
 for (const kind of ["claude", "codex", "qwen", "mimo"]) {
   terminalCalls.length = 0
-  await terminalContext.openInTerminal(kind, "conversation", "chosen-model")
-  assert.deepEqual(terminalCalls, [["terminal", true], [kind, "chosen-model", "conversation"]], "native handoff preserves harness, model and conversation in a dedicated terminal")
+  terminalContext.openInTerminal({ id: "conversation", kind, model: "chosen-model", title: "Mon fil", advancedSkills: true, messages: [{}] })
+  const [panelCall, agentCall] = terminalCalls
+  assert.deepEqual(panelCall, ["terminal", true], "the shell panel opens so the request is seen")
+  assert.equal(agentCall[0], "agent")
+  const spec = agentCall[1]
+  assert.equal(spec.kind, kind, "native handoff preserves the harness")
+  assert.equal(spec.model, "chosen-model", "and the model")
+  assert.equal(spec.conversation, "conversation", "and the conversation to resume")
+  assert.equal(spec.permission, "ask", "and the permission chosen in the chat toolbar, not an implicit YOLO")
+  assert.equal(spec.skills, true)
+  assert.equal(spec.name, "Mon fil")
 }
 const handler = panel.slice(panel.indexOf("  const onKeyDown ="), panel.indexOf("  const useExample ="))
 const js = (await transform(`${handler}\nglobalThis.onKeyDown = onKeyDown`, { loader: "ts" })).code

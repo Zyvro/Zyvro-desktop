@@ -1,4 +1,5 @@
 import type { AgentKind } from "../../shared/harness"
+import type { NativeSpec } from "../../shared/agentShell"
 
 // Ouvrir une session persistante depuis la barre latérale.
 //
@@ -32,6 +33,9 @@ export type Demande =
   | { sorte: "harnais"; harnais: AgentKind; model: string | null; conversation: string | null }
   | { sorte: "installation"; harnais: AgentKind }
   | { sorte: "connexion"; harnais: AgentKind }
+  // Un agent natif (shared/agentShell) : sa configuration et sa tâche, ou — avec
+  // `spec.resume` — une session déjà enregistrée à rouvrir.
+  | { sorte: "agent"; spec: NativeSpec }
 
 let demande: Demande | null = null
 let jeton = 0
@@ -53,6 +57,11 @@ export function askHarness(harnais: AgentKind, model: string | null, conversatio
 /** Installer ce harnais, dans un onglet du terminal qui montre ce que npm fait. */
 export function askInstall(harnais: AgentKind): void {
   poser({ sorte: "installation", harnais })
+}
+
+/** Lancer (ou reprendre) un agent natif dans un onglet du terminal. */
+export function askAgent(spec: NativeSpec): void {
+  poser({ sorte: "agent", spec })
 }
 
 export function askLogin(harnais: AgentKind): void {

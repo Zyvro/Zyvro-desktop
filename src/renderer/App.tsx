@@ -10,6 +10,7 @@ import { GitPanel } from "~/panels/GitPanel"
 import { WorkflowList } from "~/panels/WorkflowList"
 import { BrowserList } from "~/panels/BrowserList"
 import { PersistentList } from "~/panels/PersistentList"
+import { AgentShellList } from "~/panels/AgentShellList"
 import { OutlineList } from "~/panels/OutlineList"
 import { TimelineList } from "~/panels/TimelineList"
 import { SearchPanel } from "~/panels/SearchPanel"
@@ -210,6 +211,8 @@ export default function App() {
                       workflow. La section ne se dessine pas là où ni `tmux` ni
                       `screen` n'existent. */}
                   <PersistentList />
+                  {/* Les agents lancés dans un shell, et de quoi les reprendre. */}
+                  <AgentShellList />
                   <WorkflowList />
                   {/* Tout en bas, repliée par défaut, comme dans VS Code. */}
                   <OutlineList />

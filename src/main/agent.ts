@@ -70,7 +70,7 @@ export type AgentContext = {
 // preamble tells the CLI what this project's workflows are. Without it the
 // agent is a generic coding assistant that has never heard of Zyvro; with it,
 // asking "run the product photo workflow" is a sentence it can act on.
-function preamble(ctx: AgentContext): string {
+export function preamble(ctx: AgentContext): string {
   const lines = [
     `You are the Zyvro Studio assistant, working inside the project at ${ctx.projectDir}.`,
     "Zyvro workflows are visual AI graphs stored in .zyvro/workflows/ as JSON.",
