@@ -47,6 +47,29 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.85
+
+**Switch agent.** The arrows button of the Shell tab bar (and the same icon on a
+row of the *Agent sessions* list) reopens a session on another model or another
+harness, which a harness does not do by itself — least of all from one provider
+to another (Opus to an Ollama model, say). Within the same harness, *Continue
+this session* stops the agent and resumes the same conversation on the new
+model. *Hand over* works for any pair: Zyvro reads the old session's transcript
+(claude and codex logs), turns the last exchanges into a briefing and starts a
+new agent with it as its first message. Qwen and MiMo keep no log Zyvro can read,
+so a hand-over from them carries no history, and to them the briefing is pasted
+for you to send with Enter.
+
+**Codex keeps its session when you change model.** Codex writes about 21 KB of
+base instructions on the first line of its session log, and Studio read only the
+first 16 KB: the session id was never learned and the reopened agent started a
+new session. The line is now read whole, any log layout is accepted, and a
+session id that was never learned is found again when the session is reopened.
+Checked against codex 0.163 and claude with small models: the same log keeps
+growing across a model change, with its history.
+
+**Smaller:** the launcher's selectors share one size.
+
 ## New in alpha.84
 
 **Shell + Agents replaces the chat column.** An agent is now a shell whose
