@@ -75,12 +75,8 @@ export function ModelPicker({
   }
 
   const liste = aliases.data?.models ?? []
-  // Ce que les serveurs ont répondu quand ils n'ont pas répondu une liste.
-  // Sans ça, le menu affirmait « aucun serveur local ne répond » à propos d'un
-  // serveur qui répondait — le cas de Jeremy, dont l'adresse LM Studio ne
-  // finissait pas par `/v1` : 200, un objet d'erreur, une liste vide, et une
-  // phrase qui envoyait chercher la panne exactement là où elle n'était pas.
-  const ennuis = aliases.data?.trouble ?? []
+  // Les erreurs des serveurs (éteints, clef refusée…) ne sont plus montrées :
+  // un serveur local éteint est un état normal, pas une panne à lire.
 
   return (
     <Menu.Root open={open} onOpenChange={ouvrir}>
@@ -144,7 +140,7 @@ export function ModelPicker({
               Mais elle ne se dit que quand elle est vraie — un serveur qui a
               répondu autre chose qu'une liste a ses propres mots, et ce sont
               eux qui disent quoi faire. */}
-          {vivante && liste.length === 0 && ennuis.length === 0 && (
+          {vivante && liste.length === 0 && (
             <>
               <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
               <div className="px-2 py-1 text-[11px] leading-snug text-muted-foreground">
@@ -155,19 +151,6 @@ export function ModelPicker({
             </>
           )}
 
-          {/* Affiché même quand d'autres serveurs ont répondu : un sur trois qui
-              est mal réglé est le seul qui manque à la liste, et rien d'autre ne
-              le dirait. */}
-          {ennuis.length > 0 && !aliases.isFetching && (
-            <>
-              <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
-              {ennuis.map((e) => (
-                <div key={e.provider} className="px-2 py-1 text-[11px] leading-snug text-amber-300/90">
-                  <span className="font-mono">{e.provider}</span> — {e.said}
-                </div>
-              ))}
-            </>
-          )}
           {liste.map((alias) => (
             <Menu.Item key={alias} className={item} onSelect={() => choose(alias)}>
               <Check className={cn("h-3 w-3 shrink-0", model === alias ? "opacity-100" : "opacity-0")} />
