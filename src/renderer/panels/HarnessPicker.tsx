@@ -92,9 +92,12 @@ export function HarnessPicker({
   kind,
   onChange,
   installed,
+  className,
 }: {
   kind: AgentKind
   onChange: (kind: AgentKind) => void
+  /** Pour caler le déclencheur sur ses voisins (hauteur, police). */
+  className?: string
   /** Ce qui est installé sur la machine ; un harnais absent le dit, et le choisir
    *  amène la bannière qui l'installe. */
   installed: (kind: AgentKind) => boolean
@@ -103,7 +106,10 @@ export function HarnessPicker({
   return (
     <Menu.Root>
       <Menu.Trigger
-        className="flex max-w-full items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.04] py-1 pl-1.5 pr-2 text-[12px] text-foreground outline-none transition-colors hover:bg-white/[0.08] data-[state=open]:bg-white/[0.08]"
+        className={cn(
+          "flex max-w-full items-center gap-2 rounded-md border border-white/[0.08] bg-white/[0.04] py-1 pl-1.5 pr-2 text-[12px] text-foreground outline-none transition-colors hover:bg-white/[0.08] data-[state=open]:bg-white/[0.08]",
+          className
+        )}
         title={`Harness: ${current.name} (${current.vendor})`}
       >
         <HarnessMark kind={kind} />

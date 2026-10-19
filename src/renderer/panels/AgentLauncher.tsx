@@ -34,8 +34,11 @@ import { ModelPicker } from "./ModelPicker"
 // harnais lui-même, qui a la sienne. La permission et les skills se règlent
 // dans la barre latérale droite, une seule fois.
 
-const chip =
-  "flex items-center gap-1 rounded-md border px-1.5 py-1 text-[11px] outline-none transition-colors disabled:opacity-40"
+// Une seule taille pour tout ce qui se règle en haut du Shell : 28 px de haut,
+// 12 px de texte, le même cadre. Le harnais, le modèle, l'effort, le profil et
+// les interrupteurs se lisent comme une rangée, pas comme cinq composants.
+const BOX = "h-7"
+const chip = `flex ${BOX} items-center gap-1.5 rounded-md border px-2 text-[12px] outline-none transition-colors disabled:opacity-40`
 const chipOff = "border-white/[0.08] bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
 const chipOn = "border-sky-400/40 bg-sky-400/10 text-sky-200 hover:bg-sky-400/15"
 
@@ -47,7 +50,7 @@ function EffortPicker({ kind, value, onChange }: { kind: AgentKind; value: Effor
       title="Reasoning effort — the harness default when unset"
       value={value ?? ""}
       onChange={(e) => onChange(e.target.value === "" ? null : (e.target.value as Effort))}
-      className="h-[26px] rounded-md border border-white/[0.08] bg-white/[0.04] px-1.5 text-[11px] text-foreground outline-none hover:bg-white/[0.08]"
+      className={`${BOX} rounded-md border border-white/[0.08] bg-white/[0.04] px-2 text-[12px] text-foreground outline-none hover:bg-white/[0.08]`}
     >
       <option value="">effort: default</option>
       {EFFORTS.map((effort) => (
@@ -65,9 +68,9 @@ function ProfileMenu({ profiles, current }: { profiles: AgentProfile[]; current:
     <Menu.Root>
       <Menu.Trigger
         title="Load a saved agent configuration"
-        className={cn(chip, chipOff, "max-w-[9rem]", "data-[state=open]:bg-white/[0.08]")}
+        className={cn(chip, chipOff, "max-w-[10rem]", "data-[state=open]:bg-white/[0.08]")}
       >
-        <Bookmark className="h-3 w-3 shrink-0" />
+        <Bookmark className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{active ? active.name : "Custom"}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
       </Menu.Trigger>
@@ -190,14 +193,15 @@ export function AgentLauncher(): JSX.Element {
         </button>
         <ProfileMenu profiles={profiles} current={state.profileId} />
         <HarnessPicker
+          className={BOX}
           kind={state.kind}
           installed={(kind) => installed.data?.harnesses[kind] ?? true}
           onChange={(kind) =>
             tweak({ kind, model: settings.agent.defaultModels[kind] ?? null, effort: null })
           }
         />
-        <div className="min-w-0 max-w-[11rem]">
-          <ModelPicker kind={state.kind} model={state.model} ranWith={null} onChange={(model) => tweak({ model })} />
+        <div className="min-w-0 max-w-[13rem]">
+          <ModelPicker framed className={BOX} kind={state.kind} model={state.model} ranWith={null} onChange={(model) => tweak({ model })} />
         </div>
         <EffortPicker kind={state.kind} value={state.effort} onChange={(effort) => tweak({ effort })} />
         <button
@@ -207,7 +211,7 @@ export function AgentLauncher(): JSX.Element {
           title="Wire this project's Zyvro tools (workflows, capture) into the agent over MCP"
           aria-pressed={state.mcp}
         >
-          <Plug className="h-3 w-3" />
+          <Plug className="h-3.5 w-3.5" />
           Zyvro tools
         </button>
         {state.profileId === null && (
@@ -217,7 +221,7 @@ export function AgentLauncher(): JSX.Element {
             className={cn(chip, chipOff)}
             title="Save this configuration as a profile"
           >
-            <Bookmark className="h-3 w-3" />
+            <Bookmark className="h-3.5 w-3.5" />
             Save
           </button>
         )}
@@ -226,10 +230,10 @@ export function AgentLauncher(): JSX.Element {
           type="button"
           disabled={!present}
           onClick={() => runLauncher()}
-          className="flex items-center gap-1 rounded-md border border-white/[0.1] px-2.5 py-1 text-[11px] text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-40"
+          className={`flex ${BOX} items-center gap-1.5 rounded-md border border-white/[0.1] px-2.5 text-[12px] text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-40`}
           title="Open the agent on its own prompt"
         >
-          <TerminalSquare className="h-3 w-3" />
+          <TerminalSquare className="h-3.5 w-3.5" />
           Empty
         </button>
       </div>

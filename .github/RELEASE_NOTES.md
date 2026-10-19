@@ -47,6 +47,38 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.84
+
+**Shell + Agents replaces the chat column.** An agent is now a shell whose
+program is the harness: `claude`, `codex`, `qwen` or `mimo` runs in its own
+native interface, in a tab next to your ordinary shells, with everything you
+chose turned into native flags — harness, model, effort, permission, the
+project's Zyvro tools, skills and your own instructions. The launcher at the top
+of the panel picks a configuration (or a saved profile) and *Empty* opens the
+agent on its prompt; you type the task in the harness itself.
+
+**Sessions come back.** Zyvro keeps each agent's session id and configuration per
+project. Close the app and the agents that were open reopen at the next launch
+(up to six, switchable in Settings) with `--resume` / `codex resume`, the same
+permission and model. A closed tab stays in the **Agent sessions** list, one click
+to resume. Qwen and MiMo do not report a new session's id, so they reopen a new
+conversation.
+
+**Layout.** In Dev the Shell sits to the right of the code or under it, your
+choice. In AI mode it takes the whole window. A thin bar on the right carries the
+agent plugins (permission, skills, task queue, project memory, bug report, store
+plugins) and the project logo, which you can move to the top or bottom of the
+bar. The task queue now types its prompts into the agent's shell by itself, one
+at a time, when every agent has been quiet for a few seconds.
+
+**Gone with the chat:** the context gauge, per-answer token usage, read aloud and
+prompt rewriting — the native interface does `/compact` and shows its own
+tokens. The chat button "Open in terminal" now opens an agent with the chat's
+permission instead of lifting every protection.
+
+**Smaller:** the model menu no longer lists the errors of local servers that are
+simply switched off; the launcher's selectors share one size.
+
 ## New in alpha.83
 
 **Background tasks survive the end of the agent's turn.** When the agent

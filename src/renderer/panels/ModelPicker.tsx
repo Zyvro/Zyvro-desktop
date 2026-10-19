@@ -30,7 +30,12 @@ export function ModelPicker({
   model,
   ranWith,
   onChange,
+  framed = false,
+  className,
 }: {
+  /** Cadré comme un sélecteur de barre (lanceur), au lieu du texte nu d'un en-tête. */
+  framed?: boolean
+  className?: string
   kind: AgentKind
   /** The pinned model, or null for whatever the CLI picks. */
   model: string | null
@@ -92,7 +97,12 @@ export function ModelPicker({
         // lui laisse. Le plafond (11rem) et la possibilité de rétrécir vivent
         // côte à côte dans la barre qui l'accueille, sinon les deux règles se
         // contredisent et c'est le voisin de droite qui sort de l'écran.
-        className="flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:bg-white/[0.06] hover:text-foreground data-[state=open]:bg-white/[0.06]"
+        className={cn(
+          framed
+            ? "flex max-w-full items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-[12px] text-foreground outline-none transition-colors hover:bg-white/[0.08] data-[state=open]:bg-white/[0.08]"
+            : "flex max-w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground outline-none hover:bg-white/[0.06] hover:text-foreground data-[state=open]:bg-white/[0.06]",
+          className
+        )}
       >
         <span className="truncate">{label}</span>
         <ChevronDown className="h-3 w-3 shrink-0 opacity-70" />
