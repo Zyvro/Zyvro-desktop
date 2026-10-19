@@ -3,7 +3,7 @@ import { Terminal, type ITheme } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { WebLinksAddon } from "@xterm/addon-web-links"
 import * as Menu from "@radix-ui/react-dropdown-menu"
-import { Bot, ChevronDown, Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
+import { ArrowLeftRight, Bot, ChevronDown, Columns2, Plus, RotateCcw, TerminalSquare, X } from "lucide-react"
 import { addGroup, groupOf, placeIn, removeKey, resizePair, splitBeside, withRestored, type Groups } from "../../shared/termgroups"
 import { splitToken, subscribeSplit } from "~/state/terminalSplit"
 import { cn } from "@/lib/utils"
@@ -16,6 +16,8 @@ import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
 import { openToken, sessionsChanged, subscribeOpen, takeOpen } from "~/state/persistent"
 import { ShellPicker } from "./ShellPicker"
+import { SwitchAgentDialog, type SwitchChoice } from "./SwitchAgentDialog"
+import { askSwitch } from "~/state/switchAgent"
 import { AgentLauncher } from "./AgentLauncher"
 import { HarnessMark } from "./HarnessPicker"
 import { recordTitle, type NativeSpec } from "../../shared/agentShell"
@@ -161,6 +163,7 @@ function resumeSpec(fiche: AgentShellRecord): NativeSpec {
     resume: fiche.id,
     conversation: null,
     submit: false,
+    handoff: null,
   }
 }
 
@@ -311,6 +314,54 @@ if (typeof window !== "undefined" && window.zyvro) {
       askAgent({ ...launcherSpec(task.prompt), name: task.title, submit: true }, task.id)
       return id
     },
+  })
+}
+
+// Les gestes du panneau dont la boîte « Switch agent » a besoin : la fermeture d'un
+// onglet vit dans le composant (elle touche ses onglets), la boîte la demande ici.
+const panelActions: { close: (key: string) => void } = { close: () => undefined }
+
+/** L'onglet qui affiche cette session d'agent, s'il y en a un. */
+function keyOfRecord(recordId: string): string | undefined {
+  return agentTabs().find((t) => t.record === recordId)?.key
+}
+
+function recordIsLive(recordId: string): boolean {
+  const tab = agentTabs().find((t) => t.record === recordId)
+  return Boolean(tab?.ptyId && tab.exitCode === null)
+}
+
+// Changer de modèle ou de harnais sur une session (voir SwitchAgentDialog).
+async function switchAgent(choice: SwitchChoice): Promise<void> {
+  const { record, kind, model, effort } = choice
+  useWorkspace.getState().setPanel("terminal", true)
+  const key = keyOfRecord(record.id)
+  if (choice.mode === "resume") {
+    // Le principal arrête l'agent et note le modèle ; on rouvre la même session.
+    await window.zyvro.agentShell.switch(record.id, { model, effort })
+    noteRecord({ ...record, model, effort })
+    if (key) restartSession(key)
+    else askAgent({ ...resumeSpec({ ...record, model, effort }) })
+    return
+  }
+  // Un autre harnais prend le relais : l'ancien s'arrête (sauf avis contraire), le
+  // nouveau démarre sur le briefing de son transcript.
+  if (choice.stopCurrent && key) panelActions.close(key)
+  askAgent({
+    kind,
+    model,
+    permission: record.permission,
+    effort,
+    instructions: record.instructions,
+    mcp: record.mcp,
+    skills: record.skills,
+    name: `${recordTitle(record)} → ${model ?? kind}`.slice(0, 60),
+    prompt: "",
+    profileId: null,
+    resume: null,
+    conversation: null,
+    submit: false,
+    handoff: record.id,
   })
 }
 
@@ -1099,6 +1150,8 @@ export function TerminalPanel(): JSX.Element {
     forgetStatus(key)
   }
 
+  panelActions.close = closeSession
+
   // Toutes les clés de session de tous les projets : celles du projet actif
   // (dans `groups`) et celles des autres (dans `layoutsByProject`), qui
   // doivent rester montées pour ne pas tuer leurs ptys.
@@ -1240,10 +1293,26 @@ export function TerminalPanel(): JSX.Element {
 
         {/* Poussé à droite par son propre `ml-auto` : les onglets défilent, et
             un séparateur élastique entre eux et lui se ferait écraser. */}
+        {/* Changer le modèle ou le harnais de l'agent de cet onglet. */}
+        <div className="ml-auto flex shrink-0 items-center">
+        {readStatus(activeKey).agentRecord && (
+          <button
+            type="button"
+            onClick={() => askSwitch(readStatus(activeKey).agentRecord as string)}
+            title="Switch model or agent — resume this session on another model, or hand it over to another harness"
+            aria-label="Switch model or agent"
+            data-switch-agent
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
+          >
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+          </button>
+        )}
         <ShellPicker />
+        </div>
       </div>
 
       <AgentLauncher />
+      <SwitchAgentDialog isLive={recordIsLive} onSwitch={switchAgent} />
 
       {/* Every session stays mounted. Hiding the wrapper (never the xterm host
           itself) keeps the instance, its pty and its scrollback alive. */}

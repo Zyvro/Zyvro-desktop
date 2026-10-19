@@ -186,6 +186,11 @@ export type NativeSpec = {
    * main reste, elle, à relire avant d'être envoyée.
    */
   submit: boolean
+  /**
+   * La session dont cet agent prend la suite, quand on change de harnais : un
+   * enregistrement dont le principal lit le transcript pour en faire un briefing.
+   */
+  handoff: string | null
 }
 
 export function sanitizeSpec(raw: unknown): NativeSpec | null {
@@ -207,6 +212,7 @@ export function sanitizeSpec(raw: unknown): NativeSpec | null {
     resume: typeof r.resume === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(r.resume) ? r.resume : null,
     conversation: typeof r.conversation === "string" && r.conversation ? r.conversation.slice(0, 200) : null,
     submit: r.submit === true,
+    handoff: typeof r.handoff === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(r.handoff) ? r.handoff : null,
   }
 }
 
@@ -225,6 +231,7 @@ export function specOfProfile(profile: AgentProfile, prompt = "", name = ""): Na
     resume: null,
     conversation: null,
     submit: false,
+    handoff: null,
   }
 }
 
@@ -531,4 +538,153 @@ export function codexSessionFromMeta(firstLine: string, cwd: string): string | n
 
 function normalizeDir(dir: string): string {
   return dir.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase()
+}
+
+// ---- changer de harnais : reprendre le fil d'une autre session ---------------------------
+//
+// Une session appartient à son harnais : l'identifiant de claude ne veut rien dire
+// pour codex, et un modèle d'un autre fournisseur ne relit pas le journal de la
+// première. Changer de harnais n'est donc pas « reprendre », c'est **passer le
+// relais** : on lit le transcript de l'ancienne session, on en fait un briefing,
+// et le nouvel agent le reçoit en premier message.
+//
+// Ce module est le lecteur et le rédacteur, purs. Seuls claude et codex ont un
+// journal dont le format a été relevé ; les autres donnent un briefing sans
+// transcript, qui le dit.
+
+export type Turn = { role: "user" | "assistant" | "tool"; text: string }
+
+const MAX_TURN = 1500
+const MAX_TOOL = 140
+
+function clip(text: string, max: number): string {
+  const one = text.replace(/\r\n?/g, "\n").trim()
+  return one.length > max ? `${one.slice(0, max - 1)}…` : one
+}
+
+// Ce qu'un harnais écrit dans son journal sans que ce soit une parole : rappels
+// de contexte, commandes locales, instructions du dépôt.
+function noise(text: string): boolean {
+  const t = text.trimStart()
+  return (
+    t === "" ||
+    t.startsWith("<environment_context>") ||
+    t.startsWith("<user_instructions>") ||
+    t.startsWith("# AGENTS.md") ||
+    t.startsWith("<command-") ||
+    t.startsWith("<local-command") ||
+    t.startsWith("Caveat:") ||
+    t.startsWith("<system-reminder>")
+  )
+}
+
+function toolLine(name: unknown, input: unknown): string {
+  const args = (input && typeof input === "object" ? input : {}) as Record<string, unknown>
+  const arg = [args.command, args.cmd, args.file_path, args.path, args.pattern, args.url, args.description].find(
+    (v): v is string => typeof v === "string" && v !== ""
+  )
+  const joined = Array.isArray(args.command) ? args.command.join(" ") : arg
+  return clip(`${typeof name === "string" ? name : "tool"}${joined ? `: ${joined}` : ""}`, MAX_TOOL)
+}
+
+/** Lire le journal d'une session. Un journal abîmé donne ce qu'on a pu lire, jamais une erreur. */
+export function parseTranscript(kind: AgentKind, raw: string): Turn[] {
+  const turns: Turn[] = []
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue
+    let obj: Record<string, any>
+    try {
+      obj = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (!obj || typeof obj !== "object" || obj.isSidechain === true) continue
+
+    if (kind === "claude") {
+      const content = obj.message?.content
+      if (obj.type === "user") {
+        const text =
+          typeof content === "string"
+            ? content
+            : Array.isArray(content)
+              ? content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text).join("\n")
+              : ""
+        if (!noise(text)) turns.push({ role: "user", text: clip(text, MAX_TURN) })
+      } else if (obj.type === "assistant" && Array.isArray(content)) {
+        const text = content.filter((b: any) => b?.type === "text" && typeof b.text === "string").map((b: any) => b.text).join("\n")
+        if (text.trim()) turns.push({ role: "assistant", text: clip(text, MAX_TURN) })
+        for (const b of content) if (b?.type === "tool_use") turns.push({ role: "tool", text: toolLine(b.name, b.input) })
+      }
+      continue
+    }
+
+    if (speaksCodex(kind)) {
+      const payload = obj.type === "response_item" ? obj.payload : obj.type === "message" ? obj : null
+      if (!payload) continue
+      if (payload.type === "message" && (payload.role === "user" || payload.role === "assistant")) {
+        const text = (Array.isArray(payload.content) ? payload.content : [])
+          .map((b: any) => (typeof b?.text === "string" ? b.text : ""))
+          .join("\n")
+        if (!noise(text)) turns.push({ role: payload.role, text: clip(text, MAX_TURN) })
+      } else if (payload.type === "function_call") {
+        let args: unknown = payload.arguments
+        if (typeof args === "string") {
+          try {
+            args = JSON.parse(args)
+          } catch {
+            args = {}
+          }
+        }
+        turns.push({ role: "tool", text: toolLine(payload.name, args) })
+      }
+    }
+  }
+  return turns
+}
+
+/**
+ * Le briefing que reçoit le nouvel agent.
+ *
+ * Borné : il voyage en argument ou collé, et un très long fil ne tient pas. On
+ * garde la demande d'origine, puis les échanges les plus récents jusqu'au budget,
+ * et on dit combien ont été laissés de côté.
+ */
+export function briefing(input: {
+  turns: Turn[]
+  from: { kind: AgentKind; model: string | null }
+  to: { kind: AgentKind; model: string | null }
+  budget?: number
+}): string {
+  const budget = input.budget ?? 12_000
+  const name = (side: { kind: AgentKind; model: string | null }): string => (side.model ? `${side.kind} (${side.model})` : side.kind)
+  const head = [
+    `You are taking over a working session in this project. It was started with ${name(input.from)}; you are ${name(input.to)}.`,
+    "Below is the conversation so far, oldest first, shortened. Continue from where it stopped: do not redo finished work, and do not assume the transcript is complete.",
+    "Before changing anything, check the current state of the repository (git status, git diff).",
+  ].join("\n")
+  const foot =
+    "End of the previous conversation. If the last request was already completed, say so briefly and wait for the user's next instruction."
+
+  const format = (turn: Turn): string =>
+    turn.role === "tool" ? `  · ${turn.text}` : `${turn.role === "user" ? "User" : "Assistant"}: ${turn.text}`
+
+  if (input.turns.length === 0) {
+    return `${head}\n\nNo transcript could be read for the previous ${input.from.kind} session, so you have only this: ask the user what was being worked on, or read the repository to find out.\n\n${foot}`
+  }
+  const first = input.turns.find((t) => t.role === "user")
+  const rest = input.turns
+  const picked: string[] = []
+  let used = head.length + foot.length + (first ? first.text.length + 40 : 0)
+  let kept = 0
+  for (let i = rest.length - 1; i >= 0; i--) {
+    const line = format(rest[i])
+    if (used + line.length > budget) break
+    picked.unshift(line)
+    used += line.length + 1
+    kept++
+  }
+  const omitted = rest.length - kept
+  const start = first && picked[0] !== format(first) ? `Original request:\nUser: ${first.text}\n\n` : ""
+  const gap = omitted > 0 ? `[${omitted} earlier message${omitted === 1 ? "" : "s"} omitted]\n` : ""
+  return `${head}\n\n${start}${gap}${picked.join("\n")}\n\n${foot}`
 }

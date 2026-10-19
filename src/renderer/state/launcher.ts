@@ -138,6 +138,7 @@ export function launcherSpec(prompt: string): NativeSpec {
     resume: null,
     conversation: null,
     submit: false,
+    handoff: null,
   }
 }
 

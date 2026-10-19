@@ -147,6 +147,19 @@ from the tree is typed into the active shell, quoted, without Enter. Plain
 shells (`+`) are untouched, and both kinds live side by side, split and grouped
 like any tab.
 
+**Switch agent.** The arrows button of the tab bar (and the same icon on a row of
+the *Agent sessions* list) reopens a session on another model or another harness
+— something a harness does not do by itself, least of all from one provider to
+another (Opus to an Ollama model, say). Within the same harness *Continue this
+session* stops the agent and resumes the same conversation (`--resume`) with the
+new model. *Hand over* works for any pair, because a session belongs to the
+program that wrote it: Zyvro reads the old session's transcript (claude and
+codex logs; the last exchanges, shortened to about 12,000 characters, plus the
+original request), turns it into a briefing and starts a new agent with it as
+its first message, telling it to check `git status` before touching anything.
+Qwen and MiMo keep no log Zyvro can read, so a hand-over *from* them carries no
+history, and *to* them the briefing is pasted for you to send with Enter.
+
 **Task queue.** The clock button of the right-hand bar schedules prompts (now,
 at a time, repeating). A task is typed into the agent shell it was added from —
 pasted, then Enter — or into the agent on screen if that one is gone; with no

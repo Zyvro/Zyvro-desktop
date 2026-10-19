@@ -65,7 +65,11 @@ import * as agentShells from "./agentShells"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
 import {
   bracketedPaste,
+  briefing,
   hasSystemPromptFlag,
+  parseTranscript,
+  supportsEffort,
+  EFFORTS,
   nativeArgs,
   promptDelivery,
   recordTitle,
@@ -1770,6 +1774,21 @@ export function registerIpc(onRecents?: () => void): void {
     const kind = spec.kind
     const { found, aim, vise, env } = await harnessLaunch(ws, kind, spec.model)
 
+    // Changer de harnais : une session n'a de sens que pour le sien, alors le nouvel
+    // agent reçoit en premier message un briefing tiré du transcript de l'ancienne.
+    let prompt = spec.prompt
+    if (!previous && spec.handoff) {
+      const source = known.find((item) => item.id === spec.handoff)
+      if (!source) throw new Error("The session to take over is no longer in the list.")
+      const raw = source.sessionId ? agentShells.readTranscript(source.kind, source.sessionId) : null
+      const text = briefing({
+        turns: raw ? parseTranscript(source.kind, raw) : [],
+        from: { kind: source.kind, model: source.model },
+        to: { kind, model: spec.model },
+      })
+      prompt = spec.prompt ? `${text}\n\n${spec.prompt}` : text
+    }
+
     // ---- la session
     const fromChat = !previous && spec.conversation ? ws.agent.sessionFor(kind, spec.conversation) : null
     let sessionId = previous?.sessionId ?? (sessionIdOk(fromChat) ? fromChat : null)
@@ -1850,7 +1869,7 @@ export function registerIpc(onRecents?: () => void): void {
       throw new Error(`"${spec.model}" cannot be passed to ${kind} through cmd.exe: use a plain model name.`)
     }
     const task =
-      viaCmd && spec.prompt ? `${systemPrompt}\n\n---\n\n${spec.prompt}` : taskText(kind, systemPrompt, spec.prompt)
+      viaCmd && prompt ? `${systemPrompt}\n\n---\n\n${prompt}` : taskText(kind, systemPrompt, prompt)
     // cmd.exe ne sait pas porter un retour à la ligne ni ses propres signes dans
     // un argument ; une très longue tâche n'a rien à faire dans argv non plus.
     const argvOk =
@@ -1942,6 +1961,27 @@ export function registerIpc(onRecents?: () => void): void {
       (task && !argvOk ? dim("Your task is pasted into the prompt below: read it, then press Enter.") : "") +
       (session.banner ?? "")
     return { ...session, banner, record }
+  })
+
+  // Changer le modèle d'une session du MÊME harnais : on arrête l'agent s'il tourne et on
+  // note le nouveau modèle sur l'enregistrement ; la fenêtre rouvre ensuite la session
+  // (`--resume`), qui relit sa configuration d'ici. Un autre harnais ne passe pas par là :
+  // c'est un nouvel agent qui prend la suite (`handoff`).
+  ipcMain.handle("agentshell:switch", async (event, id: string, changes: unknown) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    const dir = agentShellsDir()
+    const record = (await agentShells.load(dir, root)).find((item) => item.id === String(id))
+    if (!record) throw new Error("That agent session is no longer in the list.")
+    const wanted = (changes && typeof changes === "object" ? changes : {}) as { model?: unknown; effort?: unknown }
+    const model = typeof wanted.model === "string" && wanted.model.trim() ? wanted.model.trim().slice(0, 256) : null
+    const effort = supportsEffort(record.kind) && (EFFORTS as readonly string[]).includes(wanted.effort as string) ? (wanted.effort as (typeof EFFORTS)[number]) : null
+    // Arrêté sans le noter « fermé » : il va être rouvert aussitôt.
+    const live = ws.terminals.byAgentShell(record.id)
+    if (live) ws.terminals.dispose(live)
+    await agentShells.patch(dir, root, record.id, { model, effort })
+    if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
+    return true
   })
 
   ipcMain.handle("agentshell:list", async (event) => {

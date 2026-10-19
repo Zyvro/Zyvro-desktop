@@ -1,10 +1,11 @@
-import { Pencil, Plus, X } from "lucide-react"
+import { ArrowLeftRight, Pencil, Plus, X } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { recordTitle, type AgentShellRecord } from "../../shared/agentShell"
 import { useWorkspace } from "~/state/workspace"
 import { askAgent } from "~/state/persistent"
 import { openLauncher } from "~/state/launcher"
+import { askSwitch } from "~/state/switchAgent"
 import { askConfirm, askName } from "~/state/prompt"
 import { refreshAgentShells, useAgentShells } from "~/state/agentShells"
 import { SidebarSection } from "~/panels/SidebarSection"
@@ -63,6 +64,7 @@ export function AgentShellList() {
       resume: record.id,
       conversation: null,
       submit: false,
+      handoff: null,
     })
   }
 
@@ -131,6 +133,13 @@ export function AgentShellList() {
                     )}
                     title={running ? "Running" : record.state === "open" ? "Was open — reopens at startup" : "Closed — click to resume"}
                   />
+                </button>
+                <button
+                  className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-white/[0.1] hover:text-foreground group-hover:opacity-100"
+                  title="Switch model or agent"
+                  onClick={() => askSwitch(record.id)}
+                >
+                  <ArrowLeftRight className="h-3 w-3" />
                 </button>
                 <button
                   className="shrink-0 rounded p-0.5 text-muted-foreground opacity-0 hover:bg-white/[0.1] hover:text-foreground group-hover:opacity-100"

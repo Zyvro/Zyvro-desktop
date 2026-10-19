@@ -296,6 +296,76 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   }
 }
 
+// ---- changer de harnais : le transcript, et le briefing ---------------------------------
+{
+  const claudeLog = [
+    { type: "summary", summary: "x" },
+    { type: "user", message: { role: "user", content: "<command-name>/model</command-name>" } },
+    { type: "user", message: { role: "user", content: "Fix the login bug" } },
+    { type: "assistant", message: { content: [{ type: "text", text: "Looking at it." }, { type: "tool_use", name: "Bash", input: { command: "grep -r login src" } }] } },
+    { type: "user", message: { content: [{ type: "tool_result", content: "src/a.ts:1: login" }] } },
+    { type: "assistant", isSidechain: true, message: { content: [{ type: "text", text: "SUBAGENT" }] } },
+    { type: "assistant", message: { content: [{ type: "text", text: "Fixed in src/a.ts." }, { type: "tool_use", name: "Edit", input: { file_path: "src/a.ts" } }] } },
+    { type: "user", message: { content: [{ type: "text", text: "Now add a test" }] } },
+  ].map((o) => JSON.stringify(o)).join("\n") + "\n{coupé"
+  const turns = mod.parseTranscript("claude", claudeLog)
+  check("claude : les paroles, dans l'ordre", turns.filter((t) => t.role !== "tool").map((t) => `${t.role}:${t.text}`).join("|") === "user:Fix the login bug|assistant:Looking at it.|assistant:Fixed in src/a.ts.|user:Now add a test", JSON.stringify(turns))
+  check("claude : les outils en une ligne chacun", turns.filter((t) => t.role === "tool").map((t) => t.text).join("|") === "Bash: grep -r login src|Edit: src/a.ts")
+  check("**claude : ni sous-agent, ni rappel, ni commande locale, ni résultat d'outil**", !JSON.stringify(turns).includes("SUBAGENT") && !JSON.stringify(turns).includes("command-name") && !JSON.stringify(turns).includes("src/a.ts:1"))
+  check("une ligne abîmée n'arrête pas la lecture", turns.length === 6)
+
+  const codexLog = [
+    { type: "session_meta", payload: { id: "x", cwd: "/p" } },
+    { type: "response_item", payload: { type: "message", role: "developer", content: [{ type: "input_text", text: "SYSTEM" }] } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "<environment_context>cwd</environment_context>" }] } },
+    { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Refactor the parser" }] } },
+    { type: "response_item", payload: { type: "function_call", name: "shell", arguments: JSON.stringify({ command: ["ls", "-la"] }) } },
+    { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: "Done." }] } },
+  ].map((o) => JSON.stringify(o)).join("\n")
+  const c = mod.parseTranscript("codex", codexLog)
+  check("codex : demande, outil, réponse ; sans contexte ni consigne système", c.map((t) => `${t.role}:${t.text}`).join("|") === "user:Refactor the parser|tool:shell: ls -la|assistant:Done.", JSON.stringify(c))
+  check("un harnais sans journal lisible : aucun tour", mod.parseTranscript("qwen", claudeLog).length === 0 && mod.parseTranscript("mimo", codexLog).length === 0)
+
+  const b = mod.briefing({ turns, from: { kind: "claude", model: "opus" }, to: { kind: "qwen", model: "ollama-local/glm-5.3:cloud" } })
+  check("briefing : dit qui prend la suite de qui", b.includes("started with claude (opus)") && b.includes("you are qwen (ollama-local/glm-5.3:cloud)"))
+  check("briefing : le fil est dedans, du plus ancien au plus récent", b.indexOf("Fix the login bug") < b.indexOf("Fixed in src/a.ts.") && b.indexOf("Fixed in src/a.ts.") < b.indexOf("Now add a test"))
+  check("**briefing : demande de vérifier le dépôt avant de toucher à quoi que ce soit**", /git status/.test(b))
+  const long = Array.from({ length: 400 }, (_, i) => ({ role: i % 2 ? "assistant" : "user", text: `message ${i} ${"x".repeat(200)}` }))
+  const bl = mod.briefing({ turns: long, from: { kind: "claude", model: null }, to: { kind: "codex", model: null }, budget: 6000 })
+  check("**briefing : borné, et dit combien de messages sont laissés**", bl.length <= 6500 && /\[\d+ earlier messages? omitted\]/.test(bl), String(bl.length))
+  check("briefing : garde la demande d'origine et la fin", bl.includes("Original request:") && bl.includes("message 0 ") && bl.includes("message 399"))
+  check("briefing : sans transcript, il le dit et ne ment pas", /No transcript could be read/.test(mod.briefing({ turns: [], from: { kind: "qwen", model: null }, to: { kind: "claude", model: null } })))
+  check("briefing : un nom de modèle n'ouvre pas de marqueur de collage", !mod.bracketedPaste(mod.briefing({ turns: [{ role: "user", text: "a\x1b[201~b" }], from: { kind: "claude", model: null }, to: { kind: "codex", model: null } })).slice(6, -6).includes("\x1b[201~"))
+
+  check("une demande de relais nomme un enregistrement, pas autre chose", mod.sanitizeSpec({ kind: "codex", handoff: "../x" }).handoff === null && mod.sanitizeSpec({ kind: "codex", handoff: "abc-123" }).handoff === "abc-123")
+
+  const dossier = mkdtempSync(path.join(tmpdir(), "zyvro-tr-"))
+  try {
+    mkdirSync(path.join(dossier, "claude", "projects", "-p"), { recursive: true })
+    writeFileSync(path.join(dossier, "claude", "projects", "-p", "sess-9.jsonl"), claudeLog)
+    mkdirSync(path.join(dossier, "codex", "sessions", "2026", "10", "19"), { recursive: true })
+    writeFileSync(path.join(dossier, "codex", "sessions", "2026", "10", "19", "rollout-2026-10-19T09-00-00-cdx-1.jsonl"), codexLog)
+    const env = { CLAUDE_CONFIG_DIR: path.join(dossier, "claude"), CODEX_HOME: path.join(dossier, "codex") }
+    check("le journal de claude se retrouve par l'identifiant de session", mod.store.readTranscript("claude", "sess-9", env) === claudeLog)
+    check("celui de codex aussi", mod.store.readTranscript("codex", "cdx-1", env) === codexLog)
+    check("un harnais sans journal lisible rend null, sans lever", mod.store.readTranscript("qwen", "x", env) === null && mod.store.readTranscript("claude", "absent", env) === null)
+    check("un identifiant douteux ne cherche rien", mod.store.readTranscript("claude", "../../etc/passwd", env) === null)
+    writeFileSync(path.join(dossier, "claude", "projects", "-p", "big.jsonl"), "x".repeat(10) + "\n" + JSON.stringify({ type: "user", message: { content: "dernier" } }) + "\n")
+    check("le journal est lu par la fin", mod.store.readTranscript("claude", "big", env).includes("dernier"))
+  } finally {
+    rmSync(dossier, { recursive: true, force: true })
+  }
+
+  const ipc2 = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
+  const panel2 = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
+  const dialog = readFileSync(path.join(ROOT, "src/renderer/panels/SwitchAgentDialog.tsx"), "utf8")
+  check("**le relais lit le transcript de l'ancienne session côté principal**", /agentShells\.readTranscript\(source\.kind, source\.sessionId\)/.test(ipc2) && /spec\.handoff/.test(ipc2))
+  check("**même harnais : l'agent est arrêté sans être noté « fermé », puis la session est rouverte**", /agentshell:switch/.test(ipc2) && /ws\.terminals\.dispose\(live\)/.test(ipc2) && /restartSession\(key\)/.test(panel2))
+  check("autre harnais : seul le relais est permis", /const effective = same \? mode : "handoff"/.test(dialog))
+  check("l'ancien agent s'arrête, sauf avis contraire", /choice\.stopCurrent && key\) panelActions\.close\(key\)/.test(panel2))
+  check("le bouton est dans la barre d'onglets et dans la liste des sessions", /data-switch-agent/.test(panel2) && /askSwitch\(record\.id\)/.test(readFileSync(path.join(ROOT, "src/renderer/panels/AgentShellList.tsx"), "utf8")))
+}
+
 // ---- le disque ---------------------------------------------------------------------
 {
   const dossier = mkdtempSync(path.join(tmpdir(), "zyvro-ash-"))

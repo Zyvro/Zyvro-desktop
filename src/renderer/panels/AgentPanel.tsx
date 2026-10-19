@@ -641,6 +641,7 @@ function openInTerminal(thread: Thread): void {
     resume: null,
     conversation: thread.id,
     submit: false,
+    handoff: null,
   })
 }
 

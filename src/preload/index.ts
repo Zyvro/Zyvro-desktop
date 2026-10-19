@@ -384,6 +384,9 @@ const api = {
     ): Promise<{ id: string; pty: boolean; banner?: string; existing?: boolean; record: AgentShellRecord }> =>
       invoke("agentshell:open", spec, context, cols, rows),
     list: (): Promise<{ records: AgentShellRecord[]; live: string[] }> => invoke("agentshell:list"),
+    /** Changer le modèle (et l'effort) d'une session du même harnais, avant de la rouvrir. */
+    switch: (id: string, changes: { model: string | null; effort: string | null }): Promise<boolean> =>
+      invoke("agentshell:switch", id, changes),
     /** Les sessions qui étaient ouvertes à l'arrêt de l'application. */
     restorable: (max: number): Promise<AgentShellRecord[]> => invoke("agentshell:restorable", max),
     rename: (id: string, name: string): Promise<boolean> => invoke("agentshell:rename", id, name),

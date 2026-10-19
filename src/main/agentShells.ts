@@ -92,7 +92,7 @@ export function patch(
   dir: string,
   projectDir: string,
   id: string,
-  change: Partial<Pick<AgentShellRecord, "name" | "sessionId" | "state">>
+  change: Partial<Pick<AgentShellRecord, "name" | "sessionId" | "state" | "model" | "effort">>
 ): Promise<AgentShellRecord[]> {
   return update(dir, projectDir, (all) =>
     all.map((item) => (item.id === id ? { ...item, ...change, updatedAt: new Date().toISOString() } : item))
@@ -248,4 +248,47 @@ export function watchCodexSession(
     stopped = true
     if (timer) clearTimeout(timer)
   }
+}
+
+// ---- lire le transcript d'une session (pour changer de harnais) ----------------------------
+
+const MAX_TRANSCRIPT = 4 * 1024 * 1024
+
+function readTail(file: string): string {
+  const size = statSync(file).size
+  const fd = openSync(file, "r")
+  try {
+    // Les derniers mégaoctets : c'est la fin du fil qu'on veut, et un journal de
+    // plusieurs jours ne doit pas être lu en entier pour un briefing de douze mille caractères.
+    const length = Math.min(size, MAX_TRANSCRIPT)
+    const buffer = Buffer.alloc(length)
+    readSync(fd, buffer, 0, length, size - length)
+    const text = buffer.toString("utf8")
+    // Coupé au milieu d'une ligne : on écarte la première.
+    return size > length ? text.slice(text.indexOf("\n") + 1) : text
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/** Le journal de cette session, quand on sait le lire (claude, codex), sinon null. */
+export function readTranscript(kind: string, id: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (!sessionIdOk(id)) return null
+  try {
+    if (kind === "claude") {
+      const root = path.join(configDir(env, "CLAUDE_CONFIG_DIR", ".claude"), "projects")
+      for (const name of readdirSync(root)) {
+        const file = path.join(root, name, `${id}.jsonl`)
+        if (existsSync(file)) return readTail(file)
+      }
+      return null
+    }
+    if (kind === "codex") {
+      const found = codexRollouts(env).find((c) => c.file.includes(id))
+      return found ? readTail(found.file) : null
+    }
+  } catch {
+    return null
+  }
+  return null
 }
