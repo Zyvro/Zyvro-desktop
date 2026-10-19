@@ -22,19 +22,30 @@ providers, the engine runs locally, and no credential ever leaves the laptop.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│ project name                          sidebar terminal agent │
-├────┬──────────────┬─────────────────────────┬────────────────┤
-│    │ Explorer     │ tabs                    │                │
-│ ▤  │  src/        │  ┌───────────────────┐  │  Agent         │
-│ ▣  │  package.json│  │ code  or  graph   │  │                │
-│    │              │  └───────────────────┘  │  runs your own │
-│    ├──────────────┤─────────────────────────┤  claude/codex  │
-│    │ Workflows    │ Terminal                │  CLI here      │
-│    │  Brain QA    │ $                       │                │
-├────┴──────────────┴─────────────────────────┴────────────────┤
+│ project name                          mode   sidebar   shell │
+├────┬──────────────┬──────────────────────────┬─────────────┬─┤
+│    │ Explorer     │ tabs                     │ Shell +     │▣│
+│ ▤  │  src/        │  ┌────────────────────┐  │ Agents      │+│
+│ ▣  │  package.json│  │ code  or  graph    │  │ [claude][sh]│◈│
+│    ├──────────────┤  └────────────────────┘  │ $           │ │
+│    │ Workflows    │                          │             │◧│
+│    │ Agent sess.  │                          │             │ │
+├────┴──────────────┴──────────────────────────┴─────────────┴─┤
 │ Local engine on port 51234   ✓claude ✓codex   3 workflows    │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+**Two modes.** *Dev* is the code with the **Shell + Agents** panel beside it or
+under it (the button at the top of the right-hand bar flips it; the choice is
+remembered). *AI* is the Shell alone, taking the whole window; opening a file
+steps it aside to its dock so you can read.
+
+The thin bar on the far right holds new shell, run an agent, split, the dock
+switch, the agent plugins that make sense without a chat (permission, skills,
+project memory, task rewrite, bug report, store plugins) and the **project
+logo**, at the bottom or the top of the bar (its menu changes the icon and moves
+it). There is no separate chat column any more: the chat panel's code is still
+in the repository but is not mounted.
 
 Clicking a workflow opens the graph editor in a tab. It is not a reimplementation:
 the renderer compiles `Zyvro-frontend/src/components/Builder.tsx` directly, in
@@ -62,9 +73,9 @@ Anything the old channel left in the user's folder is deleted at startup: those
 binaries arrived over the network and were checked against a placeholder key, so
 they do not get to sit there unused.
 
-## The agent panel
+## The agent panel (no longer mounted)
 
-The right-hand column runs the user's own `claude` or `codex` CLI in the project
+The chat column described here has been replaced by [Shell + Agents](#shell--agents); its code is kept for now. It ran the user's own `claude` or `codex` CLI in the project
 directory, and hands it this project's Zyvro tools over MCP: list the workflows,
 read a graph, run one, poll it, read the output. So "run the summarize workflow
 and show me what it wrote" is a sentence it can act on, not just describe.
@@ -112,7 +123,7 @@ interface, in a tab, with everything you configured translated into native
 flags. The chat panel redraws the print-mode stream; this runs the real thing.
 
 **Run one.** Open the launcher (the *Run an agent* bar, the bot menu next to `+`,
-or *View › New Agent Shell…*, `⌘⌥A` / `Ctrl+Alt+A`), pick a configuration, write
+the bot button of the right-hand bar, or *View › New Agent Shell…*, `⌘⌥A` / `Ctrl+Alt+A`), pick a configuration, write
 the task, press Enter. You choose, with the same pickers as the chat toolbar:
 
 | Setting | What the harness receives |

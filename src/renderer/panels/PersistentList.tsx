@@ -31,16 +31,6 @@ export function PersistentList() {
   // Le dossier où l'on travaille, projet ouvert ou non : les sessions
   // persistantes sont celles de ce dossier-là, et la maison en est un.
   const project = useWorkspace((s) => s.root)
-  // En mode IA il n'y a pas de terminal du tout — c'est la différence entre les
-  // deux modes, pas un panneau qu'on aurait fermé. Une section dont chaque
-  // ligne serait inerte y serait pire qu'une section absente : « un menu qui
-  // propose quand même est un menu dont la moitié déçoit ».
-  //
-  // Vérifié à l'écran avant d'être corrigé : la section s'y affichait, et
-  // cliquer une ligne ne faisait rien, faute de panneau pour prendre la
-  // demande. C'est très probablement ce que Jeremy a touché en disant « je le
-  // ferme puis je clique sur la row et rien ne se passe ».
-  const mode = useWorkspace((s) => s.mode)
   const setPanel = useWorkspace((s) => s.setPanel)
   const [busy, setBusy] = useState(false)
 
@@ -65,7 +55,7 @@ export function PersistentList() {
     refetchInterval: 10_000,
   })
 
-  if (!project || !dispo.data || mode === "ai") return null
+  if (!project || !dispo.data) return null
   const liste = sessions.data ?? []
 
   const ouvrir = async (label: string): Promise<void> => {

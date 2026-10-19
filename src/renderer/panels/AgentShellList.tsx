@@ -30,7 +30,6 @@ function ago(iso: string): string {
 
 export function AgentShellList() {
   const project = useWorkspace((s) => s.root)
-  const mode = useWorkspace((s) => s.mode)
   const setPanel = useWorkspace((s) => s.setPanel)
   const { records, live } = useAgentShells()
 
@@ -46,9 +45,7 @@ export function AgentShellList() {
     staleTime: 0,
   })
 
-  // Comme les shells persistants : en mode IA il n'y a pas de terminal, donc
-  // aucune ligne ne pourrait s'ouvrir.
-  if (!project || mode === "ai") return null
+  if (!project) return null
 
   const ouvrir = (record: AgentShellRecord): void => {
     setPanel("terminal", true)

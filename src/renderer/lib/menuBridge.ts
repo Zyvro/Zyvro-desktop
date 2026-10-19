@@ -10,8 +10,8 @@ import { clearActiveTerminal } from "~/panels/TerminalPanel"
 import { openFiles } from "./windowDrop"
 import { isAbsolutePath } from "../../shared/external"
 import { requestTerminalSplit } from "~/state/terminalSplit"
-import { requestAgentAction } from "~/state/agentActions"
-import { openLauncher } from "~/state/launcher"
+import { getLauncher, openLauncher } from "~/state/launcher"
+import { askLogin } from "~/state/persistent"
 import { openTreeFilter } from "~/state/treeFilter"
 
 // Menu commands arrive from the main process as IPC events, which is a
@@ -168,9 +168,21 @@ window.zyvro.menu.onToggleTerminal(() => {
 window.zyvro.menu.onToggleAgent(() => {
   useWorkspace.getState().togglePanel("agent")
 })
+// Les commandes « agent » du menu parlent maintenant au panneau Shell + Agents :
+// la tâche prend le focus, le lanceur s'ouvre, la liste des sessions s'affiche
+// dans l'explorateur, la connexion se fait dans un onglet du terminal.
 window.zyvro.menu.onAgentAction((action) => {
-  useWorkspace.getState().setPanel("agent", true)
-  requestAgentAction(action)
+  const store = useWorkspace.getState()
+  store.setPanel("terminal", true)
+  if (action === "sessions") {
+    store.setPanel("explorer", true)
+    return
+  }
+  if (action === "login") {
+    askLogin(getLauncher().kind)
+    return
+  }
+  openLauncher()
 })
 
 // ⌘F appartient à l'éditeur ouvert : c'est lui qui a une barre de recherche, et

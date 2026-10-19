@@ -34,17 +34,17 @@ const check = (name, ok, detail = "") => {
 const app = readFileSync(path.join(ROOT, "src/renderer/App.tsx"), "utf8")
 const hover = readFileSync(path.join(ROOT, "src/renderer/panels/ZoneHover.tsx"), "utf8")
 
-// ---- la hauteur du terminal -----------------------------------------------
+// ---- la taille du Shell ---------------------------------------------------
 {
   check(
-    "**le terminal n'a plus de plafond à 640**",
-    !/terminal:\s*\[120,\s*640\]/.test(app) && /terminalMax\(\)/.test(app),
-    "le panneau shells reste bloqué sous 70 % d'un grand écran"
+    "**le Shell n'a plus de plafond fixe**",
+    !/terminal:\s*\[120,\s*640\]/.test(app) && /shellMaxHeight\(\)/.test(app) && /shellMaxWidth\(\)/.test(app),
+    "le panneau Shell reste bloqué sous 70 % d'un grand écran"
   )
   check(
     "et son maximum suit la fenêtre",
-    /window\.innerHeight/.test(app) && /Math\.max\(200, window\.innerHeight/.test(app),
-    "un max fixe relock la hauteur sur les petits écrans"
+    /Math\.max\(200, window\.innerHeight/.test(app) && /Math\.max\(400, window\.innerWidth/.test(app),
+    "un max fixe relock la taille sur les petits écrans"
   )
 }
 

@@ -466,7 +466,7 @@ function buildMenu(): void {
           click: (_item, win) => send(win as BrowserWindow, "menu:agent-shell"),
         },
         {
-          label: "Toggle Agent",
+          label: "Toggle Shell + Agents",
           accelerator: "CmdOrCtrl+Shift+A",
           click: (_item, win) => send(win as BrowserWindow, "menu:toggle-agent"),
         },

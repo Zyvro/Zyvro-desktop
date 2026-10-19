@@ -14,6 +14,6 @@ import type { AgentPlugin } from "./types"
 export const permissionsPlugin: AgentPlugin = {
   id: "permissions",
   Rail: ({ ctx }) => (
-    <PermissionPicker rail value={ctx.permission} kind={ctx.kind} disabled={ctx.disabled} onChange={setPermission} />
+    <PermissionPicker rail value={ctx.permission} kind={ctx.kind} disabled={ctx.disabled} onChange={ctx.actions.setPermission ?? setPermission} />
   ),
 }

@@ -46,6 +46,8 @@ export type AgentRailContext = {
     rewriteNow: () => void
     /** L'état du panneau, pour un rapport de bug. */
     snapshot: () => unknown
+    /** Changer la permission. Par défaut : le réglage global de la personne. */
+    setPermission?: (permission: Permission) => void
   }
 }
 

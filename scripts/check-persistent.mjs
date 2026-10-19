@@ -156,18 +156,18 @@ const AUTRE = "/tmp/zyvro-autre-projet"
   const liste = readFileSync(path.join(ROOT, "src/renderer/panels/PersistentList.tsx"), "utf8")
   check(
     "**et elle ne se dessine pas là où rien ne la tient**",
-    liste.includes("if (!project || !dispo.data || mode === \"ai\") return null"),
+    liste.includes("if (!project || !dispo.data) return null"),
     "une section vide sur Windows, à expliquer chaque jour"
   )
   // Tuer se demande : la session contient justement ce qu'on avait pris soin de
   // ne pas perdre.
-  // En mode IA il n'y a pas de terminal — c'est la différence entre les deux
-  // modes, pas un panneau fermé. Une section dont chaque ligne serait inerte y
-  // serait pire qu'une section absente. Vu à l'écran avant d'être corrigé.
+  // Depuis Shell + Agents, le mode IA a un terminal — il est même toute la
+  // fenêtre. La section n'y est donc plus masquée : ses lignes ouvrent des
+  // onglets du Shell, dans les deux modes.
   check(
-    "**ni là où il n'y a pas de terminal du tout**",
-    liste.includes('mode === "ai"'),
-    "les lignes s'affichent en mode IA et ne font rien quand on clique"
+    "**et elle se montre dans les deux modes, le Shell existant dans les deux**",
+    !liste.includes('mode === "ai"'),
+    "la section disparaîtrait en mode IA alors que son panneau est là"
   )
   // Demander une chose à un composant qui n'est pas là ne fait rien du tout.
   //

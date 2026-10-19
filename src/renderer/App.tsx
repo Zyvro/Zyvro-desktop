@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import "~/lib/chatTheme"
 import { Boxes, FolderTree, GitBranch, Search, Settings2, Store } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -16,7 +16,8 @@ import { TimelineList } from "~/panels/TimelineList"
 import { SearchPanel } from "~/panels/SearchPanel"
 import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
-import { AgentPanel } from "~/panels/AgentPanel"
+import { ShellRail } from "~/panels/ShellRail"
+import { shellDock, subscribeShellDock } from "~/state/shellDock"
 import { ShotOverlay } from "~/panels/ShotPicker"
 import { ZoneHover } from "~/panels/ZoneHover"
 import { StatusBar } from "~/panels/StatusBar"
@@ -39,12 +40,20 @@ import "~/lib/windowDrop"
 // panneau qu'on ne peut tirer qu'à 640 px reste bloqué à ~70 % d'un grand
 // écran. Son maximum suit la fenêtre — toute la hauteur, moins un filet pour
 // l'éditeur et les barres.
-const LIMITS = { sidebar: [180, 520], agent: [280, 720], terminal: [80, Number.POSITIVE_INFINITY] } as const
+// Le Shell se range à droite (largeur) ou en dessous (hauteur) ; ni l'un ni
+// l'autre n'a de plafond fixe, il suit la fenêtre.
+const LIMITS = { sidebar: [180, 520], shellWidth: [320, Number.POSITIVE_INFINITY], shellHeight: [80, Number.POSITIVE_INFINITY] } as const
 
-function terminalMax(): number {
+function shellMaxHeight(): number {
   // 160 px : barre de titre + status + un filet d'éditeur. Le reste est au
-  // terminal, et c'est ce qu'on veut quand on le tire vers le haut.
+  // Shell, et c'est ce qu'on veut quand on le tire vers le haut.
   return Math.max(200, window.innerHeight - 160)
+}
+
+function shellMaxWidth(): number {
+  // Le Shell peut prendre presque toute la largeur : 260 px restent à la barre
+  // latérale et au code.
+  return Math.max(400, window.innerWidth - 260)
 }
 
 function clamp(value: number, [min, max]: readonly [number, number]): number {
@@ -141,22 +150,16 @@ function ActivityBar() {
 // The layout each mode asks for, worked out in one place rather than by three
 // components each checking the mode for themselves.
 //
-// The rule that matters is the last one: in AI mode the agent is the work
-// surface until something is open, and opening a file is what makes the person
-// a reader rather than an asker. So the agent moves aside then — not because a
-// layout button was pressed, but because the work changed.
+// Dev is the code with the Shell beside or under it (the person's choice,
+// `shellDock`). AI is the Shell alone: it takes the whole middle, because in
+// that mode the work is asking, not reading. Opening a file is what says "now I
+// want to read this myself", and that is the moment the Shell steps aside to
+// its dock rather than the moment you go looking for a layout button.
 function layoutFor(mode: Mode, panels: Record<PanelKey, boolean>, hasTabs: boolean) {
   if (mode === "dev") {
-    return { editor: true, terminal: panels.terminal, agentBeside: panels.agent, agentCentre: false }
+    return { shell: panels.terminal || panels.agent, centre: false }
   }
-  return {
-    editor: hasTabs,
-    // No shell in AI mode. It is the difference between the two, not a panel
-    // that happens to be closed.
-    terminal: false,
-    agentBeside: hasTabs,
-    agentCentre: !hasTabs,
-  }
+  return { shell: true, centre: !hasTabs }
 }
 
 export default function App() {
@@ -173,8 +176,9 @@ export default function App() {
   const view = sidebarView(panels)
   const layout = layoutFor(mode, panels, hasTabs)
   const [sidebar, setSidebar] = useState(260)
-  const [agent, setAgent] = useState(360)
-  const [terminal, setTerminal] = useState(220)
+  const [shellW, setShellW] = useState(520)
+  const [shellH, setShellH] = useState(260)
+  const dock = useSyncExternalStore(subscribeShellDock, shellDock, () => "right" as const)
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -229,53 +233,46 @@ export default function App() {
           </>
         )}
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {/* La zone de l'éditeur (ou de l'agent au centre) s'arrête au-dessus
-              du terminal. Posée sur tout le <main>, elle l'englobait : viser
-              le code allumait un cadre autour du panneau shell aussi, et une
-              capture « Editor » emportait le terminal avec elle. */}
-          <div data-shot-zone={layout.agentCentre ? "Agent" : "Editor"} className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {layout.agentCentre ? <AgentPanel /> : <EditorArea />}
-          </div>
-          {layout.terminal && (
+        {/* Le code et le Shell, dans un seul conteneur dont seule la DIRECTION
+            change (à droite : en ligne, en dessous : en colonne). Le Shell ne
+            change jamais de place dans l'arbre : un composant déplacé est
+            remonté, et remonter le panneau tuerait les processus de ses
+            onglets — un `claude` en plein travail, un serveur de dev.
+            Masqué, jamais démonté, pour la même raison. */}
+        <div className={cn("flex min-h-0 min-w-0 flex-1", dock === "right" ? "flex-row" : "flex-col")}>
+          <main
+            data-shot-zone={layout.centre ? undefined : "Editor"}
+            className={cn("flex min-h-0 min-w-0 flex-1 flex-col", layout.centre && "hidden")}
+          >
+            <EditorArea />
+          </main>
+          {layout.shell && !layout.centre && (
             <Splitter
-              orientation="horizontal"
-              onResize={(delta) => setTerminal((h) => clamp(h - delta, [LIMITS.terminal[0], terminalMax()]))}
+              orientation={dock === "right" ? "vertical" : "horizontal"}
+              onResize={(delta) =>
+                dock === "right"
+                  ? setShellW((w) => clamp(w - delta, [LIMITS.shellWidth[0], shellMaxWidth()]))
+                  : setShellH((h) => clamp(h - delta, [LIMITS.shellHeight[0], shellMaxHeight()]))
+              }
             />
           )}
-          {/* Masqué, jamais démonté. Démonter le panneau appelle
-              `terminal.dispose` sur chaque onglet et tue ses shells : passer en
-              mode AI (qui n'a pas de terminal) ou replier le panneau fermait
-              un `claude` en plein travail, un serveur de dev, tout. Caché, il
-              garde ses ptys et leur historique, et revient tel quel. */}
-          <div
-            data-shot-zone={layout.terminal ? "Terminal" : undefined}
-            className={cn("shrink-0", !layout.terminal && "hidden")}
-            style={{ height: terminal }}
+          <section
+            data-shot-zone={layout.shell ? "Shell" : undefined}
+            className={cn(
+              "min-h-0 min-w-0",
+              !layout.shell && "hidden",
+              layout.centre ? "flex-1" : "shrink-0"
+            )}
+            style={
+              layout.centre ? undefined : dock === "right" ? { width: shellW } : { height: shellH }
+            }
           >
             <TerminalPanel />
-          </div>
-        </main>
+          </section>
+        </div>
 
-        {layout.agentBeside && (
-          <>
-            <Splitter
-              orientation="vertical"
-              onResize={(delta) => setAgent((w) => clamp(w - delta, LIMITS.agent))}
-            />
-            <aside
-              data-shot-zone="Agent"
-              className="flex min-h-0 shrink-0 flex-col border-l border-white/[0.06] bg-background"
-              style={{ width: agent }}
-            >
-              {/* La bordure est ici et non dans AgentPanel : au centre, en mode
-                  IA, le panneau n'a pas de voisin à gauche à séparer — l'aside
-                  du dossier trace déjà ce trait, et deux traits font un double
-                  filet. */}
-              <AgentPanel />
-            </aside>
-          </>
-        )}
+        {/* La barre latérale droite : plugins de l'agent et logo du projet. */}
+        <ShellRail />
       </div>
 
       <StatusBar />

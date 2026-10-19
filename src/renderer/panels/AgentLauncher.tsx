@@ -6,13 +6,18 @@ import { EFFORTS, supportsEffort, type AgentProfile, type Effort } from "../../s
 import { HARNESSES, type AgentKind } from "../../shared/harness"
 import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
 import {
+  appendToPrompt,
   applyProfile,
   getLauncher,
+  launcherFocusToken,
   runLauncher,
   setLauncher,
   subscribeLauncher,
 } from "~/state/launcher"
 import { askName } from "~/state/prompt"
+import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
+import { isAbsolutePath } from "../../shared/external"
+import { droppedText } from "../../shared/dropped"
 import { installHarness, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HarnessPicker } from "./HarnessPicker"
 import { ModelPicker } from "./ModelPicker"
@@ -98,6 +103,31 @@ export function AgentLauncher(): JSX.Element {
   const installed = useHarnessesInstalled()
   const box = useRef<HTMLTextAreaElement | null>(null)
   const profiles = settings.agent.profiles
+
+  // Ce que l'arbre ou les réglages remettent « à l'agent » : un chemin (cité
+  // comme un fichier déposé) ou une demande entière, écrits dans la tâche.
+  // Pris APRÈS le rendu : en développement React rend deux fois, et une prise
+  // pendant le rendu serait consommée par le passage jeté.
+  const remis = useSyncExternalStore(subscribeHandoff("agent"), () => tokenOf("agent"), () => 0)
+  const attendait = useRef(0)
+  if (remis !== attendait.current) {
+    attendait.current = remis
+    window.queueMicrotask(() => {
+      const texte = takeHandoff("agent")
+      if (!texte) return
+      const chemin = isAbsolutePath(texte) && !texte.includes("\n")
+      appendToPrompt(chemin ? droppedText([texte], window.zyvro.platform) : texte)
+    })
+  }
+
+  // Un focus demandé (menu, barre latérale) : la tâche prend la main une fois
+  // le lanceur déplié.
+  const focus = useSyncExternalStore(subscribeLauncher, launcherFocusToken, () => 0)
+  const vuFocus = useRef(focus)
+  if (focus !== vuFocus.current) {
+    vuFocus.current = focus
+    requestAnimationFrame(() => requestAnimationFrame(() => box.current?.focus()))
+  }
   const present = installed.data?.harnesses[state.kind] ?? true
 
   // Toute retouche à la main détache le profil : le nom afficherait sinon une

@@ -3,6 +3,7 @@ import { Code2, FolderOpen, PanelBottom, PanelLeft, PanelRight, Plus, Sparkles, 
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Mode } from "~/state/workspace"
 import { ProjectIcon } from "~/panels/ProjectIcon"
+import { shellDock, subscribeShellDock } from "~/state/shellDock"
 import { closeProject, newZyvro, openProject, switchProject } from "~/lib/project"
 
 // The native title bar is hidden so the window reads as an editor. That makes
@@ -150,6 +151,7 @@ export function TitleBar() {
   const project = useWorkspace((s) => s.project)
   const projects = useWorkspace((s) => s.projects)
   const panels = useWorkspace((s) => s.panels)
+  const dock = useSyncExternalStore(subscribeShellDock, shellDock, () => "right" as const)
   const mode = useWorkspace((s) => s.mode)
   const togglePanel = useWorkspace((s) => s.togglePanel)
   const isMac = window.zyvro.platform === "darwin"
@@ -224,18 +226,13 @@ export function TitleBar() {
           the mode, and a button that let you take the agent away would leave a
           window with nothing in the middle. */}
       {mode === "dev" && (
-        <>
-          <ToggleButton
-            active={panels.terminal}
-            title="Toggle terminal"
-            onClick={() => togglePanel("terminal")}
-          >
-            <PanelBottom className="h-4 w-4" />
-          </ToggleButton>
-          <ToggleButton active={panels.agent} title="Toggle agent" onClick={() => togglePanel("agent")}>
-            <PanelRight className="h-4 w-4" />
-          </ToggleButton>
-        </>
+        <ToggleButton
+          active={panels.terminal}
+          title={`Toggle Shell + Agents (${dock === "right" ? "right" : "bottom"})`}
+          onClick={() => togglePanel("terminal")}
+        >
+          {dock === "right" ? <PanelRight className="h-4 w-4" /> : <PanelBottom className="h-4 w-4" />}
+        </ToggleButton>
       )}
     </header>
   )

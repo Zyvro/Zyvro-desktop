@@ -277,6 +277,11 @@ const SIDEBAR: PanelKey[] = ["explorer", "search", "git"]
 
 function withSidebar(panels: Record<PanelKey, boolean>, key: PanelKey, open: boolean) {
   const next = { ...panels, [key]: open }
+  // Le terminal et l'agent sont un seul panneau depuis Shell + Agents : les
+  // deux clés, que le code et les menus d'avant continuent d'appeler, bougent
+  // ensemble.
+  if (key === "terminal") next.agent = open
+  if (key === "agent") next.terminal = open
   if (open && SIDEBAR.includes(key)) {
     for (const other of SIDEBAR) if (other !== key) next[other] = false
   }

@@ -62,10 +62,24 @@ export function pluginsTurnEnded(threadId: string, status: TaskStatus): void {
 // file, la mémoire), ce qui gouverne la conversation, puis l'application. Les
 // plugins en paquets (boutique, livrés, du projet) ont le leur, tout en haut :
 // ce sont des actions qu'on lance, pas des réglages de la conversation.
-export function AgentRail({ ctx }: { ctx: AgentRailContext }): JSX.Element | null {
+//
+// `only` restreint aux plugins qui ont un sens pour l'hôte (Shell + Agents n'a
+// ni file de tâches ni jauge de contexte), et `embedded` rend les boutons sans
+// leur cadre : la barre latérale droite fournit le sien.
+export function AgentRail({
+  ctx,
+  only,
+  embedded = false,
+}: {
+  ctx: AgentRailContext
+  only?: readonly PluginId[]
+  embedded?: boolean
+}): JSX.Element | null {
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const packages = useRailPackages()
-  const shown = AGENT_PLUGINS.filter((p) => MODULES[p.id].Rail && pluginOn(settings.agent, p.id))
+  const shown = AGENT_PLUGINS.filter(
+    (p) => MODULES[p.id].Rail && pluginOn(settings.agent, p.id) && (!only || only.includes(p.id))
+  )
   const project = shown.filter((p) => p.section === "project")
   const rest = shown.filter((p) => p.section !== "project")
   // Tout éteint : pas de barre du tout, la largeur va au texte.
@@ -74,13 +88,19 @@ export function AgentRail({ ctx }: { ctx: AgentRailContext }): JSX.Element | nul
     const Rail = MODULES[id].Rail!
     return <Rail key={id} ctx={ctx} />
   }
-  return (
-    <div className="flex w-7 shrink-0 flex-col items-center justify-end gap-0.5 border-l border-white/[0.06] py-1.5" data-agent-rail>
+  const body = (
+    <>
       {packages.map((p) => <PackageButton key={p.name} plugin={p} ctx={ctx} />)}
       {packages.length > 0 && shown.length > 0 && <span className="my-1 h-px w-4 bg-white/[0.08]" aria-hidden />}
       {project.map((p) => render(p.id))}
       {project.length > 0 && rest.length > 0 && <span className="my-1 h-px w-4 bg-white/[0.08]" aria-hidden />}
       {rest.map((p) => render(p.id))}
+    </>
+  )
+  if (embedded) return body
+  return (
+    <div className="flex w-7 shrink-0 flex-col items-center justify-end gap-0.5 border-l border-white/[0.06] py-1.5" data-agent-rail>
+      {body}
     </div>
   )
 }

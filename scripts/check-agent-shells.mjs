@@ -356,6 +356,29 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("les shells ordinaires ne se rouvrent pas", !/terminal\.restorable|shellRestorable/.test(panel))
 }
 
+// ---- la mise en page : Shell + Agents remplace la colonne Agent ----------------------
+{
+  const app = readFileSync(path.join(ROOT, "src/renderer/App.tsx"), "utf8")
+  const rail = readFileSync(path.join(ROOT, "src/renderer/panels/ShellRail.tsx"), "utf8")
+  const store = readFileSync(path.join(ROOT, "src/renderer/state/workspace.ts"), "utf8")
+  const plugins = readFileSync(path.join(ROOT, "src/shared/plugins.ts"), "utf8")
+
+  check("**la colonne Agent n'est plus montée**", !/<AgentPanel/.test(app) && !/from "~\/panels\/AgentPanel"/.test(app))
+  check("**le Shell est monté UNE fois, dans un conteneur dont seule la direction change**",
+    [...app.matchAll(/<TerminalPanel \/>/g)].length === 1 && /dock === "right" \? "flex-row" : "flex-col"/.test(app),
+    "déplacer le composant le remonterait et tuerait les processus de ses onglets")
+  check("masqué, jamais démonté", /!layout\.shell && "hidden"/.test(app) && /layout\.centre && "hidden"/.test(app))
+  check("**mode IA : le Shell prend toute la fenêtre tant qu'aucun fichier n'est ouvert**", /return \{ shell: true, centre: !hasTabs \}/.test(app))
+  check("**mode Dev : le code, et le Shell à droite ou en dessous**", /panels\.terminal \|\| panels\.agent/.test(app) && /dock === "right" \? \{ width: shellW \} : \{ height: shellH \}/.test(app))
+  check("la séparation suit la position", /orientation=\{dock === "right" \? "vertical" : "horizontal"\}/.test(app))
+  check("la barre latérale droite est là", /<ShellRail \/>/.test(app))
+  check("le logo du projet y vit, déplaçable en haut ou en bas", /RailProject/.test(rail) && /setLogoPosition/.test(rail) && /position === "top" && logo/.test(rail) && /position === "bottom" && logo/.test(rail))
+  check("on y choisit la position du Shell", /toggleShellDock/.test(rail))
+  check("le terminal et l'agent sont un seul panneau", /if \(key === "terminal"\) next\.agent = open/.test(store) && /if \(key === "agent"\) next\.terminal = open/.test(store))
+  check("**les plugins de la barre sont ceux qui ont un sens sans conversation**", /SHELL_PLUGINS: readonly PluginId\[\] = \["memory", "permissions", "synthesis", "skills", "bugReport"\]/.test(plugins) && /only=\{SHELL_PLUGINS\}/.test(rail))
+  check("la permission de la barre règle le prochain agent, pas un réglage caché", /setPermission: \(permission\) => setLauncher\(\{ permission/.test(rail))
+}
+
 console.log(
   failures === 0
     ? "\nUn agent est un shell, avec tout ce qu'on a réglé, et sa session se rouvre."

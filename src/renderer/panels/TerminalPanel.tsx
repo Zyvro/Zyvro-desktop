@@ -24,6 +24,7 @@ import { agentShellsVersion, noteRecord, recordOf, refreshAgentShells, subscribe
 import { agentContext } from "~/lib/agentContext"
 import { getSettings } from "~/state/settings"
 import { openLauncher, runProfile } from "~/state/launcher"
+import { openShellToken, subscribeOpenShell } from "~/state/shellRequests"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -966,6 +967,13 @@ export function TerminalPanel(): JSX.Element {
     setGroups((current) => (actif ? splitBeside(current, actif, key) : addGroup(current, key)))
     setActiveKey(key)
     requestAnimationFrame(() => handles.get(key)?.focus())
+  }
+  // Un shell de plus, demandé depuis la barre latérale droite.
+  const demandeShell = useSyncExternalStore(subscribeOpenShell, openShellToken, () => 0)
+  const vueShell = useRef(demandeShell)
+  if (demandeShell !== vueShell.current) {
+    vueShell.current = demandeShell
+    window.queueMicrotask(addSession)
   }
   const demandeSplit = useSyncExternalStore(subscribeSplit, splitToken, () => 0)
   const vueSplit = useRef(demandeSplit)

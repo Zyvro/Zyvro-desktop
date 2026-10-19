@@ -45,8 +45,8 @@ export const AGENT_PLUGINS = [
     id: "permissions",
     name: "Permission picker",
     section: "conversation",
-    description: "Choose what the agent may do from the chat toolbar.",
-    whenOff: "The toolbar picker is hidden. The last level chosen still applies; change it in Settings › Permissions.",
+    description: "Choose what the agents you launch may do, from the side bar.",
+    whenOff: "The side bar picker is hidden. The last level chosen still applies; change it in Settings › Permissions.",
   },
   {
     id: "synthesis",
@@ -87,8 +87,8 @@ export const AGENT_PLUGINS = [
     id: "bugReport",
     name: "Bug report",
     section: "app",
-    description: "Report a problem from the chat toolbar, with the app's state attached.",
-    whenOff: "The toolbar button is hidden.",
+    description: "Report a problem from the side bar, with the app's state attached.",
+    whenOff: "The side bar button is hidden.",
   },
 ] as const satisfies readonly {
   id: string
@@ -99,6 +99,16 @@ export const AGENT_PLUGINS = [
 }[]
 
 export type PluginId = (typeof AGENT_PLUGINS)[number]["id"]
+
+/**
+ * Ceux qui vivent dans la barre latérale droite de Shell + Agents.
+ *
+ * Les autres appartenaient à une conversation redessinée (la file de tâches qui
+ * attend la fin d'un tour, la jauge de contexte, les jetons et la lecture à
+ * voix haute sous une réponse) : l'interface native du harnais fait elle-même
+ * `/compact`, montre ses jetons et ne laisse pas de réponse à lire.
+ */
+export const SHELL_PLUGINS: readonly PluginId[] = ["memory", "permissions", "synthesis", "skills", "bugReport"]
 export type PluginStates = Record<PluginId, boolean>
 
 export const PLUGIN_IDS: readonly PluginId[] = AGENT_PLUGINS.map((p) => p.id)

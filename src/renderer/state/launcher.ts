@@ -88,6 +88,9 @@ function read(): LauncherState {
 }
 
 let state: LauncherState = read()
+// Change à chaque demande de focus sur la tâche (menu, barre latérale).
+let focusJeton = 0
+export const launcherFocusToken = (): number => focusJeton
 const listeners = new Set<() => void>()
 
 export function getLauncher(): LauncherState {
@@ -121,7 +124,16 @@ export function applyProfile(profile: AgentProfile): void {
 /** Montrer le lanceur (et le panneau qui le porte), la tâche prête à être écrite. */
 export function openLauncher(): void {
   useWorkspace.getState().setPanel("terminal", true)
+  focusJeton++
   setLauncher({ open: true })
+}
+
+/** Ajouter du texte à la tâche (un chemin déposé, une demande venue d'un réglage). */
+export function appendToPrompt(text: string): void {
+  const sep = state.prompt === "" || /\s$/.test(state.prompt) ? "" : " "
+  useWorkspace.getState().setPanel("terminal", true)
+  focusJeton++
+  setLauncher({ open: true, prompt: `${state.prompt}${sep}${text}` })
 }
 
 /** La demande que le lanceur enverrait, pour la tâche donnée. */
