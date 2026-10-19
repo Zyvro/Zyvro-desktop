@@ -522,6 +522,15 @@ export function bracketedPaste(value: string): string {
  * Pur : on lui donne la première ligne.
  */
 export function codexSessionFromMeta(firstLine: string, cwd: string): string | null {
+  // Une ligne que le JSON ne lit pas (coupée, ou plus grosse que ce qu'on a lu) : l'identifiant
+  // et le dossier sont au début, on les prend là plutôt que de perdre la session.
+  const lenient = (): string | null => {
+    const id = /"id"\s*:\s*"([A-Za-z0-9_-]{1,100})"/.exec(firstLine)?.[1]
+    const dir = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(firstLine)?.[1]
+    if (!id || !sessionIdOk(id)) return null
+    if (dir !== undefined && normalizeDir(dir.replace(/\\\\/g, "\\")) !== normalizeDir(cwd)) return null
+    return id
+  }
   try {
     const meta = JSON.parse(firstLine) as { type?: string; payload?: { id?: unknown; cwd?: unknown } }
     const payload = meta.type === "session_meta" ? meta.payload : (meta as { id?: unknown; cwd?: unknown })
@@ -532,7 +541,7 @@ export function codexSessionFromMeta(firstLine: string, cwd: string): string | n
     if (typeof dir === "string" && normalizeDir(dir) !== normalizeDir(cwd)) return null
     return id
   } catch {
-    return null
+    return lenient()
   }
 }
 

@@ -130,14 +130,28 @@ export function claudeSessionExists(id: string, env: NodeJS.ProcessEnv = process
   }
 }
 
+// La première ligne d'un journal de codex porte ses instructions de base : 21 Ko relevés
+// sur la 0.163, et c'est elle qui dit l'identifiant et le dossier. Lue par un tampon
+// de 16 Ko, elle arrivait coupée, le JSON ne se lisait pas, et la session n'était
+// jamais retrouvée — changer de modèle repartait alors d'une session neuve. On lit
+// donc jusqu'au saut de ligne, par morceaux, avec un plafond.
+const MAX_FIRST_LINE = 2 * 1024 * 1024
+
 function firstLine(file: string): string {
   const fd = openSync(file, "r")
   try {
-    const buffer = Buffer.alloc(16 * 1024)
-    const n = readSync(fd, buffer, 0, buffer.length, 0)
-    const text = buffer.subarray(0, n).toString("utf8")
-    const end = text.indexOf("\n")
-    return end === -1 ? text : text.slice(0, end)
+    const chunk = Buffer.alloc(64 * 1024)
+    let text = ""
+    let at = 0
+    while (text.length < MAX_FIRST_LINE) {
+      const n = readSync(fd, chunk, 0, chunk.length, at)
+      if (n <= 0) break
+      text += chunk.subarray(0, n).toString("utf8")
+      at += n
+      const end = text.indexOf("\n")
+      if (end !== -1) return text.slice(0, end)
+    }
+    return text
   } finally {
     closeSync(fd)
   }
