@@ -1,27 +1,28 @@
-import { useRef, useSyncExternalStore } from "react"
+import { useSyncExternalStore } from "react"
 import * as Menu from "@radix-ui/react-dropdown-menu"
-import { Bookmark, Check, ChevronDown, ChevronRight, Play, Plug, Sparkles, TerminalSquare } from "lucide-react"
+import { Bookmark, Check, ChevronDown, ChevronRight, Plug, Sparkles, TerminalSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { EFFORTS, supportsEffort, type AgentProfile, type Effort } from "../../shared/agentShell"
 import { HARNESSES, type AgentKind } from "../../shared/harness"
 import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
 import {
-  appendToPrompt,
   applyProfile,
   getLauncher,
-  launcherFocusToken,
+  launcherSpec,
   runLauncher,
   setLauncher,
   subscribeLauncher,
 } from "~/state/launcher"
 import { askName } from "~/state/prompt"
-import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
+import { handTo, subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
+import { askAgent } from "~/state/persistent"
+import { useWorkspace } from "~/state/workspace"
+import { useRef } from "react"
 import { isAbsolutePath } from "../../shared/external"
 import { droppedText } from "../../shared/dropped"
 import { installHarness, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HarnessPicker } from "./HarnessPicker"
 import { ModelPicker } from "./ModelPicker"
-import { PermissionPicker } from "./PermissionPicker"
 
 // Le lanceur de la barre « Shell + Agents ».
 //
@@ -29,7 +30,9 @@ import { PermissionPicker } from "./PermissionPicker"
 // avec les mêmes sélecteurs que le panneau de chat —, on écrit la tâche, on
 // lance : ce qui s'ouvre est le harnais dans son interface native, dans un
 // onglet du terminal, avec tout ce qui a été choisi traduit en drapeaux
-// (shared/agentShell). Sans tâche, le bouton de gauche ouvre le harnais vide.
+// (shared/agentShell). Pas de zone de saisie ici : la tâche se tape dans le
+// harnais lui-même, qui a la sienne. La permission et les skills se règlent
+// dans la barre latérale droite, une seule fois.
 
 const chip =
   "flex items-center gap-1 rounded-md border px-1.5 py-1 text-[11px] outline-none transition-colors disabled:opacity-40"
@@ -101,11 +104,13 @@ export function AgentLauncher(): JSX.Element {
   const state = useSyncExternalStore(subscribeLauncher, getLauncher)
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const installed = useHarnessesInstalled()
-  const box = useRef<HTMLTextAreaElement | null>(null)
   const profiles = settings.agent.profiles
 
-  // Ce que l'arbre ou les réglages remettent « à l'agent » : un chemin (cité
-  // comme un fichier déposé) ou une demande entière, écrits dans la tâche.
+  // Ce que l'arbre ou les réglages remettent « à l'agent ». Un chemin est écrit
+  // dans le shell actif, cité comme un fichier déposé et sans Entrée : on
+  // continue la phrase que le harnais attend. Une demande entière (« prépare ce
+  // pack de skills ») lance un agent avec cette tâche.
+  //
   // Pris APRÈS le rendu : en développement React rend deux fois, et une prise
   // pendant le rendu serait consommée par le passage jeté.
   const remis = useSyncExternalStore(subscribeHandoff("agent"), () => tokenOf("agent"), () => 0)
@@ -115,18 +120,10 @@ export function AgentLauncher(): JSX.Element {
     window.queueMicrotask(() => {
       const texte = takeHandoff("agent")
       if (!texte) return
-      const chemin = isAbsolutePath(texte) && !texte.includes("\n")
-      appendToPrompt(chemin ? droppedText([texte], window.zyvro.platform) : texte)
+      useWorkspace.getState().setPanel("terminal", true)
+      if (isAbsolutePath(texte) && !texte.includes("\n")) handTo("terminal", `${droppedText([texte], window.zyvro.platform)}`)
+      else askAgent(launcherSpec(texte))
     })
-  }
-
-  // Un focus demandé (menu, barre latérale) : la tâche prend la main une fois
-  // le lanceur déplié.
-  const focus = useSyncExternalStore(subscribeLauncher, launcherFocusToken, () => 0)
-  const vuFocus = useRef(focus)
-  if (focus !== vuFocus.current) {
-    vuFocus.current = focus
-    requestAnimationFrame(() => requestAnimationFrame(() => box.current?.focus()))
   }
   const present = installed.data?.harnesses[state.kind] ?? true
 
@@ -139,10 +136,7 @@ export function AgentLauncher(): JSX.Element {
       <div className="flex h-7 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2">
         <button
           type="button"
-          onClick={() => {
-            setLauncher({ open: true })
-            requestAnimationFrame(() => box.current?.focus())
-          }}
+          onClick={() => setLauncher({ open: true })}
           className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground"
           title="Run an agent in a shell — pick its configuration, write the task, go"
         >
@@ -155,10 +149,6 @@ export function AgentLauncher(): JSX.Element {
         </button>
       </div>
     )
-  }
-
-  const go = (empty: boolean): void => {
-    runLauncher({ empty })
   }
 
   const saveProfile = async (): Promise<void> => {
@@ -209,7 +199,6 @@ export function AgentLauncher(): JSX.Element {
         <div className="min-w-0 max-w-[11rem]">
           <ModelPicker kind={state.kind} model={state.model} ranWith={null} onChange={(model) => tweak({ model })} />
         </div>
-        <PermissionPicker kind={state.kind} value={state.permission} onChange={(permission) => tweak({ permission })} />
         <EffortPicker kind={state.kind} value={state.effort} onChange={(effort) => tweak({ effort })} />
         <button
           type="button"
@@ -220,16 +209,6 @@ export function AgentLauncher(): JSX.Element {
         >
           <Plug className="h-3 w-3" />
           Zyvro tools
-        </button>
-        <button
-          type="button"
-          onClick={() => tweak({ skills: !state.skills })}
-          className={cn(chip, state.skills ? chipOn : chipOff)}
-          title="Give the agent the catalog of local skills (the Advanced skills plugin)"
-          aria-pressed={state.skills}
-        >
-          <Sparkles className="h-3 w-3" />
-          Skills
         </button>
         {state.profileId === null && (
           <button
@@ -242,6 +221,17 @@ export function AgentLauncher(): JSX.Element {
             Save
           </button>
         )}
+        <span className="flex-1" />
+        <button
+          type="button"
+          disabled={!present}
+          onClick={() => runLauncher()}
+          className="flex items-center gap-1 rounded-md border border-white/[0.1] px-2.5 py-1 text-[11px] text-foreground transition-colors hover:bg-white/[0.08] disabled:opacity-40"
+          title="Open the agent on its own prompt"
+        >
+          <TerminalSquare className="h-3 w-3" />
+          Empty
+        </button>
       </div>
 
       {!present && (
@@ -259,46 +249,6 @@ export function AgentLauncher(): JSX.Element {
         </div>
       )}
 
-      <div className="mt-1.5 flex items-end gap-1.5">
-        <textarea
-          ref={box}
-          value={state.prompt}
-          rows={2}
-          onChange={(e) => setLauncher({ prompt: e.target.value })}
-          onKeyDown={(e) => {
-            // Entrée lance, Maj+Entrée va à la ligne ; pendant une composition
-            // (IME) Entrée valide le mot et ne lance rien.
-            if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return
-            e.preventDefault()
-            if (present) go(false)
-          }}
-          placeholder={`Task for ${state.kind} — Enter runs it in a native shell, Shift+Enter adds a line`}
-          aria-label="Agent task"
-          className="zy-scroll min-h-[44px] max-h-40 flex-1 resize-y rounded-md border border-white/[0.08] bg-background px-2 py-1.5 text-[12px] outline-none placeholder:text-muted-foreground/70 focus:border-primary/50"
-        />
-        <div className="flex shrink-0 flex-col gap-1">
-          <button
-            type="button"
-            disabled={!present || state.prompt.trim() === ""}
-            onClick={() => go(false)}
-            className="flex items-center justify-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
-            title="Run the task in a native shell"
-          >
-            <Play className="h-3 w-3" />
-            Run
-          </button>
-          <button
-            type="button"
-            disabled={!present}
-            onClick={() => go(true)}
-            className="flex items-center justify-center gap-1 rounded-md border border-white/[0.1] px-2.5 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-white/[0.06] hover:text-foreground disabled:opacity-40"
-            title="Open the agent on its own prompt, without a task"
-          >
-            <TerminalSquare className="h-3 w-3" />
-            Empty
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

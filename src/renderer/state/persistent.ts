@@ -35,7 +35,7 @@ export type Demande =
   | { sorte: "connexion"; harnais: AgentKind }
   // Un agent natif (shared/agentShell) : sa configuration et sa tâche, ou — avec
   // `spec.resume` — une session déjà enregistrée à rouvrir.
-  | { sorte: "agent"; spec: NativeSpec }
+  | { sorte: "agent"; spec: NativeSpec; taskId?: string }
 
 let demande: Demande | null = null
 let jeton = 0
@@ -60,8 +60,8 @@ export function askInstall(harnais: AgentKind): void {
 }
 
 /** Lancer (ou reprendre) un agent natif dans un onglet du terminal. */
-export function askAgent(spec: NativeSpec): void {
-  poser({ sorte: "agent", spec })
+export function askAgent(spec: NativeSpec, taskId?: string): void {
+  poser({ sorte: "agent", spec, taskId })
 }
 
 export function askLogin(harnais: AgentKind): void {

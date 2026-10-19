@@ -640,6 +640,7 @@ function openInTerminal(thread: Thread): void {
     profileId: null,
     resume: null,
     conversation: thread.id,
+    submit: false,
   })
 }
 

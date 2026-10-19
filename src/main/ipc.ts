@@ -1930,7 +1930,7 @@ export function registerIpc(onRecents?: () => void): void {
       sessionWatchers.set(record.id, stop)
     }
     if (!argvOk && task) {
-      ws.terminals.pasteWhenReady(session.id, bracketedPaste(task))
+      ws.terminals.pasteWhenReady(session.id, bracketedPaste(task), 1500, 30_000, spec.submit)
     }
 
     notify()

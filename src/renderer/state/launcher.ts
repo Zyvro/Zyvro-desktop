@@ -35,12 +35,11 @@ export type LauncherState = {
   mcp: boolean
   skills: boolean
   name: string
-  prompt: string
 }
 
 const KEY = "zyvro.launcher"
 
-function fromProfile(profile: AgentProfile): Omit<LauncherState, "open" | "prompt" | "name"> {
+function fromProfile(profile: AgentProfile): Omit<LauncherState, "open" | "name"> {
   return {
     profileId: profile.id,
     kind: profile.kind,
@@ -74,7 +73,6 @@ function clean(raw: unknown): LauncherState {
     mcp: r.mcp !== false,
     skills: r.skills === true,
     name: "",
-    prompt: "",
   }
 }
 
@@ -88,9 +86,6 @@ function read(): LauncherState {
 }
 
 let state: LauncherState = read()
-// Change à chaque demande de focus sur la tâche (menu, barre latérale).
-let focusJeton = 0
-export const launcherFocusToken = (): number => focusJeton
 const listeners = new Set<() => void>()
 
 export function getLauncher(): LauncherState {
@@ -108,7 +103,7 @@ export function setLauncher(patch: Partial<LauncherState>): void {
   // retire, au lieu de le garder caché et de le renvoyer plus tard.
   state = { ...merged, effort: supportsEffort(merged.kind) ? merged.effort : null }
   try {
-    const { prompt: _prompt, name: _name, ...kept } = state
+    const { name: _name, ...kept } = state
     window.localStorage.setItem(KEY, JSON.stringify(kept))
   } catch {
     // Se souvenir est un confort.
@@ -124,16 +119,7 @@ export function applyProfile(profile: AgentProfile): void {
 /** Montrer le lanceur (et le panneau qui le porte), la tâche prête à être écrite. */
 export function openLauncher(): void {
   useWorkspace.getState().setPanel("terminal", true)
-  focusJeton++
   setLauncher({ open: true })
-}
-
-/** Ajouter du texte à la tâche (un chemin déposé, une demande venue d'un réglage). */
-export function appendToPrompt(text: string): void {
-  const sep = state.prompt === "" || /\s$/.test(state.prompt) ? "" : " "
-  useWorkspace.getState().setPanel("terminal", true)
-  focusJeton++
-  setLauncher({ open: true, prompt: `${state.prompt}${sep}${text}` })
 }
 
 /** La demande que le lanceur enverrait, pour la tâche donnée. */
@@ -151,18 +137,18 @@ export function launcherSpec(prompt: string): NativeSpec {
     profileId: state.profileId,
     resume: null,
     conversation: null,
+    submit: false,
   }
 }
 
 /**
- * Lancer avec la configuration du lanceur. Sans tâche, le harnais s'ouvre sur
- * son invite — c'est un shell d'agent vide, pas un tour.
+ * Lancer avec la configuration du lanceur : le harnais s'ouvre sur son invite,
+ * c'est lui qui reçoit la tâche.
  */
-export function runLauncher(options: { empty?: boolean } = {}): void {
-  const prompt = options.empty ? "" : state.prompt.trim()
+export function runLauncher(): void {
   useWorkspace.getState().setPanel("terminal", true)
-  askAgent(launcherSpec(prompt))
-  setLauncher({ prompt: "", name: "" })
+  askAgent(launcherSpec(""))
+  setLauncher({ name: "" })
 }
 
 /** Ouvrir directement un profil, sans passer par le lanceur. */

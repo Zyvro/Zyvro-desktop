@@ -103,12 +103,13 @@ export type PluginId = (typeof AGENT_PLUGINS)[number]["id"]
 /**
  * Ceux qui vivent dans la barre latérale droite de Shell + Agents.
  *
- * Les autres appartenaient à une conversation redessinée (la file de tâches qui
- * attend la fin d'un tour, la jauge de contexte, les jetons et la lecture à
- * voix haute sous une réponse) : l'interface native du harnais fait elle-même
- * `/compact`, montre ses jetons et ne laisse pas de réponse à lire.
+ * La file de tâches y est : elle prompte l'agent dans son shell. Les autres
+ * appartenaient à une conversation redessinée (la jauge de contexte, les jetons
+ * et la lecture à voix haute sous une réponse, la réécriture d'une tâche
+ * tapée) : l'interface native du harnais fait elle-même `/compact`, montre ses
+ * jetons et ne laisse pas de réponse à lire.
  */
-export const SHELL_PLUGINS: readonly PluginId[] = ["memory", "permissions", "synthesis", "skills", "bugReport"]
+export const SHELL_PLUGINS: readonly PluginId[] = ["tasks", "memory", "permissions", "skills", "bugReport"]
 export type PluginStates = Record<PluginId, boolean>
 
 export const PLUGIN_IDS: readonly PluginId[] = AGENT_PLUGINS.map((p) => p.id)

@@ -62,6 +62,7 @@ export function AgentShellList() {
       profileId: record.profileId,
       resume: record.id,
       conversation: null,
+      submit: false,
     })
   }
 

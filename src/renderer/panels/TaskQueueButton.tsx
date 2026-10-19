@@ -31,7 +31,7 @@ import { RAIL_BUTTON } from "./railButton"
 // Ce qui doit partir à l'agent plus tard, ou après le reste : « relis les PR
 // ouvertes » chaque matin à 9 h, trois refactorisations l'une après l'autre.
 // Une tâche ne part que quand l'agent est libre, une à la fois, dans l'ordre
-// de la liste ; chacune tourne dans sa propre conversation, qu'on ouvre pour
+// de la liste ; chacune est tapée dans le shell de l'agent, que l'on suit pour
 // suivre ou arrêter comme une autre.
 
 export function TaskQueueButton(): JSX.Element | null {
@@ -118,8 +118,9 @@ function TaskQueueDialog({ onClose }: { onClose: () => void }): JSX.Element {
             </Dialog.Close>
           </Dialog.Title>
           <Dialog.Description className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-            Tasks start one at a time, in this order, when the agent is free — a task that falls due during a turn waits for
-            it to end. Each is sent into the session it was added from (or the one on screen if that one was closed), with the current permissions.
+            Tasks start one at a time, in this order, when your agents are free — quiet for a few seconds. Each is typed into the
+            agent shell it was added from, then sent (or into the agent on screen if that one was closed). With no agent
+            running, one opens with your launcher settings and the task as its first message.
           </Dialog.Description>
 
           <div className="zy-scroll mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto">

@@ -42,7 +42,7 @@ steps it aside to its dock so you can read.
 
 The thin bar on the far right holds new shell, run an agent, split, the dock
 switch, the agent plugins that make sense without a chat (permission, skills,
-project memory, task rewrite, bug report, store plugins) and the **project
+the **task queue**, project memory, bug report, store plugins) and the **project
 logo**, at the bottom or the top of the bar (its menu changes the icon and moves
 it). There is no separate chat column any more: the chat panel's code is still
 in the repository but is not mounted.
@@ -123,23 +123,37 @@ interface, in a tab, with everything you configured translated into native
 flags. The chat panel redraws the print-mode stream; this runs the real thing.
 
 **Run one.** Open the launcher (the *Run an agent* bar, the bot menu next to `+`,
-the bot button of the right-hand bar, or *View › New Agent Shell…*, `⌘⌥A` / `Ctrl+Alt+A`), pick a configuration, write
-the task, press Enter. You choose, with the same pickers as the chat toolbar:
+the bot button of the right-hand bar, or *View › New Agent Shell…*), pick the
+harness, model and effort (or load a profile), and press **Empty**: the harness
+opens in its own interface, on its own prompt, and you type the task there.
+There is no task box in the launcher. Permission and skills are set once, in the
+right-hand bar, and apply to the next agent you start:
 
 | Setting | What the harness receives |
 |---|---|
 | Harness, model | the binary, `--model` / `-m` (a local server model keeps its gateway route) |
-| Permission | Read only → claude `plan`, codex `read-only`; Ask → it asks, on screen, in the terminal; Workspace → `acceptEdits` / `workspace-write`, nothing leaves the project; YOLO → everything lifted |
+| Permission (bar) | Read only → claude `plan`, codex `read-only`; Ask → it asks, on screen, in the terminal; Workspace → `acceptEdits` / `workspace-write`, nothing leaves the project; YOLO → everything lifted |
 | Effort | `--effort` (claude), `model_reasoning_effort` (codex, capped at `high`) |
 | Zyvro tools | the project's MCP servers (workflows, capture), wired like a chat turn: a config file for claude and qwen, `-c` flags and an env token for codex, env for MiMo. Tokens never reach `ps` |
-| Skills | the catalog of local skills, in the system prompt (claude, qwen) or ahead of the task |
-| Instructions | appended to the system prompt, or ahead of the task for harnesses without one |
+| Skills (bar) | the catalog of local skills, in the system prompt (claude, qwen) or ahead of the task |
+| Instructions (profile) | appended to the system prompt, or ahead of the task for harnesses without one |
 
-The task is the last argument for claude (after `--`: its variadic options would
-swallow it otherwise) and codex. Qwen and MiMo have no prompt argument we could
-verify, so the task is pasted into their prompt once they are ready, **without
-Enter** — you read it, then send. Plain shells (`+`) are untouched, and both
-kinds live side by side, split and grouped like any tab.
+When something does carry a task (a bar action such as *Update project memory*,
+or *Ask agent to prepare this pack* in Settings), it is the last argument for
+claude (after `--`: its variadic options would swallow it otherwise) and codex.
+Qwen and MiMo have no prompt argument we could verify, so the task is pasted into
+their prompt once they are ready, **without Enter**. A file sent to the agent
+from the tree is typed into the active shell, quoted, without Enter. Plain
+shells (`+`) are untouched, and both kinds live side by side, split and grouped
+like any tab.
+
+**Task queue.** The clock button of the right-hand bar schedules prompts (now,
+at a time, repeating). A task is typed into the agent shell it was added from —
+pasted, then Enter — or into the agent on screen if that one is gone; with no
+agent running, one opens with the launcher's settings and the task as its first
+message. Tasks go one at a time, when every agent has been silent for six
+seconds (an agent at work writes constantly, an idle one does not — a measure by
+the output, not by the harness, so a long silent step can be mistaken for idle).
 
 **Profiles** save a configuration under a name (*Save* in the launcher, or
 Settings › Agents › Shell + Agents). The bot menu opens a profile straight onto

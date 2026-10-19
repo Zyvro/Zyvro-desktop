@@ -408,7 +408,7 @@ export class Terminals {
    * et valide. Rien n'est jamais envoyé à sa place, surtout pas à un écran qui
    * demande « faites-vous confiance à ce dossier ? ».
    */
-  pasteWhenReady(id: string, text: string, quietMs = 1500, giveUpMs = 30_000): void {
+  pasteWhenReady(id: string, text: string, quietMs = 1500, giveUpMs = 30_000, submit = false): void {
     const session = this.sessions.get(id)
     if (!session || !text) return
     const started = Date.now()
@@ -426,6 +426,12 @@ export class Terminals {
       const ready = current.seen.length > 0 && Date.now() - still >= quietMs
       if (ready) {
         current.pty.write(text)
+        // Entrée un instant après le collage : l'interface du harnais traite
+        // d'abord le texte collé, puis la touche.
+        if (submit) {
+          const send = setTimeout(() => this.sessions.get(id)?.pty.write("\r"), 400)
+          send.unref?.()
+        }
         return
       }
       if (Date.now() - started > giveUpMs) return

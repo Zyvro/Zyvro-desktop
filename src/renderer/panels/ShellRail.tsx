@@ -1,8 +1,7 @@
-import { useState, useSyncExternalStore } from "react"
+import { useSyncExternalStore } from "react"
 import { Bot, Columns2, PanelBottom, PanelRight, Plus } from "lucide-react"
 import { SHELL_PLUGINS } from "../../shared/plugins"
 import { AgentRail, type AgentRailContext } from "~/plugins"
-import { activeSynthesis } from "~/state/synthesis"
 import { getLauncher, launcherSpec, openLauncher, setLauncher, subscribeLauncher } from "~/state/launcher"
 import { askAgent } from "~/state/persistent"
 import { requestTerminalSplit } from "~/state/terminalSplit"
@@ -32,7 +31,6 @@ export function ShellRail(): JSX.Element {
   const project = useWorkspace((s) => s.project)
   const dock = useSyncExternalStore(subscribeShellDock, shellDock, () => "right" as const)
   const mode = useWorkspace((s) => s.mode)
-  const [rewriting, setRewriting] = useState(false)
 
   const ctx: AgentRailContext = {
     kind: launcher.kind,
@@ -49,8 +47,8 @@ export function ShellRail(): JSX.Element {
       started: false,
       advancedSkills: launcher.skills,
     },
-    draft: launcher.prompt,
-    rewriting,
+    draft: "",
+    rewriting: false,
     commands: [],
     actions: {
       // Une demande qui ne vient pas de la boîte : un agent à elle, avec le
@@ -62,20 +60,9 @@ export function ShellRail(): JSX.Element {
       setAdvancedSkills: (skills) => setLauncher({ skills, profileId: null }),
       // `/compact` est une commande du harnais, dans son interface.
       compact: () => undefined,
-      rewriteNow: () => {
-        const text = getLauncher().prompt.trim()
-        if (!text || activeSynthesis().mode === "off") return
-        setRewriting(true)
-        void window.zyvro.agent
-          .synthesize(text, activeSynthesis().mode, getLauncher().kind)
-          .then((out) => {
-            // Le brouillon a pu changer pendant la réécriture : on ne l'écrase pas.
-            if (getLauncher().prompt.trim() === text) setLauncher({ prompt: out })
-          })
-          .catch(() => undefined)
-          .finally(() => setRewriting(false))
-      },
-      snapshot: () => ({ surface: "shell-agents", launcher: { ...launcher, prompt: undefined, instructions: undefined } }),
+      // Pas de zone de saisie ici : rien à réécrire.
+      rewriteNow: () => undefined,
+      snapshot: () => ({ surface: "shell-agents", launcher: { ...launcher, instructions: undefined } }),
       setPermission: (permission) => setLauncher({ permission, profileId: null }),
     },
   }

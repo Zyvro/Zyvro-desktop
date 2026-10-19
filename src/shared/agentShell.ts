@@ -180,6 +180,12 @@ export type NativeSpec = {
   resume: string | null
   /** Un fil du chat dont on continue la session, quand il y en a une. */
   conversation: string | null
+  /**
+   * Envoyer la tâche d'un coup de plus (Entrée) quand elle est collée dans
+   * l'invite. Pour la file de tâches, qui prompte seule ; une tâche écrite à la
+   * main reste, elle, à relire avant d'être envoyée.
+   */
+  submit: boolean
 }
 
 export function sanitizeSpec(raw: unknown): NativeSpec | null {
@@ -200,6 +206,7 @@ export function sanitizeSpec(raw: unknown): NativeSpec | null {
     profileId: typeof r.profileId === "string" && r.profileId ? idOf(r.profileId, "") || null : null,
     resume: typeof r.resume === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(r.resume) ? r.resume : null,
     conversation: typeof r.conversation === "string" && r.conversation ? r.conversation.slice(0, 200) : null,
+    submit: r.submit === true,
   }
 }
 
@@ -217,6 +224,7 @@ export function specOfProfile(profile: AgentProfile, prompt = "", name = ""): Na
     profileId: profile.id,
     resume: null,
     conversation: null,
+    submit: false,
   }
 }
 

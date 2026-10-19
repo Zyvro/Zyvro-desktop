@@ -25,6 +25,11 @@ import { agentContext } from "~/lib/agentContext"
 import { getSettings } from "~/state/settings"
 import { openLauncher, runProfile } from "~/state/launcher"
 import { openShellToken, subscribeOpenShell } from "~/state/shellRequests"
+import { askAgent } from "~/state/persistent"
+import { launcherSpec } from "~/state/launcher"
+import { setTaskRunner } from "~/state/tasks"
+import { GRACE_MS, wrote } from "~/state/shellActivity"
+import { bracketedPaste } from "../../shared/agentShell"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -75,7 +80,7 @@ type SessionStatus = {
    * l'ouverture il porte `resume`, pour qu'un « Restart » rouvre la MÊME session
    * au lieu d'en commencer une autre.
    */
-  agente?: { spec: NativeSpec }
+  agente?: { spec: NativeSpec; /** La tâche de la file qui a lancé cet agent. */ taskId?: string }
   /** L'enregistrement de session que cet onglet incarne. */
   agentRecord?: string
 }
@@ -155,6 +160,7 @@ function resumeSpec(fiche: AgentShellRecord): NativeSpec {
     profileId: fiche.profileId,
     resume: fiche.id,
     conversation: null,
+    submit: false,
   }
 }
 
@@ -221,6 +227,92 @@ function restartSession(key: string): void {
 // shell that just became visible belongs in the click handler.
 type SessionHandle = { fit: () => void; focus: () => void }
 const handles = new Map<string, SessionHandle>()
+
+// ---------------------------------------------------------------------------
+// La file de tâches : prompter l'agent dans son shell
+// ---------------------------------------------------------------------------
+//
+// Une tâche de la file (state/tasks) part comme un prompt tapé dans l'agent :
+// collée dans son interface, puis Entrée. L'agent visé est celui de la tâche
+// s'il tourne encore, sinon celui qu'on a sous les yeux ; sans agent vivant, un
+// agent neuf s'ouvre avec la configuration du lanceur et la tâche pour premier
+// message.
+//
+// « Libre » se lit sur la sortie (state/shellActivity) : un agent qui travaille
+// écrit sans cesse, un agent qui attend se tait. La file n'envoie que quand
+// tous les agents sont silencieux, et une tâche finit quand son agent se tait
+// de nouveau.
+
+// Les onglets du projet affiché et celui qui a la main, relus à chaque rendu.
+let activeKeyGlobal = ""
+let shownGroups: Groups = []
+// Quand chaque tâche a été envoyée à son agent : le harnais met un instant à
+// réagir, et il n'est pas libre avant.
+const sentAt = new Map<string, number>()
+
+type AgentTab = { key: string; record: string | null; ptyId: string | null; exitCode: number | null; taskId?: string }
+
+function agentTabs(): AgentTab[] {
+  const out: AgentTab[] = []
+  for (const [key, status] of statuses) {
+    if (!status.agente && !status.agentRecord) continue
+    out.push({
+      key,
+      record: status.agentRecord ?? null,
+      ptyId: status.ptyId,
+      exitCode: status.exitCode,
+      taskId: status.agente?.taskId,
+    })
+  }
+  return out
+}
+
+function tabOf(threadId: string): AgentTab | undefined {
+  const tabs = agentTabs()
+  return threadId.startsWith("task:")
+    ? tabs.find((t) => t.taskId === threadId.slice(5))
+    : tabs.find((t) => t.record === threadId)
+}
+
+// L'agent qui reçoit une tâche sans agent désigné : celui qui a la main, sinon le
+// dernier agent vivant des onglets affichés.
+function liveAgentTab(): AgentTab | undefined {
+  const vivants = agentTabs().filter((t) => t.ptyId && t.exitCode === null && shownGroups.flat().includes(t.key))
+  return vivants.find((t) => t.key === activeKeyGlobal) ?? vivants[vivants.length - 1]
+}
+
+if (typeof window !== "undefined" && window.zyvro) {
+  setTaskRunner({
+    idle: () => agentTabs().every((t) => !t.ptyId || t.exitCode !== null || !wrote(t.ptyId)),
+    status: (threadId) => {
+      const tab = tabOf(threadId)
+      if (!tab) return undefined
+      if (tab.exitCode !== null) return tab.exitCode === 0 ? "done" : "failed"
+      // L'agent n'a pas encore de shell : il démarre.
+      if (!tab.ptyId) return "running"
+      const sent = sentAt.get(threadId) ?? 0
+      return Date.now() - sent < GRACE_MS || wrote(tab.ptyId) ? "running" : "done"
+    },
+    session: () => readStatus(activeKeyGlobal).agentRecord,
+    run: (task, reuse) => {
+      const voulu = reuse ? tabOf(reuse) : undefined
+      const tab = voulu && voulu.ptyId && voulu.exitCode === null ? voulu : liveAgentTab()
+      if (tab?.ptyId && tab.record) {
+        const ptyId = tab.ptyId
+        sentAt.set(tab.record, Date.now())
+        void window.zyvro.terminal.write(ptyId, bracketedPaste(task.prompt))
+        // Entrée un instant après : l'interface traite d'abord le texte collé.
+        setTimeout(() => void window.zyvro.terminal.write(ptyId, "\r"), 300)
+        return tab.record
+      }
+      const id = `task:${task.id}`
+      sentAt.set(id, Date.now())
+      useWorkspace.getState().setPanel("terminal", true)
+      askAgent({ ...launcherSpec(task.prompt), name: task.title, submit: true }, task.id)
+      return id
+    },
+  })
+}
 
 let sessionCounter = 0
 function nextSessionKey(): string {
@@ -441,7 +533,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
             noteRecord(session.record)
             patchStatus(key, {
               agentRecord: session.record.id,
-              agente: { spec: { ...agente.spec, resume: session.record.id, prompt: "" } },
+              agente: { spec: { ...agente.spec, resume: session.record.id, prompt: "", submit: false }, taskId: agente.taskId },
             })
             return { ...session, reprise: session.existing === true }
           })
@@ -626,6 +718,7 @@ export function TerminalPanel(): JSX.Element {
   const [groups, setGroups] = useState<Groups>([])
   const sessions = groups.flat()
   groupsRef.current = groups
+  shownGroups = groups
 
   // Les projets fermés : on les reconnaît à ce qu'ils étaient ouverts et ne le
   // sont plus. Leur disposition rangée est jetée — ses shells sont morts avec
@@ -647,6 +740,7 @@ export function TerminalPanel(): JSX.Element {
   const [poids, setPoids] = useState<Record<string, number>>({})
   const zone = useRef<HTMLDivElement | null>(null)
   const [activeKey, setActiveKey] = useState("")
+  activeKeyGlobal = activeKey
 
   // Ce que l'arbre nous remet : « ouvrir dans le terminal », c'est un `cd` écrit
   // dans le shell actif.
@@ -924,7 +1018,10 @@ export function TerminalPanel(): JSX.Element {
         ordre.sorte === "persistante"
           ? { persistent: ordre.label }
           : ordre.sorte === "agent"
-            ? { agente: { spec: ordre.spec }, ...(ordre.spec.resume ? { agentRecord: ordre.spec.resume } : {}) }
+            ? {
+                agente: { spec: ordre.spec, taskId: ordre.taskId },
+                ...(ordre.spec.resume ? { agentRecord: ordre.spec.resume } : {}),
+              }
           : ordre.sorte === "connexion"
             ? { connexion: ordre.harnais }
           : ordre.sorte === "installation"
