@@ -143,6 +143,8 @@ function firstLine(file: string): string {
   }
 }
 
+const MAX_DEPTH = 5
+
 function codexRollouts(env: NodeJS.ProcessEnv): { file: string; mtime: number }[] {
   const root = path.join(configDir(env, "CODEX_HOME", ".codex"), "sessions")
   const out: { file: string; mtime: number }[] = []
@@ -155,19 +157,20 @@ function codexRollouts(env: NodeJS.ProcessEnv): { file: string; mtime: number }[
     }
     for (const name of names) {
       const full = path.join(dir, name)
-      if (depth < 3) {
-        // AAAA/MM/JJ : trois niveaux de dossiers puis les journaux.
-        try {
-          if (statSync(full).isDirectory()) walk(full, depth + 1)
-        } catch {
-          // Un dossier qui disparaît pendant qu'on le lit n'est pas une erreur.
+      // Les journaux se rangent par AAAA/MM/JJ, mais cette disposition est celle de
+      // codex, pas la nôtre : elle a déjà changé, et un lecteur qui n'accepte les
+      // journaux qu'à une profondeur donnée n'en voit plus aucun le jour où elle
+      // change — la session semble alors perdue. On prend donc tout journal,
+      // à n'importe quel niveau (borné).
+      try {
+        const info = statSync(full)
+        if (info.isDirectory()) {
+          if (depth < MAX_DEPTH) walk(full, depth + 1)
+        } else if (/^rollout-.*\.jsonl$/.test(name)) {
+          out.push({ file: full, mtime: info.mtimeMs })
         }
-      } else if (/^rollout-.*\.jsonl$/.test(name)) {
-        try {
-          out.push({ file: full, mtime: statSync(full).mtimeMs })
-        } catch {
-          // Idem pour un fichier.
-        }
+      } catch {
+        // Un fichier qui disparaît pendant qu'on le lit n'est pas une erreur.
       }
     }
   }

@@ -283,6 +283,25 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
     rmSync(home, { recursive: true, force: true })
   }
 
+  // Les journaux de codex ne sont pas toujours rangés par AAAA/MM/JJ : un lecteur qui
+  // n'en accepte qu'à une profondeur donnée ne les voit plus, et la session semble perdue.
+  {
+    const racine = mkdtempSync(path.join(tmpdir(), "zyvro-codex-flat-"))
+    try {
+      const meta2 = (id) => JSON.stringify({ type: "session_meta", payload: { id, cwd: "/p" } }) + "\n"
+      mkdirSync(path.join(racine, "sessions", "2026", "10"), { recursive: true })
+      writeFileSync(path.join(racine, "sessions", "rollout-2026-10-19T09-00-00-plat.jsonl"), meta2("plat"))
+      writeFileSync(path.join(racine, "sessions", "2026", "10", "rollout-2026-10-19T09-00-01-deux.jsonl"), meta2("deux"))
+      const env2 = { CODEX_HOME: racine }
+      check("**codex : un journal à la racine des sessions est vu**", mod.store.codexSessionExists("plat", env2))
+      check("**codex : un journal à deux niveaux est vu**", mod.store.codexSessionExists("deux", env2))
+      check("codex : et retrouvé par son dossier de travail", ["plat", "deux"].includes(mod.store.findCodexSession("/p", 0, new Set(), env2)))
+      check("codex : le journal n'est pas pris pour celui d'un autre onglet", mod.store.findCodexSession("/p", 0, new Set(["plat", "deux"]), env2) === null)
+    } finally {
+      rmSync(racine, { recursive: true, force: true })
+    }
+  }
+
   const conf = mkdtempSync(path.join(tmpdir(), "zyvro-claude-"))
   try {
     mkdirSync(path.join(conf, "projects", "-home-moi-proj"), { recursive: true })
@@ -361,6 +380,8 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   const dialog = readFileSync(path.join(ROOT, "src/renderer/panels/SwitchAgentDialog.tsx"), "utf8")
   check("**le relais lit le transcript de l'ancienne session côté principal**", /agentShells\.readTranscript\(source\.kind, source\.sessionId\)/.test(ipc2) && /spec\.handoff/.test(ipc2))
   check("**même harnais : l'agent est arrêté sans être noté « fermé », puis la session est rouverte**", /agentshell:switch/.test(ipc2) && /ws\.terminals\.dispose\(live\)/.test(ipc2) && /restartSession\(key\)/.test(panel2))
+  check("**codex : un identifiant connu sans journal visible est quand même repris, pas jeté**", /trying to resume it anyway/.test(ipc2) && !/sessionId = null\n\s*\}/.test(ipc2.slice(ipc2.indexOf("speaksCodex(kind)) {"), ipc2.indexOf("trying to resume it anyway") + 80)))
+  check("**codex : un identifiant jamais appris est retrouvé, à la reprise et avant de changer de modèle**", (ipc2.match(/findCodexSession\(root, Date\.parse\(/g) ?? []).length >= 2)
   check("autre harnais : seul le relais est permis", /const effective = same \? mode : "handoff"/.test(dialog))
   check("l'ancien agent s'arrête, sauf avis contraire", /choice\.stopCurrent && key\) panelActions\.close\(key\)/.test(panel2))
   check("le bouton est dans la barre d'onglets et dans la liste des sessions", /data-switch-agent/.test(panel2) && /askSwitch\(record\.id\)/.test(readFileSync(path.join(ROOT, "src/renderer/panels/AgentShellList.tsx"), "utf8")))

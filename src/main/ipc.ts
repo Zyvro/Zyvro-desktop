@@ -1729,6 +1729,11 @@ export function registerIpc(onRecents?: () => void): void {
   // Les sondages qui attendent que codex dise quelle est sa session.
   const sessionWatchers = new Map<string, () => void>()
 
+  // Les identifiants que d'autres onglets ont déjà revendiqués : deux codex lancés
+  // dans le même dossier ne doivent pas se voler leur session.
+  const takenSessions = (records: AgentShellRecord[], except: string): Set<string> =>
+    new Set(records.flatMap((item) => (item.id !== except && item.sessionId ? [item.sessionId] : [])))
+
   const liveAgentShells = (ws: Workspace, root: string): Set<string> =>
     new Set(ws.terminals.running(root).flatMap((shell) => (shell.agentShell ? [shell.agentShell] : [])))
 
@@ -1803,9 +1808,19 @@ export function registerIpc(onRecents?: () => void): void {
         assign = true
       }
     } else if (speaksCodex(kind)) {
+      // Un identifiant jamais appris (le journal n'était pas encore là quand on
+      // surveillait, ou l'agent a été arrêté entre-temps) : on le retrouve par le
+      // journal que codex a écrit depuis la création de l'onglet.
+      if (previous && !sessionId) {
+        sessionId = agentShells.findCodexSession(root, Date.parse(previous.createdAt) - 5000, takenSessions(known, previous.id))
+        if (sessionId) await agentShells.patch(dir, root, previous.id, { sessionId })
+      }
+      // Un identifiant connu sans journal sous les yeux : on tente quand même la
+      // reprise. Codex retrouve ses sessions par son propre index, et repartir de
+      // zéro en silence est la pire réponse — la session semble perdue alors qu'elle
+      // ne l'est peut-être pas. S'il ne la connaît pas, il le dit à l'écran.
       if (sessionId && !agentShells.codexSessionExists(sessionId)) {
-        notice = "The previous codex session has no log on this machine: starting a new one."
-        sessionId = null
+        notice = "No log of this codex session was found here; trying to resume it anyway."
       }
     } else if (previous && !sessionId) {
       notice = `${kind} does not tell us its session id: this opens a new conversation. Use its own /resume to go back.`
@@ -1976,10 +1991,17 @@ export function registerIpc(onRecents?: () => void): void {
     const wanted = (changes && typeof changes === "object" ? changes : {}) as { model?: unknown; effort?: unknown }
     const model = typeof wanted.model === "string" && wanted.model.trim() ? wanted.model.trim().slice(0, 256) : null
     const effort = supportsEffort(record.kind) && (EFFORTS as readonly string[]).includes(wanted.effort as string) ? (wanted.effort as (typeof EFFORTS)[number]) : null
+    // Codex ne dit sa session qu'au premier échange, et le sondage qui l'attend
+    // s'arrête avec l'onglet : on la retrouve ICI, avant d'arrêter l'agent, sinon la
+    // reprise repartirait d'une session neuve.
+    let sessionId = record.sessionId
+    if (!sessionId && speaksCodex(record.kind)) {
+      sessionId = agentShells.findCodexSession(root, Date.parse(record.createdAt) - 5000, takenSessions(await agentShells.load(dir, root), record.id))
+    }
     // Arrêté sans le noter « fermé » : il va être rouvert aussitôt.
     const live = ws.terminals.byAgentShell(record.id)
     if (live) ws.terminals.dispose(live)
-    await agentShells.patch(dir, root, record.id, { model, effort })
+    await agentShells.patch(dir, root, record.id, { model, effort, ...(sessionId ? { sessionId } : {}) })
     if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
     return true
   })
