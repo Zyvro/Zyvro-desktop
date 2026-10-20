@@ -167,7 +167,11 @@ const check = (name, ok, detail = "") => {
   const plugin = readFileSync(path.join(ROOT, "src/renderer/plugins/bugReport.tsx"), "utf8")
   check("**le bouton bug est dans la barre du composeur, avec l'état du panneau**", /snapshot: \(\) => \(\{\s*chat: chatSnapshot\(\)/.test(panel) && /<BugButton snapshot=\{ctx\.actions\.snapshot\} \/>/.test(plugin))
   const main = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8")
-  check("**les exceptions du principal sont regardées sans changer leur effet**", /uncaughtExceptionMonitor/.test(main) && !/process\.on\("uncaughtException"/.test(main))
+  // Elles étaient seulement regardées, sans changer leur effet : une exception qui
+  // tombait dans le processus principal le faisait tomber, avec tous les shells et les
+  // agents ouverts. Elles sont maintenant notées ET absorbées — sauf en rafale.
+  check("**les exceptions du principal sont notées au journal**", /uncaughtExceptionMonitor/.test(main))
+  check("**et n'emportent plus tous les shells : absorbées, sauf en rafale**", /process\.on\("uncaughtException"/.test(main) && /storm\.length > 25/.test(main))
   const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
   check("le rapport emporte les tours de chaque fenêtre", /ipcMain\.handle\("bug:report"/.test(ipc) && /debugSnapshot\(\)/.test(ipc))
 }

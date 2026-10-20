@@ -47,6 +47,30 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.86
+
+**Qwen Code no longer flickers in the Shell.** Qwen redraws its screen by erasing it
+line by line and rewriting it, wrapping each frame in the "synchronized output"
+mode so a terminal only paints the finished frame. The terminal Studio uses did not
+understand that mode and painted the half-erased screen, so every line blinked like
+a strobe. Studio now holds each frame until it is complete. Checked by replaying a
+real Qwen Code 0.25 session into the terminal: 14 half-drawn frames before, none
+after, and about a third fewer repaints. Claude Code and codex benefit too.
+
+**The window.** On macOS the three window buttons sit to the left of the project
+tabs, centred in the bar. The window remembers its size, position, maximised and
+full-screen state, and always comes back on a screen that exists — unplug the
+monitor it was on and it reopens on the other one.
+
+**Fewer ways to crash.** Several things that could take the whole app down, with
+every shell and agent in it, are now contained: sending to a window that is
+closing, writing to a shell that just exited, a program that cannot be found, and
+an uncaught exception in a timer. A crashed window reloads itself and picks its
+shells up again; a render error shows a reload screen instead of a blank window.
+
+**Smaller:** a shell is resized only when its size really changes, and the output of
+the shells is batched, which makes busy agents lighter on the app.
+
 ## New in alpha.85
 
 **Switch agent.** The arrows button of the Shell tab bar (and the same icon on a

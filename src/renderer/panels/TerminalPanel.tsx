@@ -32,6 +32,8 @@ import { launcherSpec } from "~/state/launcher"
 import { setTaskRunner } from "~/state/tasks"
 import { GRACE_MS, wrote } from "~/state/shellActivity"
 import { bracketedPaste } from "../../shared/agentShell"
+import { SyncOutput } from "../../shared/syncOutput"
+import { frameScheduler } from "~/lib/frameScheduler"
 
 // The integrated shell is where `claude` and `codex` actually run, so a session
 // has to survive everything the UI does to it: switching tabs, resizing the
@@ -491,6 +493,12 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   let ptyId: string | null = null
   let disposed = false
 
+  // Tout ce que le shell écrit passe par là, et pas droit dans xterm : les interfaces
+  // d'agents (Qwen Code, claude, codex) encadrent chaque image de `ESC[?2026h … l` pour
+  // qu'on ne peigne que l'image finie, et xterm 5.5 ne connaît pas ce mode — il peignait
+  // l'écran à moitié effacé, ce qui faisait clignoter tout le texte. Voir shared/syncOutput.
+  const output = new SyncOutput((data) => term.write(data), frameScheduler)
+
   // A login shell prints its banner and prompt immediately, and those events
   // can reach the renderer before the `terminal:create` reply does. Buffering
   // every event until this session knows its own id is what keeps the first
@@ -504,7 +512,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       early.push(payload)
       return
     }
-    if (payload.id === ptyId) term.write(payload.data)
+    if (payload.id === ptyId) output.push(payload.data)
   })
 
   const offExit = window.zyvro.terminal.onExit((payload) => {
@@ -526,10 +534,19 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     if (ptyId !== null) void window.zyvro.terminal.write(ptyId, data)
   })
 
+  // La taille déjà dite au shell : un SIGWINCH de trop fait redessiner toute l'interface
+  // d'un agent (Ink réécrit alors tout l'écran), et le ResizeObserver en déclenche à
+  // chaque changement de mise en page, même quand les colonnes et les lignes ne bougent pas.
+  let sentCols = 0
+  let sentRows = 0
   const pushSize = (): void => {
     if (!hasSize(node)) return
     fitAddon.fit()
-    if (ptyId !== null) void window.zyvro.terminal.resize(ptyId, term.cols, term.rows)
+    if (ptyId === null) return
+    if (term.cols === sentCols && term.rows === sentRows) return
+    sentCols = term.cols
+    sentRows = term.rows
+    void window.zyvro.terminal.resize(ptyId, term.cols, term.rows)
   }
 
   // A hidden tab measures 0x0, and fitting against that collapses the terminal
@@ -640,7 +657,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       // `early` une seconde fois.
       if (session.reprise) void window.zyvro.terminal.replay(session.id)
       for (const payload of early) {
-        if (payload.id === session.id) term.write(payload.data)
+        if (payload.id === session.id) output.push(payload.data)
       }
       early.length = 0
       const pendingExit = earlyExit
@@ -664,6 +681,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     handles.delete(key)
     offData()
     offExit()
+    output.dispose()
     input.dispose()
     if (ptyId !== null) void window.zyvro.terminal.dispose(ptyId)
     term.dispose()

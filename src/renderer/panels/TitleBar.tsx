@@ -8,7 +8,10 @@ import { closeProject, newZyvro, openProject, switchProject } from "~/lib/projec
 
 // The native title bar is hidden so the window reads as an editor. That makes
 // this strip responsible for two things the OS normally handles: giving the
-// user somewhere to drag, and leaving room for the traffic lights on macOS.
+// user somewhere to drag, and leaving room for the traffic lights on macOS —
+// which sit to the LEFT of the project tabs. The numbers (44 px high, 86 px kept
+// on the left) are shared with the main process in shared/windowChrome, and
+// scripts/check-window.mjs holds the two sides together.
 //
 // Les projets ouverts y sont des onglets : cliquer bascule, le + en ouvre un
 // de plus dans la même fenêtre, et chaque projet garde ses onglets de fichiers,
@@ -51,9 +54,9 @@ function ModeSwitch() {
       value: "ai",
       label: "AI",
       icon: Sparkles,
-      title: "The agent takes the middle. No shell, nothing open — until you open a file, and then it moves to the right.",
+      title: "The Shell takes the whole window — until you open a file, and then it steps aside to its dock.",
     },
-    { value: "dev", label: "Dev", icon: Code2, title: "Editor, shell underneath, agent beside." },
+    { value: "dev", label: "Dev", icon: Code2, title: "The code, with the Shell beside it or under it." },
   ]
 
   return (

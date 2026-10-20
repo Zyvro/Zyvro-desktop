@@ -193,6 +193,33 @@ thread's session.
 Run `npm run check:agent-shells` to verify the translation, the session store and
 the wiring; it launches no model.
 
+## The window, and what keeps it up
+
+On macOS the native title bar is hidden and the three window buttons sit to the
+**left** of the project tabs, centred in the 44 px bar (`shared/windowChrome` holds
+the numbers; `npm run check:window` keeps the bar and the main process in step).
+The window remembers its size, position, maximised and full-screen state between
+launches (`window-state.json` in the app's data folder) and always puts itself back
+on a screen that exists: unplug the monitor it was on and it comes back on the one
+left, with its title bar within reach.
+
+Things that used to be able to take the whole app down — and with it every shell and
+agent — are contained: sending to a window that is closing, writing to or resizing a
+shell whose process just died, a program that cannot be found, an uncaught exception
+in a timer (noted in the bug-report log and absorbed; a burst of 25 in ten seconds
+still stops the app). A renderer that crashes is reloaded (three times a minute at
+most) and picks its shells up again; a render error shows a *Reload the window*
+screen instead of a blank window.
+
+**Terminal output.** Agent interfaces (Qwen Code, Claude Code, codex) redraw their
+screen by erasing it line by line and rewriting it, and wrap each frame in
+`ESC[?2026h … l` ("synchronized output") so a terminal paints only the finished
+frame. xterm.js 5.5 does not know that mode and used to paint the half-erased
+screen, which made all the text flicker like a strobe in Qwen Code. `SyncOutput`
+(`shared/syncOutput`) holds each frame until it is complete and writes once per
+animation frame; the main process also batches a shell's output into 4 ms groups.
+`npm run check:terminal-output` covers it.
+
 ## Settings and advanced skills
 
 Settings (`⌘,` / `Ctrl+,`) are grouped into General, Editor, Agents,

@@ -7,6 +7,7 @@ import { installDaemonFetch } from "./lib/daemon"
 import { queryClient } from "./lib/queryClient"
 import { installIncidentCapture } from "./state/bugReport"
 import App from "./App"
+import { ErrorBoundary } from "./panels/ErrorBoundary"
 import "./styles.css"
 
 // The interceptor must be in place before any shared module can issue a
@@ -34,8 +35,10 @@ if (!container) throw new Error("The renderer root element is missing from index
 
 createRoot(container).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </ErrorBoundary>
   </React.StrictMode>
 )

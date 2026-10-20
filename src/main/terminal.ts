@@ -1,4 +1,5 @@
 import { spawn as spawnPipe, type ChildProcess } from "node:child_process"
+import { StringDecoder } from "node:string_decoder"
 import os from "node:os"
 import path from "node:path"
 import { randomUUID } from "node:crypto"
@@ -73,6 +74,13 @@ export function ptyAvailable(): boolean {
  */
 export type Command = { file: string; args: string[]; env?: Record<string, string> }
 
+// `script -c` prend UNE chaîne que /bin/sh redécoupe : des arguments recollés par des espaces
+// perdaient leurs espaces, leurs guillemets, leurs parenthèses — un prompt d'agent, un nom
+// de modèle, tout ce qui n'est pas un mot simple. Chacun est donc cité.
+function shellQuote(arg: string): string {
+  return /^[A-Za-z0-9_./:=@%+,-]+$/.test(arg) ? arg : `'${arg.replace(/'/g, `'\\''`)}'`
+}
+
 function defaultShell(): { file: string; args: string[] } {
   return shellCommand()
 }
@@ -97,13 +105,24 @@ function makePty(
 
   if (mod) {
     const proc = mod.spawn(file, args, { name: "xterm-256color", cols, rows, cwd, env })
+    // Un pty dont le processus vient de mourir lève sur `write`, `resize` et `kill`
+    // (EIO, EBADF, « already exited ») : la fenêtre n'a pas encore appris la fin, elle
+    // écrit ou redimensionne un shell qui n'est plus là, et l'exception partait dans le
+    // processus principal. Rien à faire d'une écriture dans le vide.
+    const quiet = (what: string, run: () => void): void => {
+      try {
+        run()
+      } catch (err) {
+        console.warn(`[pty] ${what} on a finished shell: ${(err as Error).message}`)
+      }
+    }
     return {
       pid: proc.pid,
-      write: (d) => proc.write(d),
-      resize: (c, r) => proc.resize(c, r),
-      kill: () => proc.kill(),
-      onData: (cb) => proc.onData(cb),
-      onExit: (cb) => proc.onExit((e) => cb(e.exitCode)),
+      write: (d) => quiet("write", () => proc.write(d)),
+      resize: (c, r) => quiet("resize", () => proc.resize(c, r)),
+      kill: () => quiet("kill", () => proc.kill()),
+      onData: (cb) => proc.onData((d) => quiet("data", () => cb(d))),
+      onExit: (cb) => proc.onExit((e) => quiet("exit", () => cb(e.exitCode))),
     }
   }
 
@@ -117,27 +136,80 @@ function makePty(
   const commandArgs = useScript
     ? process.platform === "darwin"
       ? ["-q", "/dev/null", file, ...args]
-      : ["-qfc", [file, ...args].join(" "), "/dev/null"]
+      : ["-qfc", [file, ...args].map(shellQuote).join(" "), "/dev/null"]
     : args
 
   const child: ChildProcess = spawnPipe(lance, commandArgs, {
     cwd,
     env: { ...env, LINES: String(rows), COLUMNS: String(cols) },
   })
+  // Sans écouteur, un événement `error` fait tomber le processus principal : le
+  // programme introuvable (ENOENT) et l'écriture dans un tuyau fermé (EPIPE) le sont
+  // tous deux. L'un est une fin avec le code 127, l'autre un écho dans le vide.
+  let spawnFailure: string | null = null
+  child.on("error", (err) => {
+    spawnFailure = err.message
+  })
+  child.stdin?.on("error", () => undefined)
+  child.stdout?.on("error", () => undefined)
+  child.stderr?.on("error", () => undefined)
   return {
     // Le repli lance `/usr/bin/script`, pas le shell : son pid ne dirait pas où
     // le shell se trouve. Mieux vaut zéro que le mauvais dossier.
     pid: 0,
-    write: (d) => child.stdin?.write(d),
-    resize: () => undefined,
-    kill: () => child.kill(),
-    onData: (cb) => {
-      child.stdout?.on("data", (b: Buffer) => cb(b.toString("utf8")))
-      child.stderr?.on("data", (b: Buffer) => cb(b.toString("utf8")))
+    write: (d) => {
+      if (child.stdin?.writable) child.stdin.write(d)
     },
-    onExit: (cb) => child.on("exit", (code) => cb(code ?? 0)),
+    resize: () => undefined,
+    kill: () => {
+      try {
+        child.kill()
+      } catch {
+        // Déjà parti.
+      }
+    },
+    onData: (cb) => {
+      // Un caractère de plusieurs octets peut arriver coupé entre deux morceaux : un
+      // décodeur à état, par flux, plutôt que `toString` morceau par morceau.
+      for (const stream of [child.stdout, child.stderr]) {
+        const decoder = new StringDecoder("utf8")
+        stream?.on("data", (b: Buffer) => {
+          const text = decoder.write(b)
+          if (text) cb(text)
+        })
+      }
+    },
+    onExit: (cb) => {
+      let done = false
+      const end = (code: number): void => {
+        if (done) return
+        done = true
+        cb(code)
+      }
+      child.on("exit", (code) => end(code ?? 0))
+      child.on("error", () => {
+        if (spawnFailure !== null) end(127)
+      })
+    },
   }
 }
+
+// Envoyer à la fenêtre sans jamais lever. `isDestroyed()` ne suffit pas : le cadre peut
+// être libéré entre le test et l'envoi (« Render frame was disposed »), et l'exception
+// tombait alors dans un rappel de pty — donc dans le processus principal.
+function sendSafe(target: WebContents, channel: string, payload: unknown): void {
+  try {
+    if (!target.isDestroyed()) target.send(channel, payload)
+  } catch {
+    // La fenêtre s'en va ; ce qu'elle n'a pas reçu ne lui sert plus.
+  }
+}
+
+// Les morceaux qu'un shell écrit sont regroupés quelques millisecondes avant de
+// partir : une interface d'agent qui redessine son écran en envoie une centaine par
+// seconde, un message IPC chacun. Au-delà de la taille, on envoie sans attendre.
+const BATCH_MS = 4
+const BATCH_MAX = 128 * 1024
 
 type Session = {
   id: string
@@ -178,6 +250,9 @@ type Session = {
   /** Vrai dès qu'on a décidé de sa fin : l'arrêt qui suit n'est plus un événement. */
   ending?: boolean
   stopPaste?: () => void
+  /** Ce qui a été écrit et n'est pas encore parti vers la fenêtre. */
+  pending?: string
+  flush?: ReturnType<typeof setTimeout>
 }
 
 // Ce qu'on garde de chaque shell. Un demi-mégaoctet : de quoi retrouver
@@ -268,20 +343,47 @@ export class Terminals {
 
     pty.onData((data) => {
       this.remember(id, data)
-      if (target.isDestroyed()) return
-      target.send("terminal:data", { id, data })
+      this.queue(id, target, data)
     })
     pty.onExit((code) => {
+      // Ce qui reste à dire part AVANT la fin : la fenêtre ne doit pas apprendre qu'un
+      // shell est mort avant d'avoir lu sa dernière ligne.
+      this.sendPending(id, target)
       const fini = this.drop(id)
-      if (fini && !fini.ending) fini.onEnd?.("exit", code)
-      if (target.isDestroyed()) return
-      target.send("terminal:exit", { id, code })
+      try {
+        if (fini && !fini.ending) fini.onEnd?.("exit", code)
+      } catch (err) {
+        console.warn(`[terminal] onEnd failed: ${(err as Error).message}`)
+      }
+      sendSafe(target, "terminal:exit", { id, code })
     })
 
     // Le bandeau revient avec la réponse plutôt qu'en flot de sortie : le rendu
     // l'écrit lui-même avant de vider ce qu'il a mis de côté, et il est donc
     // toujours au-dessus de la première invite, pas au milieu.
     return { id, pty: ptyAvailable(), banner: wired?.banner }
+  }
+
+  private queue(id: string, target: WebContents, data: string): void {
+    const session = this.sessions.get(id)
+    if (!session) return
+    session.pending = (session.pending ?? "") + data
+    if (session.pending.length >= BATCH_MAX) {
+      this.sendPending(id, target)
+      return
+    }
+    if (session.flush) return
+    session.flush = setTimeout(() => this.sendPending(id, target), BATCH_MS)
+  }
+
+  private sendPending(id: string, target: WebContents): void {
+    const session = this.sessions.get(id)
+    if (!session) return
+    if (session.flush) clearTimeout(session.flush)
+    session.flush = undefined
+    const data = session.pending
+    session.pending = ""
+    if (data) sendSafe(target, "terminal:data", { id, data })
   }
 
   // remember garde ce que le shell a écrit, borné.
@@ -362,7 +464,12 @@ export class Terminals {
   replay(id: string, target: WebContents): void {
     const session = this.sessions.get(id)
     if (!session || target.isDestroyed() || session.seen === "") return
-    target.send("terminal:data", { id, data: session.seen })
+    // `seen` contient déjà ce qui attendait d'être envoyé : l'envoyer ensuite le
+    // doublerait à l'écran.
+    if (session.flush) clearTimeout(session.flush)
+    session.flush = undefined
+    session.pending = ""
+    sendSafe(target, "terminal:data", { id, data: session.seen })
   }
 
   // drop oublie une session et efface ce qui n'avait de sens que pour elle : le
@@ -372,9 +479,16 @@ export class Terminals {
     const session = this.sessions.get(id)
     if (!session) return null
     this.sessions.delete(id)
+    if (session.flush) clearTimeout(session.flush)
     session.stopPaste?.()
-    session.dispose?.()
-    session.cleanup?.()
+    // Le nettoyage d'un shell ne doit jamais empêcher d'en oublier un autre.
+    for (const clean of [session.dispose, session.cleanup]) {
+      try {
+        clean?.()
+      } catch (err) {
+        console.warn(`[terminal] cleanup failed: ${(err as Error).message}`)
+      }
+    }
     return session
   }
 

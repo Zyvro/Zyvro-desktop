@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, nativeImage, session, shell } from "electron"
+import { app, BrowserWindow, dialog, Menu, nativeImage, screen, session, shell } from "electron"
 import path from "node:path"
 import { askHost, browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { startShotsServer } from "./shots"
@@ -13,6 +13,8 @@ import { lastWindowClosed, launchedInBackground, startCapture } from "./capture"
 import { studioWindows } from "./windows"
 import { handleMedia, registerMediaScheme } from "./media"
 import { recordIncident, watchContents } from "./bugreport"
+import { fit as fitWindow, load as loadWindowState, save as saveWindowState, type WindowState } from "./windowState"
+import { MIN_WINDOW, TRAFFIC_LIGHTS } from "../shared/windowChrome"
 
 const isDev = !app.isPackaged
 
@@ -70,12 +72,56 @@ function folderFromArgv(argv: string[]): string | null {
   return null
 }
 
+// `WebContents.send` lève quand le cadre a été libéré entre le moment où l'on vérifie
+// `isDestroyed()` et celui où l'on envoie (« Render frame was disposed before
+// WebFrameMain could be accessed »). Une trentaine d'endroits du processus principal
+// envoient à la fenêtre depuis des rappels — sortie d'un shell, flux d'un agent, horloge —,
+// et une seule de ces exceptions, hors de tout try, tombait dans le processus principal
+// et emportait tous les shells et tous les agents avec lui. Une fois pour toutes ici, au
+// lieu de la trentaine de fois : une fenêtre qui s'en va ne reçoit simplement plus rien.
+let sendHardened = false
+function hardenSend(contents: Electron.WebContents): void {
+  if (sendHardened) return
+  sendHardened = true
+  const proto = Object.getPrototypeOf(contents) as { send?: (...args: unknown[]) => unknown }
+  const original = proto.send
+  if (typeof original !== "function") return
+  proto.send = function send(this: Electron.WebContents, ...args: unknown[]): unknown {
+    try {
+      if (this.isDestroyed()) return undefined
+      return original.apply(this, args)
+    } catch (err) {
+      console.warn(`[send] ${String(args[0])} dropped: ${(err as Error).message}`)
+      return undefined
+    }
+  }
+}
+
+function windowStateFile(): string {
+  return path.join(app.getPath("userData"), "window-state.json")
+}
+
 function createWindow(): BrowserWindow {
+  // Où et à quelle taille : ce qu'on a retenu, ramené sur un écran qui existe. Une
+  // fenêtre de plus s'ouvre en cascade, pas pile sur la précédente.
+  const placed = fitWindow(
+    loadWindowState(windowStateFile()),
+    screen.getAllDisplays().map((d) => ({ workArea: d.workArea })),
+    studioWindows().length * 28
+  )
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
+    x: placed.x,
+    y: placed.y,
+    width: placed.width,
+    height: placed.height,
+    minWidth: MIN_WINDOW.width,
+    minHeight: MIN_WINDOW.height,
+    // Ce que macOS donne d'habitude à une fenêtre, dit plutôt que sous-entendu : la barre
+    // de titre cachée ne doit rien retirer des trois boutons.
+    minimizable: true,
+    maximizable: true,
+    closable: true,
+    fullscreenable: true,
     show: false,
     backgroundColor: "#0b0b0f",
     icon: appIcon(),
@@ -87,7 +133,7 @@ function createWindow(): BrowserWindow {
     // trois boutons manquaient en plein écran : la souris en haut de l'écran
     // déroulait une barre de titre vide, sans fermer ni réduire.
     titleBarStyle: process.platform === "darwin" ? "hidden" : "default",
-    trafficLightPosition: { x: 14, y: 14 },
+    trafficLightPosition: TRAFFIC_LIGHTS,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       // The renderer compiles workflow graphs and renders model output. It gets
@@ -106,7 +152,52 @@ function createWindow(): BrowserWindow {
     },
   })
 
+  hardenSend(win.webContents)
   trackZoom(win)
+
+  // Retenir la fenêtre, sans écrire à chaque pixel d'un redimensionnement.
+  const snapshot = (): WindowState | null => {
+    if (win.isDestroyed() || win.isMinimized()) return null
+    const away = win.isMaximized() || win.isFullScreen()
+    return { ...(away ? win.getNormalBounds() : win.getBounds()), maximized: win.isMaximized(), fullScreen: win.isFullScreen() }
+  }
+  let writing: ReturnType<typeof setTimeout> | undefined
+  const remember = (): void => {
+    if (writing) clearTimeout(writing)
+    writing = setTimeout(() => {
+      const state = snapshot()
+      if (state) saveWindowState(windowStateFile(), state)
+    }, 400)
+  }
+  win.on("resize", remember)
+  win.on("move", remember)
+  win.on("maximize", remember)
+  win.on("unmaximize", remember)
+  win.on("enter-full-screen", remember)
+  win.on("leave-full-screen", remember)
+  win.on("close", () => {
+    // À la fermeture, tout de suite : le délai ne laisserait pas le temps d'écrire.
+    if (writing) clearTimeout(writing)
+    const state = snapshot()
+    if (state) saveWindowState(windowStateFile(), state)
+  })
+  // Un écran débranché ou une résolution changée pendant que la fenêtre était dessus :
+  // elle est ramenée sur un écran qui existe plutôt que de rester introuvable.
+  const reseat = (): void => {
+    if (win.isDestroyed() || win.isMaximized() || win.isFullScreen() || win.isMinimized()) return
+    const now = win.getBounds()
+    const next = fitWindow({ ...now }, screen.getAllDisplays().map((d) => ({ workArea: d.workArea })))
+    if (next.x !== now.x || next.y !== now.y || next.width !== now.width || next.height !== now.height) {
+      win.setBounds({ x: next.x, y: next.y, width: next.width, height: next.height })
+    }
+  }
+  screen.on("display-removed", reseat)
+  screen.on("display-metrics-changed", reseat)
+  win.on("closed", () => {
+    screen.removeListener("display-removed", reseat)
+    screen.removeListener("display-metrics-changed", reseat)
+  })
+  if (placed.maximized) win.maximize()
 
   // Le plein écran, dit au rendu : les trois boutons n'y sont plus dans la
   // barre de l'app (macOS les montre dans la barre qu'il déroule en haut), et
@@ -156,7 +247,10 @@ function createWindow(): BrowserWindow {
 
   // Showing only once the first frame is painted avoids the white flash that
   // makes a dark-themed editor look broken on launch.
-  win.once("ready-to-show", () => win.show())
+  win.once("ready-to-show", () => {
+    win.show()
+    if (placed.fullScreen) win.setFullScreen(true)
+  })
 
   // A renderer exception in a desktop app is otherwise invisible: there is no
   // console for the user to open and no server log to read. Forwarding errors
@@ -183,8 +277,28 @@ function createWindow(): BrowserWindow {
     Menu.buildFromTemplate(items).popup({ window: win })
   })
 
+  // Le rendu qui tombe laisse une fenêtre blanche, et ce n'est pas la fin de ce qui tourne :
+  // les shells et les agents vivent dans le processus principal, que le rendu reprend à
+  // son rechargement. On recharge donc, trois fois par minute au plus — au-delà c'est une
+  // boucle, et on le dit plutôt que de clignoter.
+  const gone: number[] = []
   win.webContents.on("render-process-gone", (_event, details) => {
     console.error(`[renderer gone] ${details.reason} (exit code ${details.exitCode})`)
+    if (details.reason === "clean-exit" || win.isDestroyed()) return
+    const now = Date.now()
+    while (gone.length > 0 && now - gone[0] > 60_000) gone.shift()
+    gone.push(now)
+    if (gone.length <= 3) {
+      setTimeout(() => {
+        if (!win.isDestroyed()) win.webContents.reload()
+      }, 300)
+      return
+    }
+    void dialog.showMessageBox(win, {
+      type: "error",
+      message: "The window keeps crashing",
+      detail: `The renderer stopped ${gone.length} times in a minute (${details.reason}). Your shells and agents are still running; close this window and open the project again, or send a bug report.`,
+    })
   })
   // Et au journal du bouton bug, pour le rapport qu'on enverra après.
   watchContents(win.webContents, "studio")
@@ -592,10 +706,26 @@ if (!app.requestSingleInstanceLock()) {
 
   // Les plantages du processus principal, au journal du bouton bug.
   //
-  // `uncaughtExceptionMonitor` et pas `uncaughtException` : le second, dès
-  // qu'on l'écoute, remplace le comportement par défaut — l'erreur ne ferait
-  // plus tomber le processus. Le moniteur regarde passer sans rien changer.
+  // Le moniteur note tout ce qui passe, sans rien changer.
+  //
+  // Mais surveiller ne suffit pas : sans écouteur, Electron affiche « A JavaScript error
+  // occurred in the main process » et l'application peut tomber — avec elle tous les
+  // shells ouverts et tous les agents en cours, parce qu'un rappel de minuterie a levé.
+  // Une exception qui n'a rien cassé d'autre qu'un envoi à une fenêtre qui se ferme ne vaut
+  // pas ça. On la note donc, et on continue ; si elle se répète en rafale (plus de 25 en
+  // dix secondes), l'état est douteux et on s'arrête franchement.
   process.on("uncaughtExceptionMonitor", (err) => recordIncident("main:exception", err?.stack ?? String(err)))
+  const storm: number[] = []
+  process.on("uncaughtException", (err) => {
+    console.error(`[uncaught exception] ${err?.stack ?? String(err)}`)
+    const now = Date.now()
+    while (storm.length > 0 && now - storm[0] > 10_000) storm.shift()
+    storm.push(now)
+    if (storm.length > 25) {
+      console.error("[fatal] too many uncaught exceptions in a row; exiting")
+      app.exit(1)
+    }
+  })
   process.on("unhandledRejection", (reason) => {
     const text = reason instanceof Error ? reason.stack ?? reason.message : String(reason)
     console.error(`[unhandled rejection] ${text}`)

@@ -441,7 +441,7 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("**fermer à la main prévient `onEnd`**", /close\(id: string[\s\S]{0,300}onEnd\?\.\("closed"\)/.test(terminal))
   check("**tuer au nom de l'arrêt (dispose) ne prévient pas**", /dispose\(id: string\): void \{\s*const session = this\.sessions\.get\(id\)\s*if \(session\) session\.ending = true/.test(terminal))
   check("la fin naturelle prévient, sauf si déjà décidée", /if \(fini && !fini\.ending\) fini\.onEnd\?\.\("exit", code\)/.test(terminal))
-  check("la configuration MCP part à chaque fin de shell", /session\.cleanup\?\.\(\)/.test(terminal))
+  check("la configuration MCP part à chaque fin de shell", /for \(const clean of \[session\.dispose, session\.cleanup\]\)/.test(terminal))
   check("la tâche n'est collée que dans le silence, sans Entrée", /pasteWhenReady[\s\S]{0,900}quietMs/.test(terminal))
 
   check("le panneau reprend la MÊME session après « Resume »", /agente: \{ spec: \{ \.\.\.agente\.spec, resume: session\.record\.id, prompt: "", submit: false \}/.test(panel))
