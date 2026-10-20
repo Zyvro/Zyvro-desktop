@@ -39,16 +39,19 @@ export type LauncherState = {
 
 const KEY = "zyvro.launcher"
 
-function fromProfile(profile: AgentProfile): Omit<LauncherState, "open" | "name"> {
+// Ce qu'une configuration d'agent règle : le harnais, le modèle, l'effort, les instructions
+// et les outils Zyvro. PAS la permission ni les skills : ils se règlent dans la barre de
+// droite, une fois, et valent pour tout agent qu'on lance. Charger un profil les remettait
+// à ceux du profil (« Workspace » par défaut) — on avait mis YOLO, on ouvrait un agent, et
+// il demandait la permission pour chaque commande.
+function fromProfile(profile: AgentProfile): Omit<LauncherState, "open" | "name" | "permission" | "skills"> {
   return {
     profileId: profile.id,
     kind: profile.kind,
     model: profile.model,
-    permission: profile.permission,
     effort: profile.effort,
     instructions: profile.instructions,
     mcp: profile.mcp,
-    skills: profile.skills,
   }
 }
 
@@ -79,7 +82,12 @@ function clean(raw: unknown): LauncherState {
 function read(): LauncherState {
   try {
     const raw = window.localStorage.getItem(KEY)
-    return raw ? clean(JSON.parse(raw)) : { ...clean({}), ...fromProfile(startingProfile()) }
+    // Au tout premier lancement seulement, la permission et les skills partent de ceux du
+    // profil par défaut ; ensuite ils sont ceux de la barre.
+    const first = startingProfile()
+    return raw
+      ? clean(JSON.parse(raw))
+      : { ...clean({}), ...fromProfile(first), permission: first.permission, skills: first.skills }
   } catch {
     return clean({})
   }
@@ -152,8 +160,14 @@ export function runLauncher(): void {
   setLauncher({ name: "" })
 }
 
-/** Ouvrir directement un profil, sans passer par le lanceur. */
+/**
+ * Ouvrir directement un profil, sans passer par le lanceur.
+ *
+ * Le harnais, le modèle, l'effort, les instructions et les outils sont ceux du profil ; la
+ * permission et les skills sont ceux de la barre de droite, comme pour tout agent. C'était la
+ * permission du profil qui partait ici, et YOLO réglé dans la barre n'arrivait jamais.
+ */
 export function runProfile(profile: AgentProfile, prompt = ""): void {
   useWorkspace.getState().setPanel("terminal", true)
-  askAgent(specOfProfile(profile, prompt))
+  askAgent({ ...specOfProfile(profile, prompt), permission: state.permission, skills: state.skills })
 }

@@ -67,6 +67,7 @@ import {
   bracketedPaste,
   briefing,
   hasSystemPromptFlag,
+  nativePermission,
   parseTranscript,
   supportsEffort,
   EFFORTS,
@@ -1970,8 +1971,12 @@ export function registerIpc(onRecents?: () => void): void {
     notify()
     const dim = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
     const resumed = Boolean(sessionId && !assign)
+    // Les drapeaux de permission tels qu'ils sont partis : vérifiables à l'écran, sans lire
+    // `ps`. « yolo » doit se lire `--permission-mode=bypassPermissions …` ici.
+    const flags = nativePermission(kind, spec.permission).join(" ")
     const banner =
       dim(`Zyvro · ${kind}${spec.model ? ` · ${spec.model}` : ""} · ${spec.permission} · ${resumed ? "resuming" : "new"} session${sessionId ? ` ${sessionId.slice(0, 8)}` : ""}`) +
+      (flags ? dim(`permission flags: ${flags}`) : dim("permission flags: none (the harness's default)")) +
       (notice ? dim(notice) : "") +
       (task && !argvOk ? dim("Your task is pasted into the prompt below: read it, then press Enter.") : "") +
       (session.banner ?? "")

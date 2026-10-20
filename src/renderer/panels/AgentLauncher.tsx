@@ -92,7 +92,7 @@ function ProfileMenu({ profiles, current }: { profiles: AgentProfile[]; current:
                 <span className="block truncate font-medium">{profile.name}</span>
                 <span className="block truncate text-[10.5px] text-muted-foreground">
                   {profile.kind}
-                  {profile.model ? ` · ${profile.model}` : ""} · {profile.permission}
+                  {profile.model ? ` · ${profile.model}` : ""}
                 </span>
               </span>
             </Menu.Item>

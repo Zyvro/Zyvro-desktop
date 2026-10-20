@@ -391,6 +391,33 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("le bouton est dans la barre d'onglets et dans la liste des sessions", /data-switch-agent/.test(panel2) && /askSwitch\(record\.id\)/.test(readFileSync(path.join(ROOT, "src/renderer/panels/AgentShellList.tsx"), "utf8")))
 }
 
+// ---- YOLO arrive bien jusqu'au harnais ------------------------------------------------
+{
+  // De la demande de la fenêtre à la ligne de commande : rien ne doit rabaisser la permission.
+  const YOLO = {
+    claude: ["--permission-mode=bypassPermissions", "--allow-dangerously-skip-permissions"],
+    codex: ["--dangerously-bypass-approvals-and-sandbox"],
+    qwen: ["--approval-mode", "yolo"],
+    mimo: ["--dangerously-skip-permissions", "--trust"],
+  }
+  for (const kind of mod.AGENT_KINDS) {
+    const spec = mod.sanitizeSpec({ kind, permission: "yolo" })
+    const ligne = line(kind, { permission: spec.permission }).join(" ")
+    check(`**${kind} : « yolo » demandé → ${YOLO[kind].join(" ")}**`, spec.permission === "yolo" && ligne.includes(YOLO[kind].join(" ")), ligne)
+  }
+  check("claude yolo : les deux drapeaux, tels que le CLI les attend, dans cet ordre", line("claude", { permission: "yolo" }).slice(0, 2).join(" ") === "--permission-mode=bypassPermissions --allow-dangerously-skip-permissions")
+  check("**et une reprise de session garde la permission d'origine**", line("claude", { permission: "yolo", sessionId: "abc-1" }).join(" ").includes("bypassPermissions"))
+
+  const launcher = readFileSync(path.join(ROOT, "src/renderer/state/launcher.ts"), "utf8")
+  const panel3 = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
+  const ipc3 = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
+  check("**ouvrir un profil prend la permission de la barre, pas celle du profil**", /askAgent\(\{ \.\.\.specOfProfile\(profile, prompt\), permission: state\.permission, skills: state\.skills \}\)/.test(launcher))
+  const fp = launcher.slice(launcher.indexOf("function fromProfile"), launcher.indexOf("export function startingProfile"))
+  check("**charger un profil ne touche ni la permission ni les skills de la barre**", !/permission:\s*profile\./.test(fp) && !/skills:\s*profile\./.test(fp), fp.slice(0, 300))
+  check("le menu des agents dit avec quelle permission il ouvre", /Opens with permission:/.test(panel3) && /launcherNow\.permission/.test(panel3))
+  check("**l'onglet affiche les drapeaux de permission réellement passés**", /permission flags: \$\{flags\}/.test(ipc3) && /nativePermission\(kind, spec\.permission\)/.test(ipc3))
+}
+
 // ---- le disque ---------------------------------------------------------------------
 {
   const dossier = mkdtempSync(path.join(tmpdir(), "zyvro-ash-"))

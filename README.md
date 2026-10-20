@@ -170,7 +170,7 @@ the output, not by the harness, so a long silent step can be mistaken for idle).
 
 **Profiles** save a configuration under a name (*Save* in the launcher, or
 Settings › Agents › Shell + Agents). The bot menu opens a profile straight onto
-its prompt; each harness has one by default.
+its prompt; each harness has one by default. A profile carries the harness, model, effort, instructions and Zyvro tools; the **permission and skills are never part of it** — they are the right-hand bar's, and apply to every agent you start, including one opened from a profile or the bot menu (which says which permission it will use). Each tab prints the permission flags it was started with.
 
 **Sessions persist.** Every agent shell is recorded per project in the app's data
 directory (`agent-shells/`), with its configuration and the harness's session id:

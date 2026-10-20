@@ -5,7 +5,6 @@ import { getSettings, subscribeSettings, updateSettings } from "~/state/settings
 import { useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HarnessPicker } from "./HarnessPicker"
 import { ModelPicker } from "./ModelPicker"
-import { PermissionPicker } from "./PermissionPicker"
 import { SettingRow, Toggle } from "./SettingsAgents"
 
 // Les configurations d'agent du panneau Shell + Agents (shared/agentShell).
@@ -48,7 +47,7 @@ export function SettingsProfiles() {
 
       <SettingRow
         title="Agent profiles"
-        hint="Saved configurations for the Shell + Agents launcher: harness, model, permission, effort, extra instructions and tools."
+        hint="Saved configurations for the Shell + Agents launcher: harness, model, effort, extra instructions and tools. Permission and skills are not part of a profile: they are set once in the right-hand bar and apply to every agent you start."
       >
         <button
           type="button"
@@ -102,7 +101,6 @@ export function SettingsProfiles() {
               <div className="min-w-0 max-w-[12rem]">
                 <ModelPicker kind={profile.kind} model={profile.model} ranWith={null} onChange={(model) => change(profile.id, { model })} />
               </div>
-              <PermissionPicker kind={profile.kind} value={profile.permission} onChange={(permission) => change(profile.id, { permission })} />
               {supportsEffort(profile.kind) && (
                 <select
                   aria-label="Reasoning effort"
@@ -121,10 +119,6 @@ export function SettingsProfiles() {
               <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                 <Toggle label="Zyvro tools" checked={profile.mcp} onChange={(mcp) => change(profile.id, { mcp })} />
                 Zyvro tools
-              </label>
-              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <Toggle label="Skills" checked={profile.skills} onChange={(skills) => change(profile.id, { skills })} />
-                Skills
               </label>
             </div>
             <textarea

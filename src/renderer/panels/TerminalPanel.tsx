@@ -28,7 +28,7 @@ import { getSettings } from "~/state/settings"
 import { openLauncher, runProfile } from "~/state/launcher"
 import { openShellToken, subscribeOpenShell } from "~/state/shellRequests"
 import { askAgent } from "~/state/persistent"
-import { launcherSpec } from "~/state/launcher"
+import { getLauncher, launcherSpec, subscribeLauncher } from "~/state/launcher"
 import { setTaskRunner } from "~/state/tasks"
 import { GRACE_MS, wrote } from "~/state/shellActivity"
 import { bracketedPaste } from "../../shared/agentShell"
@@ -779,6 +779,7 @@ export function TerminalPanel(): JSX.Element {
   // renommage fait depuis la barre latérale doit se lire ici.
   useSyncExternalStore(subscribeAgentShells, agentShellsVersion, () => 0)
   const profils = getSettings().agent.profiles
+  const launcherNow = useSyncExternalStore(subscribeLauncher, getLauncher)
   const groupsRef = useRef<Groups>([])
 
   // Les onglets, chacun un groupe de shells côte à côte (shared/termgroups).
@@ -1281,6 +1282,10 @@ export function TerminalPanel(): JSX.Element {
                 Run a task…
               </Menu.Item>
               <div className="my-1 border-t border-white/[0.06]" />
+              {/* Ce avec quoi s'ouvrira l'agent : la permission de la barre de droite. */}
+              <div className="px-2 pb-1 pt-0.5 text-[10.5px] text-muted-foreground" data-agent-menu-permission>
+                Opens with permission: <span className="font-medium text-foreground">{launcherNow.permission}</span> (right bar)
+              </div>
               {profils.map((profil) => (
                 <Menu.Item
                   key={profil.id}
@@ -1291,7 +1296,7 @@ export function TerminalPanel(): JSX.Element {
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{profil.name}</span>
                     <span className="block truncate text-[10.5px] text-muted-foreground">
-                      {profil.model ?? "default model"} · {profil.permission}
+                      {profil.model ?? "default model"}
                     </span>
                   </span>
                 </Menu.Item>
