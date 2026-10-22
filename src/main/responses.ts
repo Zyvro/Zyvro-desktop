@@ -79,6 +79,19 @@ export async function startGateway(): Promise<GatewayHandle> {
   }
 }
 
+// Claude retire le suffixe de contexte « [1m] » du modèle avant de l'envoyer
+// (et l'annonce par un en-tête bêta) : la route épinglée « mimo/x[1m] » doit
+// donc répondre aussi à « mimo/x ». Réciproque acceptée. L'amont reçoit le nom épinglé.
+const CONTEXT_SUFFIX = /\[1m\]$/i
+
+export function routeFor<T>(routes: Map<string, T>, demande: string): T | undefined {
+  const exact = routes.get(demande)
+  if (exact) return exact
+  const base = demande.replace(CONTEXT_SUFFIX, "")
+  for (const [key, aim] of routes) if (key.replace(CONTEXT_SUFFIX, "") === base) return aim
+  return undefined
+}
+
 function refuser(res: ServerResponse, code: number, message: string): void {
   res.writeHead(code, { "content-type": "application/json" })
   res.end(JSON.stringify({ error: { message, type: "zyvro_gateway" } }))
@@ -154,7 +167,7 @@ async function handle(
   }
 
   const demande = typeof body.model === "string" ? body.model : ""
-  const aim = routes.get(demande)
+  const aim = routeFor(routes, demande)
   if (!aim) {
     // Nommer ce qu'on connaît : sans ça, « unknown model » pour une faute de
     // frappe dans un réglage se cherche à l'aveugle.
@@ -271,7 +284,7 @@ async function handleMessages(req: IncomingMessage, res: ServerResponse, routes:
   }
 
   const demande = typeof body.model === "string" ? body.model : ""
-  const aim = routes.get(demande)
+  const aim = routeFor(routes, demande)
   if (!aim) {
     refuser(res, 404, `This gateway serves ${[...routes.keys()].join(", ") || "no model yet"}, not "${demande}".`)
     return

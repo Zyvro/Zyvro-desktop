@@ -264,6 +264,11 @@ const REQUETE = {
   const detail = await mort.json()
   check("**un fournisseur éteint est nommé**", mort.status === 502 && detail.error.message.includes("127.0.0.1:1"), JSON.stringify(detail))
 
+  // Claude retire « [1m] » du modèle avant de l'envoyer : la route épinglée doit répondre quand même.
+  g.aim("mimo/mini[1m]", { provider: "mimo", url: `http://127.0.0.1:${amont.address().port}`, key: "k", model: "mini[1m]" })
+  const sans = await poster({ ...REQUETE, model: "mimo/mini" })
+  check("**`[1m]` retiré par claude : la route répond encore**", sans.status !== 404, String(sans.status))
+
   g.close()
   amont.close()
 }
