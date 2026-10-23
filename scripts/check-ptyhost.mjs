@@ -23,6 +23,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs"
 import net from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
+import { createRequire } from "node:module"
 
 let failures = 0
 function check(name, ok, detail = "") {
@@ -43,7 +44,26 @@ await build({
 })
 
 const dataDir = path.join(work, "data")
-const host = spawn(process.execPath, [out], { env: { ...process.env, ZYVRO_PTYHOST_DIR: dataDir, ZYVRO_PTYHOST_VERSION: "1.2.3-alpha.9" }, stdio: "ignore" })
+// L'hôte tourne comme dans l'application : le binaire d'Electron en mode Node.
+// C'est pour lui que node-pty est compilé ; un `node` ordinaire ne le charge pas
+// et retombe sur le repli `script`, qui sous macOS refuse de tourner sans
+// terminal. Sans Electron installé, `node` fait l'affaire là où le repli marche.
+const require = createRequire(import.meta.url)
+let runtime = process.execPath
+try {
+  const electron = require("electron")
+  if (typeof electron === "string" && existsSync(electron)) runtime = electron
+} catch {
+  // Pas d'Electron : on garde node.
+}
+const asNode = { ELECTRON_RUN_AS_NODE: "1" }
+const host = spawn(runtime, [out], { env: { ...process.env, ...asNode, ZYVRO_PTYHOST_DIR: dataDir, ZYVRO_PTYHOST_VERSION: "1.2.3-alpha.9" }, stdio: "ignore" })
+// Le programme de l'agent : le même exécutable, donc présent partout, Windows compris.
+const echo = (first) => ({
+  file: runtime,
+  args: ["-e", `process.stdout.write(${JSON.stringify(first + "\n")});process.stdin.on("data",(d)=>process.stdout.write(d))`],
+  env: { ...process.env, ...asNode },
+})
 const infoPath = path.join(dataDir, "ptyhost-1.2.3-alpha.9.json")
 for (let i = 0; i < 100 && !existsSync(infoPath); i++) await new Promise((r) => setTimeout(r, 50))
 const info = JSON.parse(readFileSync(infoPath, "utf8"))
@@ -89,7 +109,7 @@ check("**sans le jeton, la connexion est coupée**", !intrus.messages.some((m) =
 // lancer, écrire
 const a = client()
 check("le bon jeton est accueilli", Boolean(await a.until((m) => m.t === "hello")))
-a.send({ t: "spawn", key: "agent-1", file: "/bin/sh", args: ["-c", "echo pret; cat"], env: { PATH: process.env.PATH ?? "" }, cwd: work, cols: 80, rows: 24 })
+a.send({ t: "spawn", key: "agent-1", ...echo("pret"), cwd: work, cols: 80, rows: 24 })
 await a.until((m) => m.t === "data" && m.data.includes("pret"))
 a.send({ t: "write", key: "agent-1", data: "bonjour\n" })
 await a.until(() => text(a, "agent-1").includes("bonjour"))
@@ -112,7 +132,7 @@ b.send({ t: "write", key: "agent-1", data: "encore\n" })
 check("et le flux reprend", Boolean(await b.until((m) => m.t === "data" && m.data.includes("encore"))))
 
 // 3. pas de double
-b.send({ t: "spawn", key: "agent-1", file: "/bin/sh", args: ["-c", "echo DOUBLE; cat"], env: {}, cwd: work, cols: 80, rows: 24 })
+b.send({ t: "spawn", key: "agent-1", ...echo("DOUBLE"), cwd: work, cols: 80, rows: 24 })
 await new Promise((r) => setTimeout(r, 400))
 check("**un second lancement sur une clé vivante se rattache**", !text(b, "agent-1").includes("DOUBLE"))
 
