@@ -92,7 +92,7 @@ export function patch(
   dir: string,
   projectDir: string,
   id: string,
-  change: Partial<Pick<AgentShellRecord, "name" | "sessionId" | "state" | "model" | "effort">>
+  change: Partial<Pick<AgentShellRecord, "name" | "sessionId" | "state" | "model" | "effort" | "prompt">>
 ): Promise<AgentShellRecord[]> {
   return update(dir, projectDir, (all) =>
     all.map((item) => (item.id === id ? { ...item, ...change, updatedAt: new Date().toISOString() } : item))

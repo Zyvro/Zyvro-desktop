@@ -526,6 +526,32 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("la permission de la barre règle le prochain agent, pas un réglage caché", /setPermission: \(permission\) => setLauncher\(\{ permission/.test(rail))
 }
 
+// ---- le nom d'une session : la première demande tapée dans l'agent ------------------
+{
+  const run = (chunks) => {
+    let st = { text: "" }
+    const out = []
+    for (const c of chunks) {
+      const r = mod.typedLine(st, c)
+      st = r.state
+      if (r.submitted !== null) out.push(r.submitted)
+    }
+    return out
+  }
+  check("**une ligne tapée touche par touche est rendue à Entrée**", run([..."fix the login bug", "\r"]).join() === "fix the login bug")
+  check("l'effacement et les flèches ne laissent pas de trace", run(["fix thx", "\x7f", "e login\x1b[D\x1b[C", " bug\r"]).join() === "fix the login bug")
+  check("un collage compte, ses marques non", run(["\x1b[200~refactor the git panel\x1b[201~", "\r"]).join() === "refactor the git panel")
+  check("Ctrl+C abandonne la ligne", run(["oops", "\x03", "add tests\r"]).join() === "add tests")
+  check("**une commande ne nomme pas** (`/model`)", mod.titleFromTyped("/model opus") === null)
+  check("ni un choix de menu, ni un oui", mod.titleFromTyped("1") === null && mod.titleFromTyped("yes") === null)
+  check("**une vraie demande nomme**", mod.titleFromTyped("  fix the   login bug ") === "fix the login bug")
+  check("et le titre la raccourcit", mod.recordTitle({ name: "", prompt: "a".repeat(80), kind: "claude", model: null }).length === 40)
+  const ipcSrc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")
+  check("**un nom choisi n'est jamais remplacé**", /item\.name\.trim\(\) \|\| item\.prompt\.trim\(\)\) return item/.test(ipcSrc))
+  const panelSrc = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
+  check("**l'onglet d'un agent se renomme d'un double clic**", /onDoubleClick=\{\(\) => void renommerOnglet\(principal\)\}/.test(panelSrc))
+}
+
 console.log(
   failures === 0
     ? "\nUn agent est un shell, avec tout ce qu'on a réglé, et sa session se rouvre."

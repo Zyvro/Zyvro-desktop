@@ -47,6 +47,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.91
+
+**Agent sessions name themselves.** An agent opened without a task was called
+"claude · opus" in its tab and in the session list. The first real request you
+type into it now becomes its name. Slash commands, menu choices and one-word
+answers don't count. A name you chose is never replaced. Double-click an
+agent's tab to rename it; the session list's *Rename* still works too.
+
 ## New in alpha.90
 
 **Updates install again on Windows.** Installing an update failed with

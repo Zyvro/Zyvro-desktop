@@ -335,6 +335,8 @@ const api = {
     /** Les sessions qui étaient ouvertes à l'arrêt de l'application. */
     restorable: (max: number, dir?: string): Promise<AgentShellRecord[] | null> => invoke("agentshell:restorable", max, dir),
     rename: (id: string, name: string): Promise<boolean> => invoke("agentshell:rename", id, name),
+    /** La première demande tapée dans la session : son nom, si elle n'en a pas. */
+    autoTitle: (id: string, text: string): Promise<boolean> => invoke("agentshell:auto-title", id, text),
     /** L'oublier — et l'arrêter si elle tourne. */
     forget: (id: string): Promise<boolean> => invoke("agentshell:forget", id),
     /** La liste a changé : une session s'est ouverte, terminée, ou a appris son identifiant. */

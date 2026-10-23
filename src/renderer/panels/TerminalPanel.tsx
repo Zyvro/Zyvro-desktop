@@ -31,8 +31,9 @@ import { askAgent } from "~/state/openRequests"
 import { getLauncher, launcherSpec, subscribeLauncher } from "~/state/launcher"
 import { setTaskRunner } from "~/state/tasks"
 import { setLiveAgentDriver } from "~/state/liveAgent"
+import { askName } from "~/state/prompt"
 import { GRACE_MS, wrote } from "~/state/shellActivity"
-import { bracketedPaste } from "../../shared/agentShell"
+import { bracketedPaste, typedLine, type TypedLine } from "../../shared/agentShell"
 import { SyncOutput } from "../../shared/syncOutput"
 import { frameScheduler } from "~/lib/frameScheduler"
 
@@ -641,10 +642,31 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     }
   })
 
+  // La ligne tapée dans un agent natif : sa première vraie demande nomme la
+  // session (« claude · opus » ne dit pas ce qu'on y fait). Une fois nommée,
+  // on n'écoute plus.
+  let ligne: TypedLine = { text: "" }
+  let nommee = false
   const input = term.onData((data) => {
     // Taper ramène en bas (xterm le fait) : on y reste collé.
     colle = true
     if (ptyId !== null) void window.zyvro.terminal.write(ptyId, data)
+    const fiche = readStatus(key).agentRecord
+    if (!fiche || nommee) return
+    const lu = typedLine(ligne, data)
+    ligne = lu.state
+    if (lu.submitted === null) return
+    const deja = recordOf(fiche)
+    if (deja && (deja.name.trim() || deja.prompt.trim())) {
+      nommee = true
+      return
+    }
+    void window.zyvro.agentShell.autoTitle(fiche, lu.submitted).then(
+      (ok) => {
+        if (ok) nommee = true
+      },
+      () => undefined
+    )
   })
 
   // La taille déjà dite au shell : un SIGWINCH de trop fait redessiner toute l'interface
@@ -797,6 +819,21 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     if (ptyId !== null) void window.zyvro.terminal.dispose(ptyId)
     term.dispose()
   }
+}
+
+// renommerOnglet : le nom d'une session d'agent, depuis son onglet.
+async function renommerOnglet(key: string): Promise<void> {
+  const id = readStatus(key).agentRecord
+  if (!id) return
+  const fiche = recordOf(id)
+  const name = await askName({
+    title: "Rename agent session",
+    label: "The tab and the session list use this name.",
+    initial: fiche ? recordTitle(fiche) : "",
+    confirmLabel: "Rename",
+  })
+  const clean = name?.trim()
+  if (clean) await window.zyvro.agentShell.rename(id, clean)
 }
 
 // Les onglets fermés à la main avant que leur shell ait répondu : un agent met
@@ -1334,8 +1371,11 @@ export function TerminalPanel(): JSX.Element {
               <button
                 type="button"
                 onClick={() => activate(principal)}
+                // Un agent se renomme d'un double clic sur son onglet ; le nom
+                // est celui de la session, gardé sur le disque.
+                onDoubleClick={() => void renommerOnglet(principal)}
                 className="inline-flex items-center gap-1.5"
-                title={nom}
+                title={readStatus(principal).agentRecord ? `${nom} — double-click to rename` : nom}
                 data-terminal-tab={index}
               >
                 {group.length > 1 ? (

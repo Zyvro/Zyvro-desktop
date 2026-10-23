@@ -70,6 +70,7 @@ import {
   nativeArgs,
   promptDelivery,
   recordTitle,
+  titleFromTyped,
   sanitizeSpec,
   sessionIdOk,
   taskText,
@@ -2005,6 +2006,26 @@ export function registerIpc(onRecents?: () => void): void {
     await agentShells.patch(agentShellsDir(), requireRoot(ws), String(id), { name: clean })
     if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
     return true
+  })
+
+  // Nommer une session par la première demande qu'on y a tapée (shared/agentShell,
+  // typedLine) — seulement si elle n'a ni nom choisi ni tâche de départ : un nom
+  // donné à la main n'est jamais remplacé.
+  ipcMain.handle("agentshell:auto-title", async (event, id: string, text: string) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    const title = titleFromTyped(String(text ?? ""))
+    if (!title) return false
+    let changed = false
+    await agentShells.update(agentShellsDir(), root, (all) =>
+      all.map((item) => {
+        if (item.id !== String(id) || item.name.trim() || item.prompt.trim()) return item
+        changed = true
+        return { ...item, prompt: title, updatedAt: new Date().toISOString() }
+      })
+    )
+    if (changed && !event.sender.isDestroyed()) event.sender.send("agentshell:changed")
+    return changed
   })
 
   ipcMain.handle("agentshell:forget", async (event, id: string) => {

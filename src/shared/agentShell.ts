@@ -329,6 +329,66 @@ export function recordTitle(record: Pick<AgentShellRecord, "name" | "prompt" | "
   return record.model ? `${record.kind} · ${record.model}` : record.kind
 }
 
+/**
+ * La ligne qu'on tape dans un agent natif, pour nommer sa session.
+ *
+ * Ouvert vide — le cas courant —, un agent s'appelait « claude · opus » : la
+ * demande, on la tape ensuite dans son interface, où Zyvro ne la voit pas
+ * passer. Ce qui passe, ce sont les touches. On en refait la ligne : les
+ * caractères, l'effacement, les collages, sans les séquences de contrôle
+ * (flèches, couleurs) ; Entrée la rend.
+ */
+export type TypedLine = { text: string }
+
+export function typedLine(state: TypedLine, data: string): { state: TypedLine; submitted: string | null } {
+  let text = state.text
+  let submitted: string | null = null
+  // Les marques de collage d'abord : leur contenu compte, elles non.
+  const clean = data.replace(/\x1b\[20[01]~/g, "")
+  for (let i = 0; i < clean.length; i++) {
+    const c = clean[i]
+    if (c === "\x1b") {
+      // Une séquence : ESC [ … lettre, ESC O lettre, ou ESC suivi d'un caractère.
+      const rest = clean.slice(i)
+      const m = /^\x1b(\[[0-9;?]*[ -\/]*[@-~]|O.|.)?/.exec(rest)
+      i += (m?.[0].length ?? 1) - 1
+      continue
+    }
+    if (c === "\r") {
+      submitted = text
+      text = ""
+      continue
+    }
+    if (c === "\x7f" || c === "\b") {
+      text = text.slice(0, -1)
+      continue
+    }
+    // Ctrl+U, Ctrl+C : la ligne est abandonnée.
+    if (c === "\x15" || c === "\x03") {
+      text = ""
+      continue
+    }
+    if (c === "\n") {
+      text += " "
+      continue
+    }
+    if (c < " ") continue
+    if (text.length < 400) text += c
+  }
+  return { state: { text }, submitted }
+}
+
+/**
+ * Ce qui, tapé dans l'agent, fait un nom : une vraie demande, pas une commande
+ * (`/model`), une réponse d'un mot ni un choix de menu.
+ */
+export function titleFromTyped(line: string): string | null {
+  const clean = line.replace(/\s+/g, " ").trim()
+  if (clean.length < 6 || clean.startsWith("/") || clean.startsWith("!")) return null
+  if (!/\s/.test(clean) && clean.length < 12) return null
+  return clean.slice(0, 200)
+}
+
 /** Les sessions à rouvrir au démarrage : celles qui étaient ouvertes, hors celles déjà vivantes. */
 export function toRestore(records: AgentShellRecord[], live: ReadonlySet<string>, max = 6): AgentShellRecord[] {
   return records
