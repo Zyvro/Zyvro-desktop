@@ -37,6 +37,12 @@ export type AgentSettings = {
   defaultProfile: string | null
   /** Rouvrir au démarrage les agents qui étaient ouverts à la fermeture. */
   restoreAgentShells: boolean
+  /**
+   * Les agents tournent chez l'hôte de terminaux (main/ptyhost.ts) : quitter
+   * Zyvro — une mise à jour — s'en détache sans les arrêter, et la réouverture
+   * s'y rattache.
+   */
+  detachAgents: boolean
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -49,6 +55,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   profiles: DEFAULT_PROFILES,
   defaultProfile: null,
   restoreAgentShells: true,
+  detachAgents: true,
 }
 
 // skillFrontmatter lit le nom et la description dans le frontmatter d'un

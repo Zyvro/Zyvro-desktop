@@ -177,14 +177,24 @@ directory (`agent-shells/`), with its configuration and the harness's session id
 claude gets `--session-id <uuid>` up front, so it is known from the first second;
 codex chooses its own id, which is read from its rollout log
 (`~/.codex/sessions/…`, matched by folder, never shared between two tabs). When
-Zyvro closes, the agents that were open come back at the next launch (up to six,
-switchable in Settings) with `--resume`, `codex resume`, the same permission and
-model. Closing a tab, or an agent that exits, keeps its session in the sidebar's
+Zyvro closes, every agent that was open comes back at the next launch (switchable
+in Settings) with `--resume`, `codex resume`, the same permission and model. Closing a tab, or an agent that exits, keeps its session in the sidebar's
 **Agent sessions** list, one click to resume, but it no longer reopens by itself.
 A claude session where nothing was said yet has no log to resume, so it restarts
 under the same id instead of failing. Qwen and MiMo do not tell us a new
 session's id: they reopen a new conversation (use their own `/resume`), except
 when opened from a chat thread that already has one.
+
+**Agents keep running when Zyvro quits.** They do not run inside the app but in
+a small background host (`src/main/ptyhost.ts`, started detached with
+`ELECTRON_RUN_AS_NODE`, reached over a local socket guarded by a token). Quitting
+or updating Zyvro only detaches from them; they keep working. At the next launch
+Zyvro reattaches, the host replays their screen, and nothing has to be resumed.
+Closing an agent's tab or switching its model still stops it. The model gateway
+lives in the host too, at a stable address, so an agent aimed at a provider
+through it keeps its model while Zyvro restarts. The project's MCP servers do
+not: the engine restarts on a new port. Turn it off in Settings › Agents
+(*Keep agents running when Zyvro quits*) to have agents stop with the app.
 
 The chat panel's *Open in terminal* button now opens this too: the thread's model,
 the permission from the chat toolbar (no longer an implicit YOLO) and the

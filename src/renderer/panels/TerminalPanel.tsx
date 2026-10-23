@@ -144,9 +144,10 @@ const projetsConnus = new Set<string>()
 const reprisesEnVol = new Set<string>()
 // Les dossiers dont on a déjà rouvert les agents dans cette fenêtre.
 const restaureesPour = new Set<string>()
-// Combien d'agents on rouvre d'un coup : chacun est un processus qui reprend sa
-// conversation, et les rouvrir tous à chaque lancement finirait par peser.
-const MAX_RESTAUREES = 6
+// Combien d'agents on rouvre pour un projet : tous ceux qui étaient ouverts. Une
+// limite à six en rendait une partie seulement, sans le dire — et c'est
+// justement quand on en a beaucoup qu'on tient à les retrouver tous.
+const MAX_RESTAUREES = 32
 
 // resumeSpec : la demande qui rouvre une session enregistrée. Le principal relit
 // la configuration de l'enregistrement ; on ne lui envoie que de quoi le nommer.
@@ -477,12 +478,15 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   })
 
   term.attachCustomKeyEventHandler((event) => {
+    // Remonter au clavier, c'est décrocher du bas exprès (voir `colle` plus bas).
+    if (event.type === "keydown" && event.shiftKey && (event.key === "PageUp" || event.key === "Home")) decrocher()
     if (!estEffacement(event, window.zyvro.platform)) return true
     event.preventDefault()
     term.clear()
     return false
   })
 
+  let decrocher = (): void => undefined
   term.open(node)
   if (hasSize(node)) fitAddon.fit()
   dernierTerminal = term
@@ -497,7 +501,59 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   // d'agents (Qwen Code, claude, codex) encadrent chaque image de `ESC[?2026h … l` pour
   // qu'on ne peigne que l'image finie, et xterm 5.5 ne connaît pas ce mode — il peignait
   // l'écran à moitié effacé, ce qui faisait clignoter tout le texte. Voir shared/syncOutput.
-  const output = new SyncOutput((data) => term.write(data), frameScheduler)
+  //
+  // Collé en bas : les interfaces d'agents redessinent parfois tout l'écran en
+  // effaçant aussi l'historique (`ESC[2J ESC[3J`). Le défilement de xterm tombe
+  // alors à zéro pendant que le tampon se vide, et il y reste quand les lignes
+  // reviennent — on se retrouve tout en haut alors qu'on lisait l'invite.
+  // Même chute quand l'onglet est caché puis remontré : un élément masqué perd
+  // sa position de défilement, et xterm la relit à zéro.
+  //
+  // On suit donc ce que la personne VEUT, pas la position du moment : elle
+  // décroche du bas en remontant elle-même (molette, barre, Maj+Page↑), elle y
+  // revient en redescendant jusqu'au bout ou en tapant. Tant qu'elle n'a pas
+  // décroché, toute chute est corrigée.
+  const enBas = (): boolean => {
+    const b = term.buffer.active
+    return b.viewportY >= b.baseY
+  }
+  let colle = true
+  let glisse = false
+  decrocher = () => {
+    colle = false
+  }
+  let rattrapage = 0
+  const recoller = (): void => {
+    if (rattrapage) return
+    rattrapage = requestAnimationFrame(() => {
+      rattrapage = 0
+      if (colle && hasSize(node) && !enBas()) term.scrollToBottom()
+    })
+  }
+  const output = new SyncOutput((data) => {
+    term.write(data, () => {
+      if (colle && !enBas()) term.scrollToBottom()
+    })
+  }, frameScheduler)
+  const onWheel = (event: WheelEvent): void => {
+    if (event.deltaY < 0 && term.buffer.active.baseY > 0) colle = false
+  }
+  const onPointerDown = (event: PointerEvent): void => {
+    // La barre de défilement : seule cible qui est le cadre de défilement lui-même.
+    if ((event.target as HTMLElement | null)?.classList?.contains("xterm-viewport")) glisse = true
+  }
+  const onPointerUp = (): void => {
+    glisse = false
+  }
+  node.addEventListener("wheel", onWheel, { passive: true })
+  node.addEventListener("pointerdown", onPointerDown)
+  window.addEventListener("pointerup", onPointerUp)
+  const scrolled = term.onScroll(() => {
+    if (!hasSize(node)) return
+    if (glisse) colle = enBas()
+    else if (enBas()) colle = true
+    else if (colle) recoller()
+  })
 
   // A login shell prints its banner and prompt immediately, and those events
   // can reach the renderer before the `terminal:create` reply does. Buffering
@@ -531,6 +587,8 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   })
 
   const input = term.onData((data) => {
+    // Taper ramène en bas (xterm le fait) : on y reste collé.
+    colle = true
     if (ptyId !== null) void window.zyvro.terminal.write(ptyId, data)
   })
 
@@ -542,6 +600,8 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   const pushSize = (): void => {
     if (!hasSize(node)) return
     fitAddon.fit()
+    // Remontré après avoir été caché : la position a été perdue en route.
+    recoller()
     if (ptyId === null) return
     if (term.cols === sentCols && term.rows === sentRows) return
     sentCols = term.cols
@@ -681,6 +741,11 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     handles.delete(key)
     offData()
     offExit()
+    scrolled.dispose()
+    if (rattrapage) cancelAnimationFrame(rattrapage)
+    node.removeEventListener("wheel", onWheel)
+    node.removeEventListener("pointerdown", onPointerDown)
+    window.removeEventListener("pointerup", onPointerUp)
     output.dispose()
     input.dispose()
     if (ptyId !== null) void window.zyvro.terminal.dispose(ptyId)
@@ -908,6 +973,11 @@ export function TerminalPanel(): JSX.Element {
       setGroups(range.groups)
       setActiveKey(range.activeKey)
       setPoids(range.poids)
+      // Une restauration qui n'a pas pu se faire (on était déjà reparti
+      // ailleurs) se refait au retour.
+      if (projectDir !== null && !restaureesPour.has(projectDir)) {
+        window.queueMicrotask(() => void restaurer(projectDir))
+      }
     } else {
       // Première arrivée sur ce projet : demander au principal s'il lui reste
       // des shells (rechargement du rendu), ou n'en ouvrir qu'un.
@@ -968,8 +1038,16 @@ export function TerminalPanel(): JSX.Element {
     if (!getSettings().agent.restoreAgentShells) return
     let fiches: AgentShellRecord[] = []
     try {
-      fiches = await window.zyvro.agentShell.restorable(MAX_RESTAUREES)
+      // Le dossier est dit : si on a changé de projet pendant l'aller-retour, le
+      // principal répond `null` au lieu de rendre les sessions de l'autre.
+      const rendues = await window.zyvro.agentShell.restorable(MAX_RESTAUREES, dir)
+      if (rendues === null) {
+        restaureesPour.delete(dir)
+        return
+      }
+      fiches = rendues
     } catch {
+      restaureesPour.delete(dir)
       return
     }
     for (const fiche of fiches) noteRecord(fiche)

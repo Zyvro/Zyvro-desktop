@@ -156,13 +156,14 @@ export function sanitizeAgentSettings(raw: unknown): AgentSettings {
 // Les configurations d'agent et ce qui va avec. Le profil par défaut doit nommer
 // un profil qui existe : un nom resté après sa suppression ferait proposer un
 // lanceur vide.
-function profilesOf(r: Record<string, unknown>): Pick<AgentSettings, "profiles" | "defaultProfile" | "restoreAgentShells"> {
+function profilesOf(r: Record<string, unknown>): Pick<AgentSettings, "profiles" | "defaultProfile" | "restoreAgentShells" | "detachAgents"> {
   const profiles = sanitizeProfiles(r.profiles)
   const wanted = typeof r.defaultProfile === "string" ? r.defaultProfile : null
   return {
     profiles,
     defaultProfile: wanted && profiles.some((p) => p.id === wanted) ? wanted : null,
     restoreAgentShells: r.restoreAgentShells !== false,
+    detachAgents: r.detachAgents !== false,
   }
 }
 

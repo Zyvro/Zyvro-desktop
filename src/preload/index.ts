@@ -388,7 +388,7 @@ const api = {
     switch: (id: string, changes: { model: string | null; effort: string | null }): Promise<boolean> =>
       invoke("agentshell:switch", id, changes),
     /** Les sessions qui étaient ouvertes à l'arrêt de l'application. */
-    restorable: (max: number): Promise<AgentShellRecord[]> => invoke("agentshell:restorable", max),
+    restorable: (max: number, dir?: string): Promise<AgentShellRecord[] | null> => invoke("agentshell:restorable", max, dir),
     rename: (id: string, name: string): Promise<boolean> => invoke("agentshell:rename", id, name),
     /** L'oublier — et l'arrêter si elle tourne. */
     forget: (id: string): Promise<boolean> => invoke("agentshell:forget", id),

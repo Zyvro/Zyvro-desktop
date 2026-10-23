@@ -205,7 +205,7 @@ const vise = { baseUrl: "http://127.0.0.1:1234/v1", keyVar: mod.GATEWAY_KEY_VAR 
   )
   check(
     "**les shells d'agent passent par la même aide**",
-    /harnessLaunch\(ws, kind, spec\.model\)/.test(ipc),
+    /harnessLaunch\(ws, kind, spec\.model(, viaHost)?\)/.test(ipc),
     "un second chemin de lancement viserait autrement le même modèle"
   )
 

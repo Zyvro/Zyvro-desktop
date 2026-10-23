@@ -62,6 +62,7 @@ import { pluginOn } from "../shared/plugins"
 import { sanitizeAgentSettings } from "../shared/settings"
 import { skillCatalogPrompt, skillEnabled } from "../shared/skills"
 import * as agentShells from "./agentShells"
+import { hostedAlive, hostedGateway, hostReady, stopHosted } from "./ptyHostClient"
 import { codexMcpArgs, mcpAvailable, mcpServers, mcpTokenEnv, writeMcpConfig } from "./mcp"
 import {
   bracketedPaste,
@@ -386,6 +387,10 @@ function pluginRoots(root: string | null): PluginRoot[] {
 // requireRoot rend l'endroit où l'on travaille. Il ne lève plus dès qu'aucun
 // projet n'est ouvert : il y a toujours un dossier, celui d'accueil à défaut
 // d'un autre. Ce qui lève, c'est un moteur qui n'a pas démarré du tout.
+// Combien d'agents on rouvre d'un coup pour un projet : tous ceux qui étaient
+// ouverts, dans une limite qui protège d'une liste corrompue.
+const MAX_RESTORE = 32
+
 function requireRoot(ws: Workspace): string {
   if (!ws.root) throw new Error("The local engine is not running.")
   return ws.root
@@ -398,7 +403,7 @@ function requireRoot(ws: Workspace): string {
 // Partagé par le bouton « terminal » du panneau et par les shells d'agent : deux
 // copies de cette logique finiraient par viser deux fournisseurs différents pour
 // le même modèle.
-async function harnessLaunch(ws: Workspace, kind: AgentKind, pinned: string | null) {
+async function harnessLaunch(ws: Workspace, kind: AgentKind, pinned: string | null, viaHost = false) {
   const table = harness(kind)
   const found = locate(table.bin)
   if (!found) {
@@ -409,8 +414,16 @@ async function harnessLaunch(ws: Workspace, kind: AgentKind, pinned: string | nu
   // quelque chose — exactement comme pour un tour du panneau, et c'est la
   // même passerelle : elle route sur le nom du modèle, donc deux shells visant
   // deux fournisseurs ne peuvent pas se marcher dessus.
-  if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
-  const passerelle = ws.agent.gatewayAim()
+  //
+  // Un agent tenu par l'hôte de terminaux passe par la passerelle de l'hôte : elle
+  // vit aussi longtemps que lui, à la même adresse, même quand Zyvro redémarre.
+  let passerelle: { baseUrl: string; origin: string; token: string } | null = null
+  if (aim && pinned && viaHost && table.gateway) {
+    passerelle = await hostedGateway(pinned, aim)
+  } else {
+    if (aim && pinned) await ws.agent.openGateway(kind, aim, pinned)
+    passerelle = ws.agent.gatewayAim()
+  }
 
   const env: Record<string, string> = {}
   if (aim && kind === "qwen") Object.assign(env, agentModule.aimEnv(aim))
@@ -1772,13 +1785,61 @@ export function registerIpc(onRecents?: () => void): void {
       // conversation, deux processus qui écrivent le même journal.
       if (live) return { id: live, pty: true, existing: true, record: previous }
     }
+
+    // Tenu par l'hôte de terminaux : l'agent survit à la fermeture de Zyvro. S'il
+    // tourne encore, on s'y rattache — rien à reprendre, il n'a jamais arrêté.
+    const detach = sanitizeAgentSettings(context.agentSettings).detachAgents
+    const dimLine = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
+    if (previous && detach && (await hostedAlive()).has(previous.id)) {
+      const session = ws.terminals.create(event.sender, root, cols || 80, rows || 24, null, {
+        agentShell: previous.id,
+        hosted: { key: previous.id, spawn: false },
+        cleanup: () => {
+          sessionWatchers.get(previous.id)?.()
+          sessionWatchers.delete(previous.id)
+        },
+        onEnd: () => {
+          void agentShells.patch(dir, root, previous.id, { state: "closed" }).then(notify, notify)
+        },
+      })
+      const reopened = await agentShells.patch(dir, root, previous.id, { state: "open" })
+      if (speaksCodex(previous.kind) && !previous.sessionId) {
+        const stop = agentShells.watchCodexSession(
+          root,
+          Date.parse(previous.createdAt) - 5000,
+          () => takenSessions(known, previous.id),
+          (id) => {
+            sessionWatchers.delete(previous.id)
+            void agentShells.patch(dir, root, previous.id, { sessionId: id }).then(notify, notify)
+          }
+        )
+        sessionWatchers.set(previous.id, stop)
+      }
+      notify()
+      const banner = dimLine(
+        `Zyvro · ${previous.kind}${previous.model ? ` · ${previous.model}` : ""} · reattached: it kept running while Zyvro was closed`
+      )
+      return { ...session, banner, record: reopened.find((item) => item.id === previous.id) ?? previous }
+    }
+    // L'hôte doit répondre AVANT qu'on lance : s'il ne peut pas démarrer, l'agent
+    // tourne dans l'application comme avant, et on le dit.
+    let viaHost = false
+    let hostNotice = ""
+    if (detach) {
+      try {
+        await hostReady()
+        viaHost = true
+      } catch (err) {
+        hostNotice = `Background host unavailable (${(err as Error).message}): this agent stops when Zyvro quits.`
+      }
+    }
     const spec = previous
       ? { ...asked, kind: previous.kind, model: previous.model, permission: previous.permission, effort: previous.effort,
           instructions: previous.instructions, mcp: previous.mcp, skills: previous.skills, name: previous.name,
           profileId: previous.profileId, prompt: "" }
       : asked
     const kind = spec.kind
-    const { found, aim, vise, env } = await harnessLaunch(ws, kind, spec.model)
+    const { found, aim, vise, env } = await harnessLaunch(ws, kind, spec.model, viaHost)
 
     // Changer de harnais : une session n'a de sens que pour le sien, alors le nouvel
     // agent reçoit en premier message un briefing tiré du transcript de l'ancienne.
@@ -1937,6 +1998,7 @@ export function registerIpc(onRecents?: () => void): void {
       {
         command,
         agentShell: record.id,
+        ...(viaHost ? { hosted: { key: record.id, spawn: true } } : {}),
         cleanup: () => {
           disposeMcp()
           sessionWatchers.get(record.id)?.()
@@ -1978,6 +2040,7 @@ export function registerIpc(onRecents?: () => void): void {
       dim(`Zyvro · ${kind}${spec.model ? ` · ${spec.model}` : ""} · ${spec.permission} · ${resumed ? "resuming" : "new"} session${sessionId ? ` ${sessionId.slice(0, 8)}` : ""}`) +
       (flags ? dim(`permission flags: ${flags}`) : dim("permission flags: none (the harness's default)")) +
       (notice ? dim(notice) : "") +
+      (hostNotice ? dim(hostNotice) : "") +
       (task && !argvOk ? dim("Your task is pasted into the prompt below: read it, then press Enter.") : "") +
       (session.banner ?? "")
     return { ...session, banner, record }
@@ -2003,9 +2066,11 @@ export function registerIpc(onRecents?: () => void): void {
     if (!sessionId && speaksCodex(record.kind)) {
       sessionId = agentShells.findCodexSession(root, Date.parse(record.createdAt) - 5000, takenSessions(await agentShells.load(dir, root), record.id))
     }
-    // Arrêté sans le noter « fermé » : il va être rouvert aussitôt.
+    // Arrêté sans le noter « fermé » : il va être rouvert aussitôt. Arrêté pour de
+    // bon, même chez l'hôte : s'y rattacher garderait l'ancien modèle.
     const live = ws.terminals.byAgentShell(record.id)
-    if (live) ws.terminals.dispose(live)
+    if (live) ws.terminals.stop(live)
+    await stopHosted(record.id)
     await agentShells.patch(dir, root, record.id, { model, effort, ...(sessionId ? { sessionId } : {}) })
     if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
     return true
@@ -2018,10 +2083,14 @@ export function registerIpc(onRecents?: () => void): void {
   })
 
   // Ce qui était ouvert quand l'application s'est arrêtée, et ne l'est plus.
-  ipcMain.handle("agentshell:restorable", async (event, max: unknown) => {
+  ipcMain.handle("agentshell:restorable", async (event, max: unknown, forDir?: unknown) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)
-    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.min(12, Math.floor(max))) : 6
+    // Demandé pour un dossier qui n'est plus l'actif (on a changé de projet
+    // pendant l'aller-retour) : rien, plutôt que les sessions d'un autre projet
+    // rangées dans celui-ci. La fenêtre redemandera en y revenant.
+    if (typeof forDir === "string" && forDir && path.resolve(forDir) !== path.resolve(root)) return null
+    const limit = typeof max === "number" && Number.isFinite(max) ? Math.max(0, Math.min(MAX_RESTORE, Math.floor(max))) : MAX_RESTORE
     return toRestore(await agentShells.load(agentShellsDir(), root), liveAgentShells(ws, root), limit)
   })
 
@@ -2039,7 +2108,8 @@ export function registerIpc(onRecents?: () => void): void {
     // Oublier une session qui tourne l'arrête : sa ligne a disparu, son
     // processus n'a plus de nom.
     const live = ws.terminals.byAgentShell(String(id))
-    if (live) ws.terminals.dispose(live)
+    if (live) ws.terminals.stop(live)
+    await stopHosted(String(id))
     await agentShells.forget(agentShellsDir(), root, String(id))
     if (!event.sender.isDestroyed()) event.sender.send("agentshell:changed")
     return true

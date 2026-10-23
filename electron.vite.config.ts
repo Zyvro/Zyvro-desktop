@@ -12,7 +12,11 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     build: {
-      rollupOptions: { input: { index: resolve(__dirname, "src/main/index.ts") } },
+      // L'hôte de terminaux est un second point d'entrée : il tourne en Node pur,
+      // détaché de l'application (src/main/ptyhost.ts).
+      rollupOptions: {
+        input: { index: resolve(__dirname, "src/main/index.ts"), ptyhost: resolve(__dirname, "src/main/ptyhost.ts") },
+      },
     },
   },
   preload: {

@@ -201,10 +201,15 @@ const E = mod.SYNC_END
 // ---- le câblage -------------------------------------------------------------------------------------
 {
   const panel = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
-  check("**tout ce que le shell écrit passe par SyncOutput**", /new SyncOutput\(\(data\) => term\.write\(data\), frameScheduler\)/.test(panel) && /output\.push\(payload\.data\)/.test(panel))
+  check("**tout ce que le shell écrit passe par SyncOutput**", /new SyncOutput\(\(data\) => \{\s*term\.write\(data, /.test(panel) && /output\.push\(payload\.data\)/.test(panel))
   const direct = [...panel.matchAll(/term\.write\(([^)]*)\)/g)].map((m) => m[1])
   check("et nulle part d'autre : seulement la bannière, l'erreur et SyncOutput", direct.every((d) => /^(data|session\.banner|`\\r\\n\\x1b\[31m)/.test(d)), direct.join(" | "))
   check("fermer le terminal vide aussi la file", /output\.dispose\(\)/.test(panel))
+  // Collé en bas : un redessin d'agent qui efface aussi l'historique (ED3), ou
+  // un onglet caché puis remontré, faisait tomber le défilement tout en haut.
+  check("**en bas avant l'écriture, en bas après**", /if \(colle && !enBas\(\)\) term\.scrollToBottom\(\)/.test(panel))
+  check("**on ne décroche du bas que par un geste (molette, barre, Maj+Page↑)**", /event\.deltaY < 0/.test(panel) && /if \(glisse\) colle = enBas\(\)/.test(panel) && /decrocher\(\)/.test(panel))
+  check("**un onglet remontré revient en bas s'il y était**", /fitAddon\.fit\(\)\s*\/\/[^\n]*\n\s*recoller\(\)/.test(panel))
   const sched = readFileSync(path.join(ROOT, "src/renderer/lib/frameScheduler.ts"), "utf8")
   check("l'horloge a un filet quand la fenêtre n'anime plus", /setTimeout\(run, 50\)/.test(sched) && /requestAnimationFrame\(run\)/.test(sched))
 }

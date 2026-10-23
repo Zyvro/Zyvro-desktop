@@ -36,12 +36,23 @@ export function SettingsProfiles() {
     <>
       <SettingRow
         title="Reopen agents at startup"
-        hint="Agents that were open when Zyvro closed come back in their tabs, resuming the same conversation (up to six). Plain shells stay closed."
+        hint="Agents that were open when Zyvro closed come back in their tabs, resuming the same conversation. Plain shells stay closed."
       >
         <Toggle
           label="Reopen agents at startup"
           checked={agent.restoreAgentShells}
           onChange={(restoreAgentShells) => updateSettings({ agent: { ...agent, restoreAgentShells } })}
+        />
+      </SettingRow>
+
+      <SettingRow
+        title="Keep agents running when Zyvro quits"
+        hint="Agents run in a small background host instead of inside the app: quitting or updating Zyvro detaches from them and they keep working. When Zyvro opens again it reattaches and replays their screen. Closing an agent's tab still stops it."
+      >
+        <Toggle
+          label="Keep agents running when Zyvro quits"
+          checked={agent.detachAgents}
+          onChange={(detachAgents) => updateSettings({ agent: { ...agent, detachAgents } })}
         />
       </SettingRow>
 
