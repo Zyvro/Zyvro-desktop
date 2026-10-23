@@ -47,6 +47,38 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.87
+
+**Agents keep working while Zyvro is closed or updating.** Agents no longer run
+inside the app: a small background host owns them. Quitting Zyvro, or restarting it
+for an update, only detaches from them, so you no longer have to wait for every
+agent to finish before updating. When Zyvro opens again it reattaches to the same
+processes and replays their screen; nothing has to be resumed. Closing an agent's
+tab, or switching its model, still stops it. After an update, agents started by the
+previous version stay with their host until they finish, and new ones go to the new
+version's. An agent that reaches its model through Zyvro's gateway keeps it while
+the app restarts. The project's MCP tools do not survive a restart yet. To have
+agents stop with the app instead, turn off Settings › Agents › *Keep agents running
+when Zyvro quits*.
+
+**Every open agent comes back.** At startup, all the agents that were open in a
+project reopen. Before, only six did, without saying so, and switching projects
+during startup could leave one project with none.
+
+**The Shell no longer jumps to the top.** When an agent redrew its whole screen, or
+a hidden tab was shown again, the terminal could scroll back to the very top while
+you were reading the prompt. If you were at the bottom, it now stays there. Only
+scrolling up yourself (wheel, scrollbar, Shift+Page Up) leaves the bottom.
+
+**YOLO from a profile.** An agent opened from a profile or the bot menu now gets the
+permission chosen in the right-hand bar. In YOLO mode claude starts with
+`--permission-mode=bypassPermissions --allow-dangerously-skip-permissions`; before,
+it started with no permission flag.
+
+**MiMo with a 1M context in claude.** A `mimo/…[1m]` model works in claude. Claude
+strips the `[1m]` before sending the request, and the gateway answered "unknown
+model"; it now accepts both forms.
+
 ## New in alpha.86
 
 **Qwen Code no longer flickers in the Shell.** Qwen redraws its screen by erasing it
