@@ -103,4 +103,4 @@ jobs:
           node-version: 22
       - name: Apply an update with the real PowerShell script
         working-directory: Zyvro-desktop
-        run: node scripts/diag-ps.mjs && node --experimental-strip-types scripts/check-update-windows.mjs
+        run: node --experimental-strip-types scripts/check-update-windows.mjs

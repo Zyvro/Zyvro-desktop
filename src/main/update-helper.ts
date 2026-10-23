@@ -5,7 +5,13 @@ import fs from "node:fs"
 export async function startUpdateHelper(command: string, args: string[], cwd: string, ready: string, log: string, timeoutMs = 15000): Promise<void> {
   const fd = fs.openSync(log, "a")
   const child = (() => {
-    try { return spawn(command, args, { cwd, detached: true, stdio: ["ignore", fd, fd], windowsHide: true }) }
+    // Pas `detached` sous Windows : Node y lance alors le processus sans console
+    // (DETACHED_PROCESS), et powershell.exe s'arrête aussitôt, code 0, sans
+    // exécuter une ligne du script — « helper exited (0) », et la mise à jour
+    // ne se posait jamais. Vu sur la machine Windows de la CI
+    // (check-update-windows). Sans lui, il a sa console cachée, et Windows ne
+    // tue pas un enfant quand son parent quitte : l'auxiliaire survit à Zyvro.
+    try { return spawn(command, args, { cwd, detached: process.platform !== "win32", stdio: ["ignore", fd, fd], windowsHide: true }) }
     finally { fs.closeSync(fd) }
   })()
   await new Promise<void>((resolve, reject) => {
