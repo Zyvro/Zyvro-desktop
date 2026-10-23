@@ -51,11 +51,10 @@ export { DEFAULT_PERMISSION, PERMISSION_TOOL, type Permission } from "../shared/
 
 export type AgentContext = {
   projectDir: string
-  workflows: { id: string; name: string; description?: string }[]
-  // The local daemon's origin and token. With them the CLI gets the Zyvro MCP
-  // tools and can actually run a workflow; without them it can only read the
-  // JSON files, which is the difference between an assistant that acts and one
-  // that describes.
+  /** Plus lu : les workflows ne font plus partie de l'application de bureau. */
+  workflows?: { id: string; name: string; description?: string }[]
+  // The local daemon's origin and token: with them the CLI gets the Zyvro MCP
+  // tools (the app's browser, screenshots…).
   daemonOrigin?: string
   daemonToken?: string
   /** Ce que l'agent a le droit de faire. Par défaut : écrire dans le projet. */
@@ -67,36 +66,11 @@ export type AgentContext = {
   memory?: string | null
 }
 
-// preamble tells the CLI what this project's workflows are. Without it the
-// agent is a generic coding assistant that has never heard of Zyvro; with it,
-// asking "run the product photo workflow" is a sentence it can act on.
+// preamble is the few lines every agent gets about where it is. The project's
+// own instructions (CLAUDE.md, AGENTS.md) are read by the harness itself; this
+// adds what only Zyvro knows: the folder, and the project memory below.
 export function preamble(ctx: AgentContext): string {
-  const lines = [
-    `You are the Zyvro Studio assistant, working inside the project at ${ctx.projectDir}.`,
-    "Zyvro workflows are visual AI graphs stored in .zyvro/workflows/ as JSON.",
-  ]
-
-  if (ctx.workflows.length === 0) {
-    lines.push("This project has no workflows yet.")
-  } else {
-    lines.push(
-      "This project defines these workflows:",
-      ...ctx.workflows.map(
-        (w) => `- ${w.name} (id ${w.id})${w.description ? `: ${w.description}` : ""}`
-      )
-    )
-  }
-
-  if (mcpAvailable(ctx)) {
-    lines.push(
-      "",
-      "You have the Zyvro tools for this project. Use them rather than reading the",
-      "JSON by hand: zyvro_list_workflows, zyvro_workflow_graph, zyvro_run_workflow,",
-      "zyvro_execution_status, zyvro_get_output, zyvro_list_executions.",
-      "Running a workflow spends the user's own model account, so run one when the",
-      "user asks for it, not to satisfy your own curiosity about what it does."
-    )
-  }
+  const lines = [`You are the Zyvro Studio assistant, working inside the project at ${ctx.projectDir}.`]
 
   // La mémoire du projet, pour tous les harnais : claude lit CLAUDE.md et codex
   // AGENTS.md d'eux-mêmes, mais ni l'un ni l'autre ne connaît ZYVRO.md.

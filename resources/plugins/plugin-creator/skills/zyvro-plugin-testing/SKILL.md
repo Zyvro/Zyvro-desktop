@@ -66,5 +66,4 @@ what to produce. Fix anything ambiguous.
 ## 5. Report
 
 Tell the user: the plugin's folder, its actions (and what each asks), its
-skills, anything you chose on their behalf, and how to try it. Then point to
-publishing (zyvro-plugin-publishing) without doing it.
+skills, anything you chose on their behalf, and how to try it.

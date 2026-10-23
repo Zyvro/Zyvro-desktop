@@ -1,6 +1,4 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { api } from "@/lib/api"
-import { registerPluginKinds, type NodeKind } from "@/lib/nodes"
 import type { OpenResult } from "../../preload"
 import { attachDaemon } from "./daemon"
 import { queryClient } from "./queryClient"
@@ -27,8 +25,6 @@ async function lacherLesOnglets(): Promise<boolean> {
 
 export const projectKey = ["project", "current"] as const
 export const projectListKey = ["project", "list"] as const
-export const workflowsKey = ["local", "workflows"] as const
-export const nodesKey = ["local", "nodes"] as const
 export const recentsKey = ["project", "recents"] as const
 
 // adoptOpened : un projet vient de s'ouvrir (ou de redevenir actif). Branche le
@@ -40,9 +36,6 @@ function adoptOpened(result: OpenResult | null): OpenResult | null {
   // Pas de `detachDaemon()` ici : fermer un projet ramène le moteur à la
   // maison, il ne l'éteint pas. Détacher l'adresse rendrait le panneau des
   // fournisseurs inutilisable pour la seule raison qu'on a fermé un dossier.
-  // Node packs belong to a project. Closing one has to take its nodes with it,
-  // or the palette would go on offering a type the next project cannot run.
-  if (!result) registerPluginKinds([])
   useWorkspace.getState().setProject(result)
   return result
 }
@@ -106,32 +99,6 @@ async function attachHome(): Promise<void> {
 // Le multi-projet passe par adoptAdded / adoptSwitched.
 function adopt(result: OpenResult | null): OpenResult | null {
   return adoptOpened(result)
-}
-
-// useNodeCatalogue asks the engine what it can run. The set is no longer fixed:
-// a project can install packs of Lua nodes, and the palette has to show them.
-// Registering happens in the fetcher rather than in a component, because the
-// node registry is read during render by code that is not ours.
-export function useNodeCatalogue() {
-  // La racine du moteur, pas le projet : sans projet il y a quand même un
-  // moteur — celui de la maison — et donc un catalogue de nœuds, sans quoi un
-  // workflow global s'ouvrirait sur une palette vide.
-  const project = useWorkspace((s) => s.root)
-  return useQuery({
-    queryKey: nodesKey,
-    queryFn: async () => {
-      const response = await fetch("http://127.0.0.1:0/api/nodes")
-      if (!response.ok) throw new Error(`The engine listed no nodes (${response.status}).`)
-      const kinds = (await response.json()) as NodeKind[]
-      // The catalogue carries the built-ins too. registerPluginKinds drops
-      // anything that collides with one, so handing it the whole list is both
-      // correct and tolerant of the engine adding a built-in we do not know.
-      registerPluginKinds(Array.isArray(kinds) ? kinds : [])
-      return kinds
-    },
-    enabled: Boolean(project),
-    staleTime: 30_000,
-  })
 }
 
 // openProject opens a folder, or asks for one when given null. It resolves to
@@ -206,7 +173,6 @@ export async function newZyvro(): Promise<void> {
       engineAttached()
     }
     store.setRoot(root)
-    registerPluginKinds([])
     queryClient.setQueryData(projectKey, null)
     forgetProjectQueries()
   } catch (err) {
@@ -273,14 +239,6 @@ export async function closeProject(): Promise<void> {
     useWorkspace.getState().setRoot(root)
   }
   forgetProjectQueries()
-}
-
-// createWorkflow is here rather than in the list panel for the same reason:
-// the New Workflow menu item must reach it without a component being mounted.
-export async function createWorkflow(name: string): Promise<void> {
-  const workflow = await api.createWorkflow(name, { nodes: [], edges: [] })
-  await queryClient.invalidateQueries({ queryKey: workflowsKey })
-  useWorkspace.getState().openGraph(workflow.id, workflow.name)
 }
 
 // useCurrentProject asks the main process what this window already has open.

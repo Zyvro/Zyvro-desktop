@@ -30,8 +30,6 @@ const files = {
   workspace: path.join(ROOT, "src/renderer/state/workspace.ts"),
   agent: path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"),
   terminal: path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"),
-  shells: path.join(ROOT, "src/renderer/panels/PersistentList.tsx"),
-  workflows: path.join(ROOT, "src/renderer/panels/WorkflowList.tsx"),
 }
 
 let failures = 0
@@ -128,8 +126,6 @@ const read = (k) => readFileSync(files[k], "utf8")
   )
   for (const [quoi, clef] of [
     ["les shells", "terminal"],
-    ["les shells persistants", "shells"],
-    ["les workflows", "workflows"],
   ]) {
     check(
       `**${quoi} suivent la racine du moteur**`,
@@ -158,7 +154,7 @@ const read = (k) => readFileSync(files[k], "utf8")
 
 console.log(
   failures === 0
-    ? "\nSans projet ouvert : un moteur, des fournisseurs, un agent, des shells et des workflows — ceux de la maison."
+    ? "\nSans projet ouvert : un moteur, des fournisseurs, un agent et des shells — ceux de la maison."
     : `\n${failures} échec(s)`
 )
 process.exit(failures === 0 ? 0 : 1)

@@ -1,4 +1,4 @@
-import { useSyncExternalStore, type ReactNode } from "react"
+import { useState, useSyncExternalStore, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
@@ -9,6 +9,8 @@ import { SettingsAgents } from "./SettingsAgents"
 import { SettingsPlugins } from "./SettingsPlugins"
 import { SettingsSkills } from "./SettingsSkills"
 import { SETTINGS_PAGES, useSettingsPage } from "~/state/settingsPage"
+import { useAccount, useSignOut } from "~/lib/account"
+import { SignInDialog } from "./SignInDialog"
 
 // Les réglages de l'éditeur (⌘,). Chaque changement s'applique tout de suite
 // aux éditeurs ouverts ; il n'y a pas de bouton « Appliquer », comme dans VS
@@ -176,6 +178,32 @@ function CaptureSection() {
   )
 }
 
+// Le compte zyv.ro : seule la publication d'une capture en ligne en a besoin.
+// Il vivait dans la boutique ; elle partie, il a sa ligne ici.
+function AccountSection() {
+  const account = useAccount()
+  const signOut = useSignOut()
+  const [signingIn, setSigningIn] = useState(false)
+  const who = account.data
+  return (
+    <Ligne
+      titre="Zyvro account"
+      aide={who ? `Signed in as ${who.email}. Used to publish screen captures online.` : "Only needed to publish screen captures online."}
+    >
+      {who ? (
+        <button type="button" disabled={signOut.isPending} onClick={() => signOut.mutate()} className="h-8 rounded-md border border-white/10 px-3 text-[12px] hover:bg-white/[0.05] disabled:opacity-50">
+          Sign out
+        </button>
+      ) : (
+        <button type="button" onClick={() => setSigningIn(true)} className="h-8 rounded-md border border-white/10 px-3 text-[12px] hover:bg-white/[0.05]">
+          Sign in
+        </button>
+      )}
+      {signingIn && <SignInDialog onClose={() => setSigningIn(false)} />}
+    </Ligne>
+  )
+}
+
 export function SettingsTab() {
   const r = useSyncExternalStore(subscribeSettings, getSettings, getSettings)
   const page = useSettingsPage((s) => s.page)
@@ -197,6 +225,7 @@ export function SettingsTab() {
             <Ligne titre="Check for updates" aide="Ask GitHub for a newer release at startup and every few hours. Nothing is downloaded without asking.">
               <Case valeur={r.checkForUpdates} onChange={(checkForUpdates) => updateSettings({ checkForUpdates })} />
             </Ligne>
+            <AccountSection />
             <ConfigFileSection />
           </>}
           {page === "editor" && <>

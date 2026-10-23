@@ -73,36 +73,12 @@ import type { CaptureSettings } from "../shared/capture"
 import type { CaptureSettingsView } from "../main/capture"
 export type { CaptureSettings, CaptureSettingsView }
 export type Account = { id: string; email: string; name: string }
-// The store's wire shapes live in src/main/store.ts and are imported, never
-// copied. They were copied, and the copies drifted: this file declared a
-// workflow with `author`, `graph` and `updatedAt` where the server sends
-// `publisher_name`, `graph_json` and `created_at`, so every card read "by
-// unknown" and the type agreed with the mistake. A type that describes someone
-// else's JSON has to have exactly one declaration.
-//
-// Type-only imports, so nothing from the main process is pulled into the
-// preload bundle.
-import type {
-  StoreListing,
-  StoreSource,
-  StorePack,
-  StoreWorkflow,
-  StorePreview,
-  StoreDependency,
-  InstallResult,
-  InstalledPack,
-  StoreAgentPlugin,
-  PluginInstallResult,
-} from "../main/store"
 import type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem } from "../main/agentPlugins"
-export type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem, StoreAgentPlugin, PluginInstallResult }
-import type { PublisherVerdict } from "../main/knownpublishers"
+export type { LoadedPlugin, PluginList, PluginOrigin, PluginProblem }
 import type { BackgroundEnd, BackgroundTask } from "../main/agent"
 export type { BackgroundEnd, BackgroundTask }
 import type { Conversation, StoredMessage, StoredTool } from "../main/conversations"
 import type { PlanItem, ToolShape } from "../main/tooltalk"
-import type { Importable, ImportableWorkflow } from "../main/importing"
-import type { HostedWorkflow, SharedWorkflow } from "../main/sharing"
 import type { FileCommit } from "../shared/gitlog"
 import type {
   Change,
@@ -118,15 +94,6 @@ import type {
 } from "../main/git"
 
 export type {
-  StoreListing,
-  StoreSource,
-  StorePack,
-  StoreWorkflow,
-  StorePreview,
-  StoreDependency,
-  InstallResult,
-  InstalledPack,
-  PublisherVerdict,
   Change,
   ChangeStatus,
   CommitOptions,
@@ -142,10 +109,6 @@ export type {
   StoredTool,
   PlanItem,
   ToolShape,
-  Importable,
-  ImportableWorkflow,
-  HostedWorkflow,
-  SharedWorkflow,
 }
 
 // invoke : `ipcRenderer.invoke`, sans la plomberie dans le message.
@@ -337,8 +300,6 @@ const api = {
     openExternally: (relative: string): Promise<boolean> => invoke("shell:open", relative),
     /** L'adresse d'une vidéo ou d'un son du projet, pour <video>/<audio>. */
     mediaUrl: (relative: string): Promise<string> => invoke("files:media-url", relative),
-    pick: (request: { save?: boolean; directory?: boolean; title?: string; current?: string }): Promise<string | null> =>
-      invoke("files:pick", request),
   },
 
   // Chercher dans le projet, et remplacer — dans les fichiers qu'on n'a pas
@@ -352,25 +313,6 @@ const api = {
     ): Promise<ReplaceResult> => invoke("search:replace", query, replacement, targets),
   },
 
-  /**
-   * Les shells qui survivent à l'application.
-   *
-   * Ils n'appartiennent pas à Zyvro : `tmux` ou `screen` les tient, et nous ne
-   * sommes que le client. Fermer l'onglet détache ; la session continue.
-   * Absents sur Windows, où rien de tel n'existe en natif.
-   */
-  persistent: {
-    available: (): Promise<"tmux" | "screen" | null> => invoke("persistent:available"),
-    list: (): Promise<{ name: string; label: string; attached: boolean }[]> => invoke("persistent:list"),
-    /** L'étiquette est ce qu'on a tapé ; le nom réel est fabriqué côté principal. */
-    open: (
-      label: string,
-      cols: number,
-      rows: number
-    ): Promise<{ id: string; pty: boolean; banner?: string; name: string; label: string }> =>
-      invoke("persistent:open", label, cols, rows),
-    kill: (name: string): Promise<boolean> => invoke("persistent:kill", name),
-  },
 
   // Shell + Agents : un harnais lancé dans son interface native, avec la
   // configuration choisie, et sa session gardée pour la rouvrir.
@@ -663,26 +605,6 @@ const api = {
     signOut: (): Promise<null> => invoke("account:sign-out"),
   },
 
-  store: {
-    nodes: (q: string): Promise<StoreListing[]> => invoke("store:nodes", q),
-    workflows: (q: string): Promise<StoreWorkflow[]> => invoke("store:workflows", q),
-    readPack: (name: string, version?: string): Promise<StorePack> =>
-      invoke("store:read-pack", name, version),
-    installPack: (name: string, version?: string): Promise<InstallResult> =>
-      invoke("store:install-pack", name, version),
-    installWorkflow: (name: string): Promise<InstallResult> =>
-      invoke("store:install-workflow", name),
-    installedPacks: (): Promise<InstalledPack[]> => invoke("store:installed-packs"),
-    publishPack: (name: string, password: string): Promise<unknown> =>
-      invoke("store:publish-pack", name, password),
-    publishWorkflow: (payload: { id: string; name: string; description: string; graph: unknown }): Promise<unknown> =>
-      invoke("store:publish-workflow", payload),
-    // Les plugins d'agent (shared/pluginPackage).
-    plugins: (q: string): Promise<StoreAgentPlugin[]> => invoke("store:plugins", q),
-    readPlugin: (name: string, version?: string): Promise<StoreAgentPlugin> => invoke("store:read-plugin", name, version),
-    installPlugin: (name: string): Promise<PluginInstallResult> => invoke("store:install-plugin", name),
-    publishPlugin: (name: string, password: string): Promise<unknown> => invoke("store:publish-plugin", name, password),
-  },
   // Les plugins d'agent chargés sur ce poste : livrés, installés, du projet.
   plugins: {
     list: (): Promise<PluginList> => invoke("plugins:list"),
@@ -770,13 +692,6 @@ const api = {
     clone: (url: string): Promise<string | null> => invoke("git:clone", url),
   },
 
-  workflows: {
-    chooseSource: (): Promise<Importable | null> => invoke("workflows:choose-source"),
-    share: (payload: { name: string; description: string; graph: unknown }): Promise<SharedWorkflow> =>
-      invoke("workflows:share", payload),
-    mine: (): Promise<HostedWorkflow[]> => invoke("workflows:mine"),
-  },
-
   openExternal: (url: string): Promise<boolean> => invoke("shell:open-external", url),
 
   window: {
@@ -792,7 +707,6 @@ const api = {
     onCloseProject: (cb: () => void): Unsubscribe => on("menu:close-project", cb),
     onForgetRecents: (cb: () => void): Unsubscribe => on("menu:forget-recents", cb),
     onToggleSidebar: (cb: () => void): Unsubscribe => on("menu:toggle-sidebar", cb),
-    onNewWorkflow: (cb: () => void): Unsubscribe => on("menu:new-workflow", cb),
     onSave: (cb: () => void): Unsubscribe => on("menu:save", cb),
     onSaveAll: (cb: () => void): Unsubscribe => on("menu:save-all", cb),
     onCloseTab: (cb: () => void): Unsubscribe => on("menu:close-tab", cb),

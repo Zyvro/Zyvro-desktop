@@ -114,8 +114,6 @@ check(
   )
   for (const [fichier, id] of [
     ["BrowserList", "browser"],
-    ["PersistentList", "persistent"],
-    ["WorkflowList", "workflows"],
   ]) {
     const src2 = readFileSync(path.join(ROOT, `src/renderer/panels/${fichier}.tsx`), "utf8")
     check(

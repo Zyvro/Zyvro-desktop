@@ -34,8 +34,8 @@ check(
   /const estFerme = \(dir: string\): boolean =>/.test(panel) && /if \(estFerme\(sortant\)\)/.test(panel) && /layoutsByProject\.delete\(dir\)/.test(panel)
 )
 check(
-  "**une session persistante déjà ouverte se rejoint, sans second client**",
-  /readStatus\(k\)\.persistent === ordre\.label/.test(panel) && /activate\(deja\)/.test(panel)
+  "**une session d'agent déjà ouverte se rejoint, sans second branchement**",
+  /readStatus\(k\)\.agentRecord === ordre\.spec\.resume/.test(panel) && /activate\(deja\)/.test(panel)
 )
 
 console.log(failures === 0 ? "\nChaque projet garde ses shells, et un shell n'est attaché qu'une fois." : `\n${failures} échec(s)`)

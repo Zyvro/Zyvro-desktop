@@ -1,15 +1,13 @@
 import { useState, useSyncExternalStore } from "react"
 import "~/lib/chatTheme"
-import { Boxes, FolderTree, GitBranch, Search, Settings2, Store } from "lucide-react"
+import { Boxes, FolderTree, GitBranch, Search, Settings2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { sidebarView, useWorkspace, type Mode, type PanelKey } from "~/state/workspace"
-import { useCurrentProject, useNodeCatalogue } from "~/lib/project"
+import { useCurrentProject } from "~/lib/project"
 import { TitleBar } from "~/panels/TitleBar"
 import { Explorer } from "~/panels/Explorer"
 import { GitPanel } from "~/panels/GitPanel"
-import { WorkflowList } from "~/panels/WorkflowList"
 import { BrowserList } from "~/panels/BrowserList"
-import { PersistentList } from "~/panels/PersistentList"
 import { AgentShellList } from "~/panels/AgentShellList"
 import { OutlineList } from "~/panels/OutlineList"
 import { TimelineList } from "~/panels/TimelineList"
@@ -64,7 +62,6 @@ function ActivityBar() {
   const panels = useWorkspace((s) => s.panels)
   const setPanel = useWorkspace((s) => s.setPanel)
   const openProviders = useWorkspace((s) => s.openProviders)
-  const openStore = useWorkspace((s) => s.openStore)
   const openSettings = useWorkspace((s) => s.openSettings)
   const activeTabId = useWorkspace((s) => s.activeTabId)
 
@@ -86,12 +83,6 @@ function ActivityBar() {
       label: "Source Control",
       active: panels.git,
       onClick: () => setPanel("git", !panels.git),
-    },
-    {
-      icon: Store,
-      label: "Store",
-      active: activeTabId === "store",
-      onClick: openStore,
     },
   ]
 
@@ -166,9 +157,6 @@ export default function App() {
   // The query runs for its adoption side effect as much as its data: it is what
   // reattaches the shared API client to the daemon after a renderer reload.
   useCurrentProject()
-  // Runs for its side effect as much as its data: it is what tells the shared
-  // node registry which Lua packs this project has installed.
-  useNodeCatalogue()
 
   const panels = useWorkspace((s) => s.panels)
   const mode = useWorkspace((s) => s.mode)
@@ -205,19 +193,12 @@ export default function App() {
               ) : view === "explorer" ? (
                 <>
                   <Explorer />
-                  {/* Au-dessus des workflows : c'est ce qu'on ouvre et ferme le
-                      plus souvent dans une session de mise au point, et ce
-                      qu'un agent est en train de piloter pendant qu'on lit. */}
+                  {/* Ce qu'on ouvre et ferme le plus souvent dans une session de
+                      mise au point, et ce qu'un agent est en train de piloter
+                      pendant qu'on lit. */}
                   <BrowserList />
-                  {/* Entre les deux, à la place que Jeremy a demandée : ce sont
-                      des choses qu'on ouvre et ferme au rythme d'une vue de
-                      navigateur, et qui appartiennent au projet comme un
-                      workflow. La section ne se dessine pas là où ni `tmux` ni
-                      `screen` n'existent. */}
-                  <PersistentList />
                   {/* Les agents lancés dans un shell, et de quoi les reprendre. */}
                   <AgentShellList />
-                  <WorkflowList />
                   {/* Tout en bas, repliée par défaut, comme dans VS Code. */}
                   <OutlineList />
                   <TimelineList />

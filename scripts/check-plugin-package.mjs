@@ -4,7 +4,6 @@
 //
 // 1. **Une empreinte qui diverge du serveur.** Elle ne casse pas bruyamment :
 //    toutes les installations sont refusées, ou une réécriture passe. Le
-//    vecteur de features/store-plugins.md est rejoué, le même que le test Go.
 // 2. **Une grammaire plus large ou plus étroite que celle de la boutique** : un
 //    plugin publié qui ne s'installe pas, ou un fichier qu'on n'a pas voulu.
 // 3. **Plugin Creator, livré avec l'app, qui ne se charge plus** : l'action
@@ -37,15 +36,6 @@ const ok = (name) => console.log(`  ok    ${name}`)
 const refuses = (files, pattern, label) => {
   assert.throws(() => pkg.validatePluginFiles(files), pattern, label)
 }
-
-// --- 1. L'empreinte : le vecteur de la spec, octet pour octet.
-const vector = [
-  { path: "zyvro-plugin.json", code: '{"name":"demo","version":"1.0.0","description":"d","actions":[]}' },
-  { path: "skills/a/SKILL.md", code: "---\nname: a\ndescription: b\n---\nhi\n" },
-]
-assert.equal(disk.pluginDigest("demo", "1.0.0", vector), "1d824f59f11fb1d35f115ed14779a200f3e3973f548096f6e5825822761cfbef")
-assert.equal(disk.pluginDigest("demo", "1.0.0", [...vector].reverse()), disk.pluginDigest("demo", "1.0.0", vector))
-ok("the digest reproduces the store's test vector, whatever the file order")
 
 // --- 2. La grammaire.
 const manifest = (extra = {}) => ({ path: "zyvro-plugin.json", code: JSON.stringify({ name: "demo", version: "1.0.0", ...extra }) })
@@ -98,7 +88,7 @@ assert.equal(creator.pkg.name, "plugin-creator")
 assert.deepEqual(creator.pkg.actions.map((a) => a.id), ["create", "improve"])
 assert.ok(creator.pkg.actions.every((a) => a.input && a.skills === "all"))
 assert.deepEqual(creator.pkg.skills.map((s) => s.dir).sort(), [
-  "zyvro-plugin-design", "zyvro-plugin-format", "zyvro-plugin-publishing", "zyvro-plugin-testing", "zyvro-skill-writing",
+  "zyvro-plugin-design", "zyvro-plugin-format", "zyvro-plugin-testing", "zyvro-skill-writing",
 ])
 // Chaque skill que les actions citent existe.
 for (const action of creator.pkg.actions) {
@@ -166,17 +156,12 @@ try {
   assert.ok(fromPlugin.every((s) => s.pack === null))
   ok("only enabled plugins' skills join the advanced-skills catalog, as source \"plugin\"")
 
-  // Installer remplace d'un coup et ne laisse rien traîner.
-  await disk.writePluginFiles(installed, "fresh", [manifest(), skill].map((f) => ({ ...f, code: f.code.replace('"demo"', '"fresh"') })))
-  await disk.writePluginFiles(installed, "fresh", [{ path: "zyvro-plugin.json", code: JSON.stringify({ name: "fresh", version: "1.0.1", actions: [action()] }) }])
-  assert.equal(existsSync(path.join(installed, "fresh", "skills")), false, "the previous version's files are gone")
-  assert.equal(JSON.parse(readFileSync(path.join(installed, "fresh", "zyvro-plugin.json"), "utf8")).version, "1.0.1")
-  assert.deepEqual((await import("node:fs")).readdirSync(installed).filter((n) => n.startsWith(".")), [])
-  await assert.rejects(disk.writePluginFiles(installed, "x", [{ path: "../escape.md", code: "x" }]), /Refused/)
-  await assert.rejects(disk.writePluginFiles(installed, "../x", []), /not a valid plugin name/)
+  // Un plugin installé autrefois depuis la boutique se désinstalle encore.
+  mkdirSync(path.join(installed, "fresh"), { recursive: true })
+  writeFileSync(path.join(installed, "fresh", "zyvro-plugin.json"), JSON.stringify({ name: "fresh", version: "1.0.0" }))
   await disk.removeInstalledPlugin(installed, "fresh")
   assert.equal(existsSync(path.join(installed, "fresh")), false)
-  ok("an install replaces the previous version whole, and refuses a path outside its folder")
+  ok("a plugin installed from the old store can still be removed")
 } finally {
   rmSync(tmp, { recursive: true, force: true })
 }

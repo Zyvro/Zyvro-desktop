@@ -1,6 +1,5 @@
 import { focusedTabId, useWorkspace } from "~/state/workspace"
-import { closeProject, createProject, createWorkflow, forgetRecents, openProject } from "./project"
-import { askName } from "~/state/prompt"
+import { closeProject, createProject, forgetRecents, openProject } from "./project"
 import { askSearchFocus } from "~/state/reveal"
 import { engineStopped } from "~/state/engine"
 import { saveTab } from "~/state/savers"
@@ -11,7 +10,7 @@ import { openFiles } from "./windowDrop"
 import { isAbsolutePath } from "../../shared/external"
 import { requestTerminalSplit } from "~/state/terminalSplit"
 import { getLauncher, openLauncher } from "~/state/launcher"
-import { askLogin } from "~/state/persistent"
+import { askLogin } from "~/state/openRequests"
 import { openTreeFilter } from "~/state/treeFilter"
 
 // Menu commands arrive from the main process as IPC events, which is a
@@ -24,7 +23,6 @@ import { openTreeFilter } from "~/state/treeFilter"
 
 type Command =
   | "open-project"
-  | "new-workflow"
   | "save"
   | "toggle-terminal"
   | "toggle-agent"
@@ -56,16 +54,6 @@ window.zyvro.menu.onOpenProject(() => {
 })
 window.zyvro.menu.onNewProject(() => {
   void createProject()
-})
-window.zyvro.menu.onNewWorkflow(() => {
-  if (!useWorkspace.getState().project) return
-  void askName({
-    title: "New workflow",
-    label: "It is saved in this project under .zyvro/workflows.",
-    initial: "Untitled workflow",
-  }).then((name) => {
-    if (name) void createWorkflow(name)
-  })
 })
 // Save vise l'onglet actif, et lui seul : chaque éditeur s'inscrit auprès du
 // registre, et c'est le registre qui choisit. Voir `state/savers`.

@@ -95,7 +95,6 @@ function EditorPills() {
 
 type LocalStatus = {
   project: string
-  workflows: number
   cli: { claude: boolean; codex: boolean }
 }
 
@@ -118,7 +117,7 @@ function CliPill({ name, ready }: { name: "claude" | "codex"; ready: boolean }) 
   return (
     <span
       className="flex items-center gap-1 text-emerald-300/90"
-      title={`${name} is installed; workflows can use your subscription through it.`}
+      title={`${name} is installed: agents can use your subscription through it.`}
     >
       <Check className="h-3 w-3" />
       {name}
@@ -291,9 +290,6 @@ export function StatusBar() {
         <>
           <CliPill name="claude" ready={status.data.cli.claude} />
           <CliPill name="codex" ready={status.data.cli.codex} />
-          <span>
-            {status.data.workflows} workflow{status.data.workflows === 1 ? "" : "s"}
-          </span>
         </>
       )}
 

@@ -31,7 +31,7 @@ export function SignInDialog({ onClose }: { onClose: () => void }) {
         >
           <Dialog.Title className="text-sm font-semibold">Sign in to Zyvro</Dialog.Title>
           <Dialog.Description className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-            Only needed to publish. Browsing and installing work signed out.
+            Only needed to publish screen captures online. Everything else works signed out.
           </Dialog.Description>
 
           <label className="mt-4 block text-[11px] uppercase tracking-wide text-muted-foreground">

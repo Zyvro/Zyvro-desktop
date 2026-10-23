@@ -1,4 +1,4 @@
-import { Clock, FolderOpen, FolderPlus, Loader2, Terminal as TerminalIcon, Workflow } from "lucide-react"
+import { Bot, Clock, FolderOpen, FolderPlus, Loader2, Terminal as TerminalIcon } from "lucide-react"
 import { useWorkspace } from "~/state/workspace"
 import { forgetRecents, useCreateProject, useOpenProject, useRecents } from "~/lib/project"
 
@@ -41,11 +41,9 @@ export function Welcome() {
       <div className="m-auto w-full max-w-lg py-10">
         <h1 className="text-2xl font-semibold tracking-tight">Zyvro Studio</h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-          Visual AI workflows next to the code they act on. A project is an ordinary folder: its
-          workflows live in{" "}
-          <code className="rounded bg-white/[0.06] px-1 py-0.5 text-[12px]">.zyvro</code>, ready to commit
-          alongside everything else in the repository. Start a new one, or open a folder you already
-          have.
+          Native coding agents next to your code: claude, codex, qwen and more, each in its own shell,
+          with the editor, git and a browser beside them. A project is an ordinary folder. Start a new
+          one, or open a folder you already have.
         </p>
 
         {/* Two ways in, because there are two situations: a folder that already
@@ -126,19 +124,19 @@ export function Welcome() {
             <div>
               <dt className="font-medium text-foreground">Your subscription, not an API key</dt>
               <dd className="mt-0.5 text-muted-foreground">
-                Text nodes can run through the <code className="text-foreground">claude</code> or{" "}
+                Agents run the <code className="text-foreground">claude</code> or{" "}
                 <code className="text-foreground">codex</code> command line tool installed here. A
                 ChatGPT or Claude plan works directly, and no credential ever leaves this machine.
               </dd>
             </div>
           </div>
           <div className="flex gap-3">
-            <Workflow className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+            <Bot className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
             <div>
-              <dt className="font-medium text-foreground">The same editor as the web app</dt>
+              <dt className="font-medium text-foreground">Agents that outlive the window</dt>
               <dd className="mt-0.5 text-muted-foreground">
-                Graphs open in a tab with the full node palette, live run status and image previews.
-                A workflow built here opens unchanged on zyv.ro.
+                Every agent keeps its session and reopens with Zyvro. On macOS and Linux they even keep
+                working while Zyvro is closed or updating.
               </dd>
             </div>
           </div>

@@ -2,7 +2,7 @@ import { useState, useSyncExternalStore } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import * as Dialog from "@radix-ui/react-dialog"
 import * as Menu from "@radix-ui/react-dropdown-menu"
-import { BookOpen, Bug, Code2, Loader2, PenLine, Puzzle, Rocket, Sparkles, Store, Trash2, Wand2, type LucideIcon } from "lucide-react"
+import { BookOpen, Bug, Code2, Loader2, PenLine, Puzzle, Rocket, Sparkles, Trash2, Wand2, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { queryClient } from "~/lib/queryClient"
 import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
@@ -67,7 +67,7 @@ export function useRailPackages(): LoadedPlugin[] {
 
 const ORIGIN_LABEL: Record<LoadedPlugin["origin"], string> = {
   bundled: "Built in",
-  installed: "From the store",
+  installed: "Installed",
   project: "This project",
 }
 
@@ -179,8 +179,8 @@ function ActionDialog({ plugin, action, onClose, onRun }: {
 }
 
 // PackageSettings : les plugins en paquets dans Settings › Plugins. Chacun dit
-// d'où il vient, ce qu'il apporte, et peut s'éteindre ; ceux de la boutique se
-// désinstallent. Un dossier qui n'est pas un plugin valable est montré avec la
+// d'où il vient, ce qu'il apporte, et peut s'éteindre ; ceux installés autrefois
+// depuis la boutique se désinstallent encore. Un dossier qui n'est pas un plugin valable est montré avec la
 // raison — c'est ici que l'auteur d'un plugin, souvent l'agent, voit pourquoi le
 // sien ne se charge pas.
 export function PackageSettings(): JSX.Element {
@@ -196,12 +196,9 @@ export function PackageSettings(): JSX.Element {
     <section className="mt-5" data-plugin-packages>
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Installed plugins</h3>
-        <button type="button" onClick={() => useWorkspace.getState().openStore()} className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground">
-          <Store className="h-3 w-3" /> Browse the store
-        </button>
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Plugins from the store, the ones built in, and the ones this project is writing in .zyvro/plugins. They add buttons beside the chat and skills for the agent; they run no code of their own.
+        The plugins built in, and the ones this project is writing in .zyvro/plugins. They add buttons beside the chat and skills for the agent; they run no code of their own.
       </p>
       {list.isLoading && <p className="flex items-center gap-2 py-3 text-xs text-muted-foreground"><Loader2 className="h-3 w-3 zy-spin" /> Reading plugins…</p>}
       {list.error && <p role="alert" className="py-3 text-xs text-red-300">{(list.error as Error).message}</p>}

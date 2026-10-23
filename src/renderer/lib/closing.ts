@@ -16,7 +16,6 @@
 import { useWorkspace } from "~/state/workspace"
 import { askChoice } from "~/state/prompt"
 import { saveTab, saveTabs } from "~/state/savers"
-import { graphsReadyToClose, unsavedGraphTabs } from "./graphSave"
 
 function nomDe(tabId: string): string {
   const tab = useWorkspace.getState().tabs.find((t) => t.id === tabId)
@@ -28,8 +27,6 @@ function nomDe(tabId: string): string {
  * Rend vrai quand l'onglet est fermé.
  */
 export async function requestCloseTab(tabId: string): Promise<boolean> {
-  // Un graphe attend son enregistrement automatique avant de partir.
-  if (!(await graphsReadyToClose([tabId]))) return false
   const store = useWorkspace.getState()
   if (!(tabId in store.drafts)) {
     store.closeTab(tabId)
@@ -69,28 +66,15 @@ let questionEnCours = false
 window.addEventListener("beforeunload", (event) => {
   if (fermetureAccordee) return
   const brouillons = Object.keys(useWorkspace.getState().drafts)
-  const graphes = unsavedGraphTabs()
-  if (brouillons.length === 0 && graphes.length === 0) return
+  if (brouillons.length === 0) return
   event.preventDefault()
   event.returnValue = false
   if (questionEnCours) return
   questionEnCours = true
   // Hors de l'événement : une boîte ouverte pendant qu'il se distribue ne
   // serait jamais dessinée.
-  setTimeout(() => void (brouillons.length > 0 ? demanderAvantDeFermer(brouillons.length) : fermerApresLesGraphes()), 0)
+  setTimeout(() => void demanderAvantDeFermer(brouillons.length), 0)
 })
-
-// Seulement des graphes en cours d'enregistrement : on attend qu'ils le
-// soient — une seconde, d'habitude — puis on ferme, sans rien demander.
-async function fermerApresLesGraphes(): Promise<void> {
-  try {
-    if (!(await graphsReadyToClose())) return
-    fermetureAccordee = true
-    window.close()
-  } finally {
-    questionEnCours = false
-  }
-}
 
 async function demanderAvantDeFermer(combien: number): Promise<void> {
   try {
@@ -108,8 +92,6 @@ async function demanderAvantDeFermer(combien: number): Promise<void> {
         return
       }
     }
-    // Les fichiers réglés, les graphes aussi : attendre leur enregistrement.
-    if (!(await graphsReadyToClose())) return
     fermetureAccordee = true
     window.close()
   } finally {
@@ -137,7 +119,6 @@ export function tabsToClose(
  * fermé.
  */
 export async function requestCloseTabs(tabIds: string[]): Promise<boolean> {
-  if (!(await graphsReadyToClose(tabIds))) return false
   const store = useWorkspace.getState()
   const modifies = tabIds.filter((id) => id in store.drafts)
   if (modifies.length === 1) {

@@ -1,4 +1,3 @@
-import { createHash, randomUUID } from "node:crypto"
 import fs from "node:fs/promises"
 import path from "node:path"
 import {
@@ -47,26 +46,6 @@ export type PluginProblem = { origin: PluginOrigin; name: string; dir: string; e
 export type PluginList = { plugins: LoadedPlugin[]; problems: PluginProblem[] }
 
 const ORDER: PluginOrigin[] = ["project", "installed", "bundled"]
-
-// pluginDigest reproduit l'empreinte du serveur octet pour octet. Même grammaire
-// que celle des packs (main/store.ts, packDigest), autre préfixe, pour qu'un
-// plugin et un pack ne puissent jamais partager une empreinte :
-//
-//   preimage = "zyvro-plugin-digest-v1" LF field(name) field(version) count file*
-//   file     = field(path) field(contents)
-//   field(x) = decimal(byte-length of x) LF x LF
-//
-// Fichiers triés par chemin, comparés en octets.
-export function pluginDigest(name: string, version: string, files: PluginFile[]): string {
-  const field = (value: string): Buffer => {
-    const bytes = Buffer.from(value, "utf8")
-    return Buffer.concat([Buffer.from(`${bytes.length}\n`, "ascii"), bytes, Buffer.from("\n", "ascii")])
-  }
-  const sorted = [...files].sort((a, b) => Buffer.compare(Buffer.from(a.path, "utf8"), Buffer.from(b.path, "utf8")))
-  const parts: Buffer[] = [Buffer.from("zyvro-plugin-digest-v1\n", "ascii"), field(name), field(version), Buffer.from(`${sorted.length}\n`, "ascii")]
-  for (const file of sorted) parts.push(field(file.path), field(file.code))
-  return createHash("sha256").update(Buffer.concat(parts)).digest("hex")
-}
 
 // readPluginDir lit les fichiers d'un plugin, et seulement ceux que la
 // grammaire permet. Un fichier en trop est une erreur plutôt qu'un oubli : il
@@ -148,34 +127,6 @@ export async function listAgentPlugins(roots: PluginRoot[]): Promise<PluginList>
     }
   }
   return { plugins: [...found.values()].sort((a, b) => a.name.localeCompare(b.name)), problems }
-}
-
-// writePluginFiles installe un paquet déjà validé, d'un coup : écrit à côté,
-// puis renommé à la place de l'ancien. Un plugin à moitié écrit serait chargé
-// tel quel au prochain tour, avec la moitié de ses skills.
-export async function writePluginFiles(installRoot: string, name: string, files: PluginFile[]): Promise<string> {
-  if (!PLUGIN_NAME.test(name)) throw new Error(`"${name}" is not a valid plugin name.`)
-  for (const file of files) {
-    if (!allowedPluginPath(file.path)) throw new Error(`Refused to write "${file.path}".`)
-  }
-  await fs.mkdir(installRoot, { recursive: true })
-  const target = path.join(installRoot, name)
-  const temporary = path.join(installRoot, `.install-${randomUUID()}`)
-  const previous = path.join(installRoot, `.previous-${randomUUID()}`)
-  try {
-    for (const file of files) {
-      const out = path.join(temporary, ...file.path.split("/"))
-      await fs.mkdir(path.dirname(out), { recursive: true })
-      await fs.writeFile(out, file.code, "utf8")
-    }
-    const had = await fs.stat(target).then(() => true, () => false)
-    if (had) await fs.rename(target, previous)
-    await fs.rename(temporary, target)
-    return target
-  } finally {
-    await fs.rm(temporary, { recursive: true, force: true })
-    await fs.rm(previous, { recursive: true, force: true })
-  }
 }
 
 export async function removeInstalledPlugin(installRoot: string, name: string): Promise<void> {

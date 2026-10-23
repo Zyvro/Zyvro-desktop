@@ -19,13 +19,11 @@ import * as files from "./files"
 import { mediaUrlFor } from "./media"
 import { mediaKindOf } from "../shared/media"
 import * as textSearch from "./search"
-import * as persistent from "./persistent"
 import { createWatcher, type Watcher } from "./watch"
 import { forgetRecents, loadRecents, recentFiles, rememberFile, rememberRecent } from "./recents"
 import { choose as chooseShell, shells as machineShells } from "./shell"
 import { authorized, currentAccount, reportBug, signIn, signOut } from "./account"
 import { onIncident, recordIncident, sendBugReport, unreportedIncidents } from "./bugreport"
-import * as store from "./store"
 import { captureRegion, saveShot, shareShot, type AskHost, type BrowserHost } from "./shots"
 import { answerAsk, askIn } from "./asks"
 import type { QuestionAnswers } from "../shared/questions"
@@ -44,8 +42,6 @@ import {
 import * as git from "./git"
 import * as conversations from "./conversations"
 import * as attachments from "./attachments"
-import * as importing from "./importing"
-import * as sharing from "./sharing"
 import * as commitMessage from "./commitmessage"
 import * as mimoInstall from "./mimoinstall"
 import { readSettingsFile, settingsPath, writeSettingsFile } from "./settingsFile"
@@ -57,7 +53,6 @@ import { readTasks, writeTasks } from "./tasks"
 import { memoryForAgent, readMemory, writeMemory } from "./memory"
 import { discoverSkills, downloadPack } from "./skills"
 import { listAgentPlugins, pluginSkillDirs, removeInstalledPlugin, type PluginRoot } from "./agentPlugins"
-import { PLUGIN_NAME } from "../shared/pluginPackage"
 import { pluginOn } from "../shared/plugins"
 import { sanitizeAgentSettings } from "../shared/settings"
 import { skillCatalogPrompt, skillEnabled } from "../shared/skills"
@@ -287,16 +282,6 @@ export class Workspace {
     await this.terminals.disposeAll(this.root ?? undefined)
     await this.home.dispose()
   }
-}
-
-// realpathOfParent resolves a chosen path through symlinks without requiring
-// the file itself to exist, which matters for a save dialog naming a file that
-// is about to be created. On macOS this is not optional: /tmp is a symlink, so
-// a path under it measures as outside the project unless both sides are
-// resolved the same way.
-async function realpathOfParent(target: string): Promise<string> {
-  const parent = await fs.realpath(path.dirname(target))
-  return path.join(parent, path.basename(target))
 }
 
 // browserHost est ce que le serveur MCP ne peut pas savoir tout seul : où est
@@ -818,54 +803,6 @@ export function registerIpc(onRecents?: () => void): void {
     }
   })
 
-  // The graph editor asks for this when someone clicks Browse on a Read File
-  // or Write File node. It returns a path relative to the project, because that
-  // is what goes into the workflow: an absolute path would break the moment the
-  // workflow was opened on another machine, and workflows are meant to be
-  // committed and shared.
-  ipcMain.handle(
-    "files:pick",
-    async (event, request: { save?: boolean; directory?: boolean; title?: string; current?: string }) => {
-      const { win, ws } = requireWorkspace(event)
-      const root = await fs.realpath(requireRoot(ws))
-      // A folder is its own starting point; a file's is the folder holding it.
-      const startIn = request?.current
-        ? request?.directory
-          ? path.resolve(root, request.current)
-          : path.resolve(root, path.dirname(request.current))
-        : root
-
-      const chosen = request?.save
-        ? await dialog.showSaveDialog(win, {
-            title: request?.title || "Write to",
-            defaultPath: request.current ? path.resolve(root, request.current) : root,
-            buttonLabel: "Use this path",
-          })
-        : await dialog.showOpenDialog(win, {
-            title: request?.title || (request?.directory ? "Choose a folder" : "Choose a file"),
-            defaultPath: startIn,
-            // A batch runs over a folder, and typing the path of one is the
-            // kind of thing that is wrong by a character and comes back as
-            // "no such folder". Same dialog, same relative-path answer, same
-            // refusal when the pick lands outside the project.
-            properties: [request?.directory ? "openDirectory" : "openFile"],
-            buttonLabel: request?.directory ? "Use this folder" : "Use this file",
-          })
-
-      const picked =
-        "filePath" in chosen ? chosen.filePath : chosen.filePaths?.[0]
-      if (chosen.canceled || !picked) return null
-
-      const relative = path.relative(root, await realpathOfParent(picked))
-      if (relative.startsWith("..") || path.isAbsolute(relative)) {
-        throw new Error(
-          "That file is outside the open project. Workflows can only read and write inside the project folder."
-        )
-      }
-      return relative.split(path.sep).join("/")
-    }
-  )
-
   ipcMain.handle("files:list", async (event, relative: string) => {
     const { ws } = requireWorkspace(event)
     return files.listDir(requireRoot(ws), relative ?? ".")
@@ -1130,69 +1067,6 @@ export function registerIpc(onRecents?: () => void): void {
   // les tue pas, elle les oublie. Ils continuaient donc d'écrire dans le vide,
   // injoignables jusqu'à la fermeture de la fenêtre, pendant que la page neuve
   // en ouvrait un de plus à côté.
-  // ---- les shells persistants ----------------------------------------------
-  //
-  // Un shell ordinaire est notre enfant : il meurt avec la fenêtre, mesuré.
-  // Celui-ci appartient au démon de `tmux` ou de `screen`, et nous n'en sommes
-  // que le client — fermer l'onglet détache, la session continue.
-
-  ipcMain.handle("persistent:available", async () => persistent.manager())
-
-  // Ce que le gestionnaire dit, plus ce que cette fenêtre vient d'attacher.
-  //
-  // Les deux, parce que `screen -ls` ment pendant une seconde : la socket d'un
-  // client qu'on vient de lancer n'existe pas encore quand la commande rend la
-  // main, et une session ouverte à l'instant manquait donc à la liste. Le
-  // gestionnaire reste la source pour tout ce qui vient d'ailleurs — un
-  // `screen` lancé dans un terminal à côté — et nous sommes la source pour ce
-  // que nous avons fait nous-mêmes.
-  ipcMain.handle("persistent:list", async (event) => {
-    const { ws } = requireWorkspace(event)
-    const root = requireRoot(ws)
-    const vues = persistent.list(root)
-    const connues = new Set(vues.map((shell) => shell.label))
-    for (const label of ws.terminals.attachedLabels(root)) {
-      if (connues.has(label)) continue
-      connues.add(label)
-      vues.push({ name: persistent.nameFor(root, label), label, attached: true })
-    }
-    vues.sort((a, b) => a.label.localeCompare(b.label))
-    return vues
-  })
-
-  // Ouvrir : attacher si elle existe, créer sinon. Le rendu envoie l'étiquette
-  // tapée par la personne, jamais un nom réel — c'est le principal qui le
-  // fabrique, préfixé par ce projet, pour qu'aucune fenêtre ne puisse attacher
-  // la session personnelle de quelqu'un en devinant son nom.
-  ipcMain.handle("persistent:open", async (event, label: string, cols: number, rows: number) => {
-    const { ws } = requireWorkspace(event)
-    const root = requireRoot(ws)
-    const name = persistent.nameFor(root, String(label ?? ""))
-    const command = persistent.attachCommand(root, name)
-    if (!command) throw new Error("No tmux or screen on this machine.")
-    const session = ws.terminals.create(
-      event.sender,
-      root,
-      cols || 80,
-      rows || 24,
-      { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token },
-      { command, label: persistent.labelOf(root, name), attached: true }
-    )
-    return { ...session, name, label: persistent.labelOf(root, name) }
-  })
-
-  // Tuer pour de bon, ce que fermer l'onglet ne fait pas. Sans ce geste, une
-  // session oubliée tourne des semaines.
-  ipcMain.handle("persistent:kill", async (event, name: string) => {
-    const { ws } = requireWorkspace(event)
-    const root = requireRoot(ws)
-    // Le nom vient du rendu : on ne tue que ce qui appartient à ce projet.
-    const sien = persistent.list(root).some((shell) => shell.name === name)
-    if (!sien) throw new Error("That session does not belong to this project.")
-    persistent.kill(name)
-    return true
-  })
-
   ipcMain.handle("terminal:running", async (event) => {
     const { ws } = requireWorkspace(event)
     return ws.terminals.running(requireRoot(ws))
@@ -2213,63 +2087,6 @@ export function registerIpc(onRecents?: () => void): void {
     return null
   })
 
-  ipcMain.handle("store:nodes", async (_event, q: string) => store.listNodes(String(q ?? "")))
-  ipcMain.handle("store:workflows", async (_event, q: string) => store.listWorkflows(String(q ?? "")))
-  // Reading a pack installs nothing. It is what lets someone look at the Lua
-  // before deciding to trust it, which is the only review this store has.
-  ipcMain.handle("store:read-pack", async (_event, name: string, version?: string) =>
-    store.readPack(String(name), version ? String(version) : undefined)
-  )
-
-  ipcMain.handle("store:install-pack", async (event, name: string, version?: string) => {
-    const { ws } = requireWorkspace(event)
-    return store.installPack(requireRoot(ws), String(name), version ? String(version) : undefined)
-  })
-
-  ipcMain.handle("store:install-workflow", async (event, name: string) => {
-    const { ws } = requireWorkspace(event)
-    return store.installWorkflow(requireRoot(ws), String(name))
-  })
-
-  ipcMain.handle("store:installed-packs", async (event) => {
-    const { ws } = requireWorkspace(event)
-    return store.listInstalledPacks(requireRoot(ws))
-  })
-
-  // The password travels renderer → main and is used to unseal the signing key
-  // for the length of one request. It is never written down on this side: the
-  // key it opens is, sealed, and that is the only durable thing.
-  ipcMain.handle("store:publish-pack", async (event, name: string, password: string) => {
-    const { ws } = requireWorkspace(event)
-    return store.publishPack(requireRoot(ws), String(name), String(password))
-  })
-
-  ipcMain.handle("store:plugins", async (_event, q: string) => store.listPlugins(String(q ?? "")))
-  ipcMain.handle("store:read-plugin", async (_event, name: string, version?: string) =>
-    store.readPlugin(String(name), version ? String(version) : undefined)
-  )
-  // Un plugin s'installe pour l'app entière, comme les réglages : il n'a pas
-  // besoin d'un projet ouvert, contrairement à un pack de nœuds.
-  ipcMain.handle("store:install-plugin", async (event, name: string) => {
-    requireWorkspace(event)
-    return store.installPlugin(installedPluginsDir(), String(name))
-  })
-  // Seul un plugin du projet se publie : c'est celui qu'on écrit.
-  ipcMain.handle("store:publish-plugin", async (event, name: string, password: string) => {
-    const { ws } = requireWorkspace(event)
-    const plugin = String(name)
-    if (!PLUGIN_NAME.test(plugin)) throw new Error(`"${plugin}" is not a valid plugin name.`)
-    return store.publishPlugin(path.join(requireRoot(ws), ".zyvro", "plugins", plugin), String(password))
-  })
-
-  ipcMain.handle(
-    "store:publish-workflow",
-    async (event, payload: { id: string; name: string; description: string; graph: unknown }) => {
-      requireWorkspace(event)
-      return store.publishWorkflow(payload)
-    }
-  )
-
   // ---------- Git ----------
   //
   // Every one of these is the open project and nothing else: the root comes
@@ -2498,37 +2315,6 @@ export function registerIpc(onRecents?: () => void): void {
     if (chosen.canceled || chosen.filePaths.length === 0) return null
     return git.clone(chosen.filePaths[0], String(url))
   })
-
-  // ---------- importing from another project ----------
-  //
-  // A workflow is a JSON file in a folder, so the thing you want to copy is
-  // already sitting in whatever repository it belongs to. What makes it awkward
-  // by hand is knowing that, finding it, and getting the graph out.
-  //
-  // The folder is chosen through a real dialog: a renderer that could name a
-  // directory to read could name any directory.
-  ipcMain.handle("workflows:choose-source", async (event) => {
-    const { win } = requireWorkspace(event)
-    return importing.choose(win)
-  })
-
-  // ---------- the account's own workflows ----------
-  //
-  // A workflow in a project is a file; on the account it is a row. These two
-  // are the crossing between them: one sends a copy up and hands back a link,
-  // the other reads back what is already there.
-
-  ipcMain.handle(
-    "workflows:share",
-    async (_event, payload: { name: string; description: string; graph: unknown }) =>
-      sharing.share({
-        name: String(payload?.name ?? ""),
-        description: String(payload?.description ?? ""),
-        graph: payload?.graph ?? {},
-      })
-  )
-
-  ipcMain.handle("workflows:mine", async () => sharing.mine())
 
   // Opening a link goes through the OS browser, never a new Electron window: a
   // window without our preload would still have Chromium privileges.

@@ -1,13 +1,13 @@
 # Zyvro Studio
 
-A desktop workspace for Zyvro workflows: file tree, editor, shell, and an agent
-chat, with the graph editor opening in a tab beside the code it acts on.
+A desktop workspace for native coding agents: claude, codex, qwen and others
+run in their own shells beside a file tree, an editor, git and a browser, and
+keep their sessions from one launch to the next.
 
 ## Why it exists
 
-Zyvro on the web runs workflows with the user's own API keys. That covers people
-who have an API account, and misses most people who pay for AI: a ChatGPT Plus or
-Claude subscription is not an API credential, and no hosted server can use one.
+A ChatGPT Plus or Claude subscription is not an API credential, and no hosted
+server can use one.
 
 Codex makes this concrete. Its subscription mode authenticates against
 `wss://chatgpt.com/backend-api`, not `api.openai.com`, and the access token in
@@ -15,8 +15,8 @@ Codex makes this concrete. Its subscription mode authenticates against
 a token into a web app would stop working within the hour.
 
 What does work is running the CLI the user already signed in to, on the machine
-they signed in on. That is what this app is. `claude` and `codex` become text
-providers, the engine runs locally, and no credential ever leaves the laptop.
+they signed in on. That is what this app is: the agents are those CLIs, run in
+their own interface, and no credential ever leaves the laptop.
 
 ## Layout
 
@@ -26,12 +26,12 @@ providers, the engine runs locally, and no credential ever leaves the laptop.
 ├────┬──────────────┬──────────────────────────┬─────────────┬─┤
 │    │ Explorer     │ tabs                     │ Shell +     │▣│
 │ ▤  │  src/        │  ┌────────────────────┐  │ Agents      │+│
-│ ▣  │  package.json│  │ code  or  graph    │  │ [claude][sh]│◈│
+│ ▣  │  package.json│  │ code               │  │ [claude][sh]│◈│
 │    ├──────────────┤  └────────────────────┘  │ $           │ │
-│    │ Workflows    │                          │             │◧│
-│    │ Agent sess.  │                          │             │ │
+│    │ Agent sess.  │                          │             │◧│
+│    │              │                          │             │ │
 ├────┴──────────────┴──────────────────────────┴─────────────┴─┤
-│ Local engine on port 51234   ✓claude ✓codex   3 workflows    │
+│ Local engine on port 51234   ✓claude ✓codex                  │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -42,14 +42,14 @@ steps it aside to its dock so you can read.
 
 The thin bar on the far right holds new shell, run an agent, split, the dock
 switch, the agent plugins that make sense without a chat (permission, skills,
-the **task queue**, project memory, bug report, store plugins) and the **project
+the **task queue**, project memory, bug report, agent plugins) and the **project
 logo**, at the bottom or the top of the bar (its menu changes the icon and moves
 it). There is no separate chat column any more: the chat panel's code is still
 in the repository but is not mounted.
 
-Clicking a workflow opens the graph editor in a tab. It is not a reimplementation:
-the renderer compiles `Zyvro-frontend/src/components/Builder.tsx` directly, in
-`embedded` mode. A change to the editor lands in both products at once.
+The graph workflow editor, the workflows list, the store and the persistent
+(tmux/screen) shells are gone: workflows live on the web app, and agents that
+must outlive the window run in the terminal host instead (see below).
 
 ## The engine
 
@@ -76,13 +76,8 @@ they do not get to sit there unused.
 ## The agent panel (no longer mounted)
 
 The chat column described here has been replaced by [Shell + Agents](#shell--agents); its code is kept for now. It ran the user's own `claude` or `codex` CLI in the project
-directory, and hands it this project's Zyvro tools over MCP: list the workflows,
-read a graph, run one, poll it, read the output. So "run the summarize workflow
-and show me what it wrote" is a sentence it can act on, not just describe.
-
-The tool surface and the tool names are the same ones the hosted product exposes
-over MCP, served here by the local daemon and authenticated with the daemon's
-own token. Claude gets it through a config file written with owner-only
+directory, and hands it this project's Zyvro tools over MCP, served by the
+local daemon and authenticated with the daemon's own token. Claude gets it through a config file written with owner-only
 permissions, Codex reads the token from an environment variable; neither puts it
 in argv, where every process on the machine could read it.
 
@@ -134,7 +129,7 @@ right-hand bar, and apply to the next agent you start:
 | Harness, model | the binary, `--model` / `-m` (a local server model keeps its gateway route) |
 | Permission (bar) | Read only → claude `plan`, codex `read-only`; Ask → it asks, on screen, in the terminal; Workspace → `acceptEdits` / `workspace-write`, nothing leaves the project; YOLO → everything lifted |
 | Effort | `--effort` (claude), `model_reasoning_effort` (codex, capped at `high`) |
-| Zyvro tools | the project's MCP servers (workflows, capture), wired like a chat turn: a config file for claude and qwen, `-c` flags and an env token for codex, env for MiMo. Tokens never reach `ps` |
+| Zyvro tools | the project's MCP servers (browser, capture), wired like a chat turn: a config file for claude and qwen, `-c` flags and an env token for codex, env for MiMo. Tokens never reach `ps` |
 | Skills (bar) | the catalog of local skills, in the system prompt (claude, qwen) or ahead of the task |
 | Instructions (profile) | appended to the system prompt, or ahead of the task for harnesses without one |
 
@@ -270,26 +265,6 @@ Both use the ordinary agent permissions when the user sends the request.
 Run `npm run check:skills` to verify discovery, opt-in pack activation, prompt
 routing and downloads using local fixtures; it makes no network or model calls.
 
-## Reading and writing the project's files
-
-Two node types exist only here, because they need a project folder on the
-machine running the engine:
-
-| Node | What it does |
-|---|---|
-| Read File | Reads a path in the project. An image becomes an image port, `.json` a json port, anything else text. |
-| Write File | Writes its input to a path, and hands the same value straight back out, so a chain can keep going after the write. |
-
-Paths are relative to the project folder and validated on both sides: the
-picker refuses a file outside it, and the engine refuses one again at run time,
-after resolving symlinks. Nothing may be written inside `.zyvro/`, so a
-workflow cannot rewrite its own store or the secrets file.
-
-They appear in the web app's palette too, marked Desktop. A hosted run
-containing one is refused before any model call, with `code: "local_only_node"`
-and a sentence saying where to open it instead. Seeing the node is how someone
-finds out the desktop app can do this at all.
-
 ## Screen capture
 
 An icon in the macOS menu bar or the Windows notification area captures an
@@ -306,24 +281,21 @@ Opening a folder creates `.zyvro/` inside it:
 ```
 .zyvro/
   project.json          settings, including the default text provider
-  workflows/<id>.json    one workflow per file, safe to commit
-  runs/<execID>.json     execution records
-  media/                 images produced by runs
   secrets.json           provider keys, mode 0600, gitignored
+  plugins/<name>/        agent plugins this project is writing
 ```
-
-Workflows are files, so they version and review like the rest of the repository.
 
 ## Running it
 
-This repository does not stand alone. The renderer compiles the web app's graph
-editor straight from its source, and the local engine is built from the Go
-backend, so both have to sit beside it under the same parent folder:
+This repository does not stand alone. The renderer compiles a few of the web
+app's components straight from its source (the provider keys panel, Markdown,
+the shared API client), and the local engine is built from the Go backend, so
+both have to sit beside it under the same parent folder:
 
 ```
 Zyvro/
 ├── Zyvro-engine/      https://github.com/Zyvro/Zyvro-engine    (Go, needs a Go toolchain)
-├── Zyvro-frontend/    https://github.com/Zyvro/Zyvro-frontend  (the shared graph editor)
+├── Zyvro-frontend/    https://github.com/Zyvro/Zyvro-frontend  (shared components)
 └── Zyvro-desktop/     this repository
 ```
 
@@ -388,7 +360,7 @@ disk.
 **One daemon per project.** `zyvrod` binds to `127.0.0.1` on a random port and
 prints a JSON handshake with a bearer token that every `/api/` call must carry.
 A second project window starts a second daemon, so two projects cannot see each
-other's workflows.
+other's providers or files.
 
 **The renderer has no Node access.** `contextIsolation` is on, `nodeIntegration`
 is off, and `src/preload/index.ts` is the entire surface: named operations only,

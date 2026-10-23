@@ -9,7 +9,6 @@ import { isAbsolutePath, nativePath } from "../../shared/external"
 import { CodeEditor } from "./CodeEditor"
 import { MediaView } from "~/panels/MediaView"
 import { mediaKindOf } from "../../shared/media"
-import { GraphTab } from "./GraphTab"
 import { DiffView } from "./DiffView"
 import { GitOutput } from "./GitOutput"
 import { Welcome } from "./Welcome"
@@ -17,13 +16,12 @@ import { ProvidersTab } from "./ProvidersTab"
 import { SettingsTab } from "./SettingsTab"
 import { PreviewTab } from "./PreviewTab"
 import { ProblemsTab } from "./ProblemsTab"
-import { StorePanel } from "./StorePanel"
 import { BrowserTab } from "./BrowserTab"
 import { Favicon } from "./BrowserList"
 
-// Every open tab stays mounted. A graph that unmounted when you glanced at a
-// file would lose its viewport, its selection and any run in progress, so tabs
-// are hidden rather than destroyed, and only the active one is visible.
+// Every open tab stays mounted. An editor that unmounted when you glanced at
+// another file would lose its scroll, its selection and its undo history, so
+// tabs are hidden rather than destroyed, and only the active one is visible.
 
 // Le type que pose un onglet qu'on attrape : son identifiant, pour le reposer
 // ailleurs dans la barre.
@@ -150,8 +148,6 @@ function TabBody({ tab, group = "main" }: { tab: Tab; group?: "main" | "split" }
       // Une vidéo ou un son se lit, il ne s'édite pas.
       if (mediaKindOf(tab.path)) return <MediaView path={tab.path} />
       return <CodeEditor tabId={tab.id} path={tab.path} group={group} />
-    case "graph":
-      return <GraphTab workflowId={tab.workflowId} />
     case "diff":
       return <DiffView path={tab.path} staged={tab.staged} commit={tab.commit?.hash} against={tab.against} />
     case "gitOutput":
@@ -164,8 +160,6 @@ function TabBody({ tab, group = "main" }: { tab: Tab; group?: "main" | "split" }
       return <PreviewTab path={tab.path} />
     case "problems":
       return <ProblemsTab />
-    case "store":
-      return <StorePanel />
     case "browser":
       return <BrowserTab tabId={tab.id} url={tab.url} />
     default:

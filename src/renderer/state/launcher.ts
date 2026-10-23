@@ -11,7 +11,7 @@ import {
 } from "../../shared/agentShell"
 import { PERMISSIONS } from "../../shared/permission"
 import { getSettings } from "~/state/settings"
-import { askAgent } from "~/state/persistent"
+import { askAgent } from "~/state/openRequests"
 import { useWorkspace } from "~/state/workspace"
 
 // Le lanceur d'agents du panneau Shell + Agents.

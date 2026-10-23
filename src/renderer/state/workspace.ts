@@ -13,14 +13,12 @@ export type Tab =
   // la ligne de l'arbre, comme dans VS Code. Sans lui, un onglet propre est un
   // aperçu, que le prochain fichier ouvert remplace.
   | { kind: "file"; id: string; path: string; title: string; pinned?: boolean }
-  | { kind: "graph"; id: string; workflowId: string; title: string }
   | { kind: "providers"; id: "providers"; title: string }
   | { kind: "settings"; id: "settings"; title: string }
   | { kind: "problems"; id: "problems"; title: string }
   // L'aperçu d'un fichier Markdown, rendu, qui suit le texte pendant qu'on
   // l'écrit — brouillon compris.
   | { kind: "preview"; id: string; path: string; title: string }
-  | { kind: "store"; id: "store"; title: string }
   // Plusieurs vues de navigateur, comme plusieurs onglets : une page de
   // connexion d'un côté, la page qu'on teste de l'autre, et un agent qui pilote
   // celle qu'on lui nomme.
@@ -173,7 +171,6 @@ type WorkspaceState = {
   setOpenError: (message: string) => void
 
   openFile: (path: string) => void
-  openGraph: (workflowId: string, title: string) => void
   openDiff: (path: string, staged: boolean) => void
   /** Ce qu'un commit a changé dans un fichier (la Timeline). */
   openCommitDiff: (path: string, hash: string, short: string) => void
@@ -184,7 +181,6 @@ type WorkspaceState = {
   openSettings: () => void
   openProblems: () => void
   openPreview: (path: string) => void
-  openStore: () => void
   openBrowser: (request?: { url?: string; reuse?: boolean }) => string
   setBrowserPage: (id: string, url: string, title: string, icon?: string) => void
   closeTab: (id: string) => void
@@ -305,8 +301,8 @@ function basename(p: string): string {
 // which is the same rule the close button already uses to decide whether to
 // warn.
 //
-// Only a file gives way to a file. A graph, the providers page and the store
-// are somewhere the person navigated to on purpose, and closing one because
+// Only a file gives way to a file. The providers page or the settings are
+// somewhere the person navigated to on purpose, and closing one because
 // they glanced at a file afterwards would lose real work.
 function replacedByOpening(s: WorkspaceState, tab: Tab, openingID: string): boolean {
   return (
@@ -524,17 +520,6 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     }))
   },
 
-  openGraph: (workflowId, title) => {
-    const id = `graph:${workflowId}`
-    const existing = get().tabs.find((t) => t.id === id)
-    if (existing) {
-      set({ activeTabId: id })
-      return
-    }
-    const tab: Tab = { kind: "graph", id, workflowId, title }
-    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
-  },
-
   openDiff: (path, staged) => {
     const id = `diff:${staged ? "staged" : "working"}:${path}`
     if (get().tabs.some((t) => t.id === id)) {
@@ -627,16 +612,6 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "settings", id, title: "Settings" }
-    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
-  },
-
-  openStore: () => {
-    const id = "store"
-    if (get().tabs.some((t) => t.id === id)) {
-      set({ activeTabId: id })
-      return
-    }
-    const tab: Tab = { kind: "store", id, title: "Store" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 
@@ -850,18 +825,10 @@ useWorkspace.subscribe((s) => {
 })
 
 // openRoute is the landing point for the Next.js router shim. The shared
-// components only ever push a handful of paths, and outside the builder route
-// none of them mean anything in a local project.
+// components only ever push a handful of paths, and only the providers page
+// means anything in a local project.
 export function openRoute(href: string): void {
   const path = href.split("?")[0]
-  const builder = /^\/builder\/([^/]+)$/.exec(path)
-  if (builder) {
-    const id = builder[1]
-    const state = useWorkspace.getState()
-    const known = state.tabs.find((t) => t.kind === "graph" && t.workflowId === id)
-    state.openGraph(id, known?.title || "Workflow")
-    return
-  }
   if (path === "/providers" || path === "/settings") {
     useWorkspace.getState().openProviders()
   }

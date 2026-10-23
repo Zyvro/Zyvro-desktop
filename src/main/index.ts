@@ -440,11 +440,6 @@ function buildMenu(): void {
         { label: "Open Recent", submenu: recentSubmenu() },
         { type: "separator" },
         {
-          label: "New Workflow",
-          accelerator: "CmdOrCtrl+Alt+N",
-          click: (_item, win) => send(win as BrowserWindow, "menu:new-workflow"),
-        },
-        {
           label: "Check for Updates…",
           click: (_item, win) => send(win as BrowserWindow, "menu:check-updates"),
         },

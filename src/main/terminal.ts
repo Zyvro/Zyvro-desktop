@@ -72,19 +72,7 @@ type Session = {
    *  qui dit à quel projet il appartient, et donc qui a le droit de le
    *  reprendre. */
   cwd: string
-  /**
-   * Vrai quand ce shell n'est que le client d'une session persistante.
-   *
-   * Il ne faut alors PAS garder son défilement à la fermeture : la session
-   * survit chez `tmux` ou `screen`, avec son propre historique, et la rouvrir
-   * la réattache. Sans cette distinction, la réouverture recréait un shell
-   * ordinaire affichant l'ancien défilement — il avait l'air ouvert, et rien ne
-   * tournait dedans. Signalé par Jeremy le 19/09, une heure après la première
-   * version : deux fonctions écrites coup sur coup qui se marchaient dessus.
-   */
-  attached: boolean
-  /** L'étiquette de la session persistante, pour que l'onglet garde son nom
-   *  après un rechargement. */
+  /** L'étiquette de l'onglet, pour qu'il garde son nom après un rechargement. */
   label?: string
   /**
    * Ce que le shell a déjà écrit, pour le rendre à une fenêtre qui s'est
@@ -140,31 +128,15 @@ export class Terminals {
     /**
      * Ce qui n'est pas un shell de connexion ordinaire.
      *
-     * Deux choses passent par ici : la commande qui attache une session
-     * persistante, et le harnais qu'on ouvre dans son interface à lui. Le reste
-     * — le pty, le tampon, la reprise — est rigoureusement le même, et c'est
-     * voulu : ce sont des shells de plus dans le panneau, pas un second
-     * panneau.
-     *
-     * Un objet plutôt qu'une suite d'arguments : `attached` s'est ajouté le
-     * jour où les deux ont cessé de vouloir dire la même chose, et une
-     * septième position optionnelle est une position qu'on remplit de travers.
+     * Le harnais qu'on ouvre dans son interface à lui, l'installation d'un
+     * harnais, un agent natif. Le reste — le pty, le tampon, la reprise — est
+     * rigoureusement le même, et c'est voulu : ce sont des shells de plus dans
+     * le panneau, pas un second panneau.
      */
     options: {
       command?: Command | null
       /** L'étiquette de la session, retenue pour la reprise et pour l'onglet. */
       label?: string
-      /**
-       * Vrai quand ce shell n'est que le client d'une session qui lui survit.
-       *
-       * Déduit de `command !== null` tant que la commande ne servait qu'à
-       * attacher. Ce n'est plus vrai : un harnais lancé dans un shell est une
-       * commande aussi, et il n'est le client de rien — fermer son onglet le
-       * tue, et son défilement mérite d'être gardé comme celui de n'importe
-       * quel shell. Déduire ici aurait fait perdre l'un pour l'autre en
-       * silence.
-       */
-      attached?: boolean
       /**
        * Le défilement d'une session précédente, quand ce shell la remplace.
        *
@@ -192,7 +164,7 @@ export class Terminals {
       hosted?: { key: string; spawn: boolean }
     } = {}
   ): { id: string; pty: boolean; banner?: string } {
-    const { command = null, label, attached = false, seed = "", agentShell, cleanup, onEnd, hosted } = options
+    const { command = null, label, seed = "", agentShell, cleanup, onEnd, hosted } = options
     const id = randomUUID()
     const wired = mcp ? shellMcp(mcp) : null
     const lieu = cwd || os.homedir()
@@ -205,7 +177,7 @@ export class Terminals {
         )
       : makePty(lieu, cols, rows, wired?.env, command)
     const vu = seed ? `${seed.slice(-SHELL_MAX_BYTES)}\r\n` : ""
-    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, attached, label, agentShell, cleanup, onEnd })
+    this.sessions.set(id, { id, pty, dispose: wired?.dispose, cwd: lieu, seen: vu, label, agentShell, cleanup, onEnd })
 
     pty.onData((data) => {
       this.remember(id, data)
@@ -302,28 +274,6 @@ export class Terminals {
       tab,
       agentShell: parId.get(id)?.agentShell,
     }))
-  }
-
-  /**
-   * Les étiquettes des sessions persistantes que cette fenêtre tient attachées.
-   *
-   * Parce que `screen -ls` ment pendant une seconde. Attacher lance un client,
-   * et la socket que `screen` crée pour lui n'existe pas encore quand la
-   * commande rend la main : une liste demandée dans la foulée revient sans la
-   * session qu'on vient d'ouvrir. La version d'avant contournait ça en
-   * attendant 1,2 s et en espérant — ce qui tient tant que la machine n'est pas
-   * chargée.
-   *
-   * Or nous n'avons pas à demander à `screen` ce que nous venons de faire
-   * nous-mêmes. Ceci est ce que cette fenêtre sait de source sûre ; le
-   * gestionnaire reste la source pour tout le reste, c'est-à-dire pour les
-   * sessions ouvertes ailleurs.
-   */
-  attachedLabels(cwd: string): string[] {
-    const lieu = cwd || os.homedir()
-    return [...this.sessions.values()]
-      .filter((session) => session.attached && session.cwd === lieu && Boolean(session.label))
-      .map((session) => session.label as string)
   }
 
   /** Rendre à une fenêtre ce qu'un shell a déjà écrit. */
@@ -453,10 +403,7 @@ export class Terminals {
   /**
    * Fermer les shells d'un seul projet — celui qu'on ferme — en laissant les
    * autres (les projets ouverts à côté dans la même fenêtre) tourner.
-   *
-   * Les clients de sessions persistantes partent aussi : fermer le projet les
-   * détache, et `PersistentList` les remontre. Un onglet qui rouvrirait tout
-   * seul contredirait cette liste.
+
    */
   disposeProject(projectDir: string): void {
     const racine = path.resolve(projectDir)

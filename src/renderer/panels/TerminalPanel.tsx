@@ -14,7 +14,7 @@ import { revealAt } from "~/state/reveal"
 import { carriesPaths, droppedPaths } from "~/state/dropped"
 import { subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
 import { useWorkspace } from "../state/workspace"
-import { openToken, sessionsChanged, subscribeOpen, takeOpen } from "~/state/persistent"
+import { openToken, subscribeOpen, takeOpen } from "~/state/openRequests"
 import { ShellPicker } from "./ShellPicker"
 import { SwitchAgentDialog, type SwitchChoice } from "./SwitchAgentDialog"
 import { askSwitch } from "~/state/switchAgent"
@@ -27,7 +27,7 @@ import { agentContext } from "~/lib/agentContext"
 import { getSettings } from "~/state/settings"
 import { openLauncher, runProfile } from "~/state/launcher"
 import { openShellToken, subscribeOpenShell } from "~/state/shellRequests"
-import { askAgent } from "~/state/persistent"
+import { askAgent } from "~/state/openRequests"
 import { getLauncher, launcherSpec, subscribeLauncher } from "~/state/launcher"
 import { setTaskRunner } from "~/state/tasks"
 import { GRACE_MS, wrote } from "~/state/shellActivity"
@@ -59,16 +59,6 @@ type SessionStatus = {
   exitCode: number | null
   generation: number
   /**
-   * L'étiquette d'une session persistante, quand ce shell en est le client.
-  /**
-   * L'étiquette d'une session persistante, quand ce shell en est le client.
-   *
-   * Présente avant l'ouverture — c'est elle qui dit à la référence de rappel
-   * d'attacher une session plutôt que de lancer un shell — et remplacée par le
-   * nom réel une fois la session ouverte.
-   */
-  persistent?: string
-  /**
    * Le harnais que ce shell lance, quand il en lance un.
    *
    * Présent avant l'ouverture — c'est lui qui dit à la référence de rappel de
@@ -91,8 +81,7 @@ type SessionStatus = {
 
 const IDLE: SessionStatus = { ptyId: null, pty: true, exitCode: null, generation: 0 }
 
-// Ce que l'onglet porte. Une session persistante a son étiquette, un harnais a
-// son nom et son modèle — deux shells du même harnais sur deux modèles sont
+// Ce que l'onglet porte. Un harnais a son nom et son modèle — deux shells du même harnais sur deux modèles sont
 // exactement ce qu'on ouvre quand on compare, et « Shell 2 » et « Shell 3 » ne
 // diraient pas lequel est lequel.
 // Le harnais d'un onglet d'agent, pour que sa marque remplace l'icône de shell.
@@ -107,7 +96,6 @@ function agentKindOf(key: string): AgentKind | null {
 
 function nomOnglet(key: string, index: number): string {
   const statut = readStatus(key)
-  if (statut.persistent !== undefined) return statut.persistent
   if (statut.connexion) return `login ${harness(statut.connexion).bin}`
   if (statut.installation) return `install ${harness(statut.installation).bin}`
   if (statut.agentRecord || statut.agente) {
@@ -578,11 +566,6 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     }
     if (payload.id === ptyId) {
       patchStatus(key, { exitCode: payload.code })
-      // Une session persistante dont le client meurt : soit elle a fini, soit
-      // quelqu'un l'a tuée. Dans les deux cas la liste doit aller revoir — elle
-      // ne peut pas le deviner, et attendre son prochain tour de sondage
-      // laisserait une ligne morte à l'écran.
-      if (readStatus(key).persistent !== undefined) sessionsChanged()
     }
   })
 
@@ -644,7 +627,6 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   // les oublie. Le panneau a repris leurs identifiants avant de monter ces
   // composants ; il ne reste qu'à s'y brancher et à redemander ce qui a défilé.
   const dejaLa = readStatus(key).ptyId
-  const persiste = readStatus(key).persistent
   const harnais = readStatus(key).harnais
   const installation = readStatus(key).installation
   const connexion = readStatus(key).connexion
@@ -680,20 +662,6 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
         window.zyvro.agent
           .shell(harnais.nom, harnais.model, term.cols, term.rows, harnais.conversation ?? null)
           .then((session) => ({ ...session, reprise: false }))
-      : persiste !== undefined
-      ? // Une session persistante : on n'est que son client. Fermer cet onglet
-        // la détachera au lieu de la tuer — c'est toute la différence, et c'est
-        // ce que `tmux` et `screen` savent faire et que nous ne savons pas.
-        window.zyvro.persistent
-          .open(persiste, term.cols, term.rows)
-          .then((session) => {
-            patchStatus(key, { persistent: session.label })
-            // Le moment exact où elle existe : `tmux`/`screen` vient de la
-            // rendre. La liste l'apprend maintenant plutôt qu'à son prochain
-            // tour de sondage.
-            sessionsChanged()
-            return { ...session, reprise: false }
-          })
       : window.zyvro.terminal
           .create(term.cols, term.rows)
           .then((session) => ({ ...session, reprise: false }))
@@ -1097,13 +1065,11 @@ export function TerminalPanel(): JSX.Element {
     if (vivants.length === 0) return
     const keys = vivants.map((vivant) => {
       const key = nextSessionKey()
-      // L'étiquette suit : un onglet repris doit garder son nom de session,
-      // pas redevenir « Shell 2 ». Un agent natif se reconnaît à son
-      // enregistrement, et reprend son nom de là.
+      // Un agent natif se reconnaît à son enregistrement, et reprend son nom
+      // de là plutôt que de redevenir « Shell 2 ».
       patchStatus(key, {
         ptyId: vivant.id,
         pty: vivant.pty,
-        persistent: vivant.agentShell ? undefined : vivant.label,
         ...(vivant.agentShell ? { agentRecord: vivant.agentShell } : {}),
       })
       return key
@@ -1142,15 +1108,6 @@ export function TerminalPanel(): JSX.Element {
     window.queueMicrotask(() => {
       const ordre = takeOpen()
       if (ordre === null) return
-      // Une session persistante déjà ouverte ici : aller à son onglet plutôt
-      // que d'attacher un second client à la même session.
-      if (ordre.sorte === "persistante" && ordre.label) {
-        const deja = groupsRef.current.flat().find((k) => readStatus(k).persistent === ordre.label)
-        if (deja) {
-          activate(deja)
-          return
-        }
-      }
       // Une session d'agent déjà affichée ici : on va à son onglet plutôt que
       // de brancher une seconde fois le même pty.
       if (ordre.sorte === "agent" && ordre.spec.resume) {
@@ -1163,9 +1120,7 @@ export function TerminalPanel(): JSX.Element {
       const key = nextSessionKey()
       patchStatus(
         key,
-        ordre.sorte === "persistante"
-          ? { persistent: ordre.label }
-          : ordre.sorte === "agent"
+        ordre.sorte === "agent"
             ? {
                 agente: { spec: ordre.spec, taskId: ordre.taskId },
                 ...(ordre.spec.resume ? { agentRecord: ordre.spec.resume } : {}),

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import type { AgentKind } from "../../shared/harness"
-import { askInstall } from "~/state/persistent"
+import { askInstall } from "~/state/openRequests"
 import { useWorkspace } from "~/state/workspace"
 
 // Quels harnais sont sur cette machine.

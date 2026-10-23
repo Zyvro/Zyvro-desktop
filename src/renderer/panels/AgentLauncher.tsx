@@ -15,7 +15,7 @@ import {
 } from "~/state/launcher"
 import { askName } from "~/state/prompt"
 import { handTo, subscribeHandoff, takeHandoff, tokenOf } from "~/state/handoff"
-import { askAgent } from "~/state/persistent"
+import { askAgent } from "~/state/openRequests"
 import { useWorkspace } from "~/state/workspace"
 import { useRef } from "react"
 import { isAbsolutePath } from "../../shared/external"

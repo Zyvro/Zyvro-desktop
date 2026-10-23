@@ -1,6 +1,6 @@
 ---
 name: zyvro-plugin-format
-description: The exact file layout and zyvro-plugin.json schema of a Zyvro Studio agent plugin, with every rule Studio and the store enforce. Use when writing or fixing the files of a Zyvro plugin.
+description: The exact file layout and zyvro-plugin.json schema of a Zyvro Studio agent plugin, with every rule Studio enforces. Use when writing or fixing the files of a Zyvro plugin.
 ---
 
 # Zyvro agent plugin format (v1)
@@ -81,7 +81,7 @@ action or one skill.
 | --- | --- |
 | `name` | required, `^[a-z0-9][a-z0-9-]{0,63}$` (lowercase, digits, dashes) |
 | `version` | required, `MAJOR.MINOR.PATCH`, optional `-suffix`: `^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]{1,32})?$` |
-| `description` | optional, up to 500 characters; shown in the store and settings |
+| `description` | optional, up to 500 characters; shown in Settings › Plugins |
 | `author` | optional, up to 100 characters |
 | `icon` | optional, one of `puzzle sparkles wand book bug rocket code pen` (default `puzzle`) |
 | `actions` | optional list, at most 8 |
@@ -128,7 +128,7 @@ description: What to check when reviewing a diff for bugs and security issues. U
 the catalog, so it says what the skill does and when to use it. See the
 zyvro-skill-writing skill.
 
-## Versions are immutable once published
+## Versions
 
-The store never lets a `name@version` change. After a publish, any change needs
-a new `version` (see zyvro-plugin-publishing).
+Raise `version` whenever the plugin changes what it does, so whoever uses it
+can tell the two apart.

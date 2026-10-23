@@ -3,7 +3,7 @@
 // Trois magasins de module servent de boîte à lettres entre deux panneaux qui
 // ne sont pas le même composant : `handoff` (un chemin déposé dans le champ de
 // l'agent, un dossier déposé dans la recherche, un `cd` déposé dans le shell)
-// et `persistent` (« ouvre cette session »). Chacun se lit une fois : on
+// et `openRequests` (« ouvre cet onglet »). Chacun se lit une fois : on
 // **prend**, on ne lit pas, sans quoi le rendu suivant referait le geste.
 //
 // Et prendre est précisément ce qu'un rendu n'a pas le droit de faire. React en
@@ -42,7 +42,7 @@ for (const file of sources(path.join(ROOT, "src/renderer"))) {
   // Par le nom, séparateur ramené à `/` : sous Windows `file` finit par
   // `\handoff.ts`, et la définition elle-même était prise pour un appel.
   const posix = file.split(path.sep).join("/")
-  if (posix.endsWith("/handoff.ts") || posix.endsWith("/persistent.ts")) continue
+  if (posix.endsWith("/handoff.ts") || posix.endsWith("/openRequests.ts")) continue
   // Les commentaires sont blanchis plutôt que retirés, pour que les numéros de
   // ligne restent justes. Sans ça ce garde s'attrapait lui-même : la phrase qui
   // explique la règle cite `takeOpen()`, et une citation n'est pas un appel.
