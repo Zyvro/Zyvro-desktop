@@ -185,8 +185,16 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
 // ---- tâche et préambule ------------------------------------------------------
 {
   check("claude a un prompt système : la tâche reste telle quelle", mod.taskText("claude", "PRE", "tâche") === "tâche")
-  check("codex n'en a pas : le préambule ouvre la tâche", mod.taskText("codex", "PRE", "tâche").startsWith("PRE") && mod.taskText("codex", "PRE", "tâche").endsWith("tâche"))
-  check("sans tâche, rien n'est collé", mod.taskText("codex", "PRE", "") === "")
+  // codex et qwen aussi, depuis : `developer_instructions` et `--append-system-prompt`.
+  // Sans ça, un agent lancé sans tâche ne recevait ni skills, ni mémoire, ni instructions.
+  check("**codex et qwen ont un prompt système à part : la tâche reste telle quelle**", ["codex", "qwen"].every((k) => mod.hasSystemPromptFlag(k) && mod.taskText(k, "PRE", "tâche") === "tâche"))
+  check("MiMo n'en a pas : le préambule ouvre la tâche", mod.taskText("mimo", "PRE", "tâche").startsWith("PRE") && mod.taskText("mimo", "PRE", "tâche").endsWith("tâche"))
+  check("sans tâche, rien n'est collé", mod.taskText("mimo", "PRE", "") === "")
+  const cx = mod.nativeArgs({ kind: "codex", model: "", permission: "default", effort: null, name: "", sessionId: null, assign: false, systemPrompt: 'ligne 1\nil a dit "oui" \\ fin', mcpArgs: [], aimArgs: [], prompt: "" })
+  const di = cx[cx.indexOf("-c", cx.findIndex((a) => a.startsWith("developer_instructions=")) - 1) + 1] ?? ""
+  check("**codex reçoit le prompt système en `developer_instructions`, chaîne TOML valable**", di === 'developer_instructions="ligne 1\\nil a dit \\"oui\\" \\\\ fin"', di)
+  const qw = mod.nativeArgs({ kind: "qwen", model: "", permission: "default", effort: null, name: "", sessionId: null, assign: false, systemPrompt: "SYS", mcpArgs: [], aimArgs: [], prompt: "" })
+  check("qwen le reçoit en `--append-system-prompt`", qw[qw.indexOf("--append-system-prompt") + 1] === "SYS")
   const colle = mod.bracketedPaste("a\r\nb\x1b[201~INJECTÉ")
   check("**le collage ne peut pas se refermer de l'intérieur**", colle.startsWith("\x1b[200~") && colle.endsWith("\x1b[201~") && colle.indexOf("\x1b[201~") === colle.length - 6)
   check("le collage ne finit pas par Entrée : on relit avant d'envoyer", !/[\r\n]$/.test(colle))
@@ -457,6 +465,12 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("**une session déjà ouverte est montrée, pas doublée**", /byAgentShell\(previous\.id\)/.test(ouvrir) && /existing: true/.test(ouvrir))
   check("claude : session neuve sans journal → --session-id, sinon --resume", /claudeSessionExists\(sessionId\)/.test(ouvrir) && /assign = true/.test(ouvrir))
   check("codex : l'identifiant est cherché quand on ne le connaît pas", /watchCodexSession\(/.test(ouvrir))
+  check("**activer les skills avec un agent lancé lui envoie leur catalogue**", /ipcMain\.handle\("agentshell:skills-brief"/.test(readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8")))
+  {
+    const rail = readFileSync(path.join(ROOT, "src/renderer/panels/ShellRail.tsx"), "utf8")
+    check("**une action de plugin part dans l'agent qui a la main, sinon en ouvre un**", /if \(promptLiveAgent\(prompt\)\) return\s*askAgent\(/.test(rail))
+    check("et activer les skills avancés briefe cet agent", /if \(skills\) void briefLiveAgentOnSkills\(\)/.test(rail))
+  }
   check("la configuration MCP (un jeton) est effacée avec le shell", /cleanup: \(\) => \{\s*disposeMcp\(\)/.test(ouvrir))
   check("**la clef du fournisseur reste dans l'environnement, pas dans argv**", /harnessLaunch\(ws, kind, spec\.model, viaHost\)/.test(ouvrir) && !/aim\.key/.test(ouvrir))
   // Détacher (hôte de terminaux) : quitter Zyvro laisse l'agent tourner, la croix l'arrête.

@@ -4,6 +4,8 @@ import { SHELL_PLUGINS } from "../../shared/plugins"
 import { AgentRail, type AgentRailContext } from "~/plugins"
 import { getLauncher, launcherSpec, openLauncher, setLauncher, subscribeLauncher } from "~/state/launcher"
 import { askAgent } from "~/state/openRequests"
+import { liveAgentKind, promptLiveAgent } from "~/state/liveAgent"
+import { getSettings } from "~/state/settings"
 import { requestTerminalSplit } from "~/state/terminalSplit"
 import { shellDock, subscribeShellDock, toggleShellDock } from "~/state/shellDock"
 import { logoPosition, setLogoPosition, subscribeLogoPosition } from "~/state/railLogo"
@@ -17,13 +19,29 @@ import { RailProject } from "./ProjectIcon"
 // C'était la barre verticale du chat : ce qui gouverne l'agent sans être la
 // conversation. Elle reste, avec les mêmes plugins (permission, skills, mémoire
 // du projet, réécriture de la tâche, rapport de bug, plugins en paquets) mais
-// ils parlent maintenant au lanceur au lieu d'une conversation : la permission
-// et les skills qu'on y règle sont ceux du prochain agent lancé, et « mettre à
-// jour la mémoire » ouvre un agent avec cette tâche.
+// ils parlent maintenant aux agents natifs : la permission et les skills qu'on y
+// règle sont ceux du prochain agent lancé, et une action de plugin (« mettre à
+// jour la mémoire », une action d'un plugin en paquet) part dans l'agent qui a
+// la main, collée dans son interface comme si on l'avait tapée. Sans agent
+// vivant, elle en ouvre un. Activer les skills avancés envoie leur catalogue à
+// cet agent, qui ne peut plus recevoir de prompt système.
 //
 // Le logo du projet y vit aussi, en bas ou en haut à la demande. Il dit où
 // travaillent les agents qu'on lance — avec plusieurs projets ouverts, c'est la
 // première chose à vérifier avant d'appuyer sur Entrée.
+
+// Le catalogue de skills, envoyé à l'agent qui a la main quand on les active.
+async function briefLiveAgentOnSkills(): Promise<void> {
+  const kind = liveAgentKind()
+  if (!kind) return
+  try {
+    const brief = await window.zyvro.agentShell.skillsBrief(kind, getSettings().agent)
+    if (!brief) return
+    promptLiveAgent(`${brief}\n\nThese skills are now available in this session. Use them when they fit what I ask; reply with one short line to acknowledge.`)
+  } catch {
+    // Pas de catalogue : l'agent continue comme avant, le prochain lancé l'aura.
+  }
+}
 
 export function ShellRail(): JSX.Element {
   const launcher = useSyncExternalStore(subscribeLauncher, getLauncher)
@@ -55,9 +73,13 @@ export function ShellRail(): JSX.Element {
       // nom de la demande.
       runInThread: (title, prompt) => {
         useWorkspace.getState().setPanel("terminal", true)
+        if (promptLiveAgent(prompt)) return
         askAgent({ ...launcherSpec(prompt), name: title })
       },
-      setAdvancedSkills: (skills) => setLauncher({ skills, profileId: null }),
+      setAdvancedSkills: (skills) => {
+        setLauncher({ skills, profileId: null })
+        if (skills) void briefLiveAgentOnSkills()
+      },
       // `/compact` est une commande du harnais, dans son interface.
       compact: () => undefined,
       // Pas de zone de saisie ici : rien à réécrire.

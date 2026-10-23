@@ -1637,6 +1637,29 @@ export function registerIpc(onRecents?: () => void): void {
         })
       : []
 
+  // Les skills qu'un agent natif reçoit : ceux du harnais, des packs et des
+  // plugins allumés, moins ceux qu'on a éteints.
+  const shellSkills = async (kind: AgentKind, root: string, agentSettings: ReturnType<typeof sanitizeAgentSettings>) =>
+    (
+      await discoverSkills(
+        kind, root, path.join(app.getPath("userData"), "skill-packs"), os.homedir(), process.env,
+        pluginSkillDirs(await listAgentPlugins(pluginRoots(root)), agentSettings.disabledPlugins)
+      )
+    ).skills.filter((skill) => skillEnabled(skill, agentSettings))
+
+  // Activer les skills avancés pendant qu'un agent tourne : il ne peut plus
+  // recevoir de prompt système, alors le catalogue part comme un message, dans
+  // son interface. Vide quand le plugin est éteint ou qu'il n'y a rien à offrir.
+  ipcMain.handle("agentshell:skills-brief", async (event, rawKind: unknown, rawSettings: unknown) => {
+    const { ws } = requireWorkspace(event)
+    const root = requireRoot(ws)
+    if (!isAgentKind(rawKind)) throw new Error("Unknown agent")
+    const agentSettings = sanitizeAgentSettings(rawSettings)
+    if (!pluginOn(agentSettings, "skills")) return ""
+    const catalog = await shellSkills(rawKind, root, agentSettings)
+    return catalog.length > 0 ? skillCatalogPrompt(catalog, true) : ""
+  })
+
   ipcMain.handle("agentshell:open", async (event, rawSpec: unknown, rawContext: unknown, cols: number, rows: number) => {
     const { ws } = requireWorkspace(event)
     const root = requireRoot(ws)
@@ -1770,14 +1793,7 @@ export function registerIpc(onRecents?: () => void): void {
     // ---- ce que l'agent sait de ce projet
     const agentSettings = sanitizeAgentSettings(context.agentSettings)
     const skillsOn = spec.skills && pluginOn(agentSettings, "skills")
-    const catalog = skillsOn
-      ? (
-          await discoverSkills(
-            kind, root, path.join(app.getPath("userData"), "skill-packs"), os.homedir(), process.env,
-            pluginSkillDirs(await listAgentPlugins(pluginRoots(root)), agentSettings.disabledPlugins)
-          )
-        ).skills.filter((skill) => skillEnabled(skill, agentSettings))
-      : []
+    const catalog = skillsOn ? await shellSkills(kind, root, agentSettings) : []
     const memory = pluginOn(agentSettings, "memory") ? await memoryForAgent(root) : null
     const target = { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token }
     const sections = [

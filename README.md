@@ -124,13 +124,21 @@ opens in its own interface, on its own prompt, and you type the task there.
 There is no task box in the launcher. Permission and skills are set once, in the
 right-hand bar, and apply to the next agent you start:
 
+**The bar's plugins talk to the agent you are using.** A plugin action (update
+the project memory, an action of an installed or project plugin) is pasted into
+the live agent that has focus and sent, exactly like a task from the queue; with
+no live agent, it opens one with that request. The system prompt (project
+memory, skills catalog, profile instructions) now reaches claude, codex and qwen
+even when they start without a task; before, codex and qwen only got it
+prefixed to a first task.
+
 | Setting | What the harness receives |
 |---|---|
 | Harness, model | the binary, `--model` / `-m` (a local server model keeps its gateway route) |
 | Permission (bar) | Read only → claude `plan`, codex `read-only`; Ask → it asks, on screen, in the terminal; Workspace → `acceptEdits` / `workspace-write`, nothing leaves the project; YOLO → everything lifted |
 | Effort | `--effort` (claude), `model_reasoning_effort` (codex, capped at `high`) |
 | Zyvro tools | the project's MCP servers (browser, capture), wired like a chat turn: a config file for claude and qwen, `-c` flags and an env token for codex, env for MiMo. Tokens never reach `ps` |
-| Skills (bar) | the catalog of local skills, in the system prompt (claude, qwen) or ahead of the task |
+| Skills (bar) | the catalog of local skills, in the system prompt: `--append-system-prompt` for claude and qwen, `-c developer_instructions=…` for codex, ahead of the task for MiMo. Switching Skills on while an agent runs sends it the catalog as a message |
 | Instructions (profile) | appended to the system prompt, or ahead of the task for harnesses without one |
 
 When something does carry a task (a bar action such as *Update project memory*,

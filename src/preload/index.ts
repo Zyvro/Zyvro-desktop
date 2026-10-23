@@ -317,6 +317,9 @@ const api = {
   // Shell + Agents : un harnais lancé dans son interface native, avec la
   // configuration choisie, et sa session gardée pour la rouvrir.
   agentShell: {
+    /** Le catalogue de skills, comme message pour un agent déjà lancé ; vide s'il n'y a rien. */
+    skillsBrief: (kind: AgentKind, agentSettings: AgentSettings): Promise<string> =>
+      invoke("agentshell:skills-brief", kind, agentSettings),
     /** Lancer (ou reprendre, si `spec.resume` nomme un enregistrement) un agent dans un shell. */
     open: (
       spec: NativeSpec,

@@ -30,6 +30,7 @@ import { openShellToken, subscribeOpenShell } from "~/state/shellRequests"
 import { askAgent } from "~/state/openRequests"
 import { getLauncher, launcherSpec, subscribeLauncher } from "~/state/launcher"
 import { setTaskRunner } from "~/state/tasks"
+import { setLiveAgentDriver } from "~/state/liveAgent"
 import { GRACE_MS, wrote } from "~/state/shellActivity"
 import { bracketedPaste } from "../../shared/agentShell"
 import { SyncOutput } from "../../shared/syncOutput"
@@ -304,6 +305,27 @@ if (typeof window !== "undefined" && window.zyvro) {
       useWorkspace.getState().setPanel("terminal", true)
       askAgent({ ...launcherSpec(task.prompt), name: task.title, submit: true }, task.id)
       return id
+    },
+  })
+}
+
+// Les plugins de la barre parlent à l'agent qui a la main (state/liveAgent).
+if (typeof window !== "undefined" && window.zyvro) {
+  setLiveAgentDriver({
+    prompt: (text) => {
+      const tab = liveAgentTab()
+      if (!tab?.ptyId) return false
+      const ptyId = tab.ptyId
+      if (tab.record) sentAt.set(tab.record, Date.now())
+      void window.zyvro.terminal.write(ptyId, bracketedPaste(text))
+      setTimeout(() => void window.zyvro.terminal.write(ptyId, "\r"), 300)
+      return true
+    },
+    kind: () => {
+      const tab = liveAgentTab()
+      if (!tab) return null
+      const fiche = tab.record ? recordOf(tab.record) : undefined
+      return fiche?.kind ?? statuses.get(tab.key)?.agente?.spec.kind ?? null
     },
   })
 }

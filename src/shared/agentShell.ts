@@ -352,9 +352,26 @@ export function promptDelivery(kind: AgentKind): "argv" | "paste" {
   return kind === "claude" || speaksCodex(kind) ? "argv" : "paste"
 }
 
-/** Peut-il recevoir un prompt système à part ? Sinon il est préfixé à la tâche. */
+/**
+ * Peut-il recevoir un prompt système à part ? Sinon il est préfixé à la tâche.
+ *
+ * claude et Qwen Code ont `--append-system-prompt`, codex la clé de
+ * configuration `developer_instructions`. Sans ça, ce que les plugins apportent
+ * — le catalogue de skills, la mémoire du projet, les instructions du profil —
+ * ne partait qu'avec une tâche : un codex ou un qwen lancé à vide ne recevait
+ * rien, et activer « Advanced skills » n'y changeait rien.
+ */
 export function hasSystemPromptFlag(kind: AgentKind): boolean {
-  return HARNESSES[kind].envelope === "claude"
+  return HARNESSES[kind].envelope === "claude" || kind === "qwen" || speaksCodex(kind)
+}
+
+/**
+ * Une chaîne TOML « de base » : ce que `-c clé=valeur` de codex lit. Les
+ * échappements de JSON en sont un sous-ensemble valable, sauf DEL, que TOML
+ * refuse brut dans une chaîne.
+ */
+export function tomlString(value: string): string {
+  return JSON.stringify(value).replace(/\x7f/g, "\\u007f")
 }
 
 /**
@@ -471,6 +488,7 @@ export function nativeArgs(input: NativeInput): string[] {
     if (id && !input.assign) args.push("resume")
     args.push(...nativePermission(kind, input.permission))
     if (input.effort) args.push("-c", `model_reasoning_effort=${codexEffort(input.effort)}`)
+    if (input.systemPrompt) args.push("-c", `developer_instructions=${tomlString(input.systemPrompt)}`)
     args.push(...input.aimArgs)
     if (model) args.push("--model", model)
     args.push(...input.mcpArgs)
