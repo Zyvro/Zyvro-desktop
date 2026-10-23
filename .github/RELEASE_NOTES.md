@@ -47,6 +47,19 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.90
+
+**Updates install again on Windows.** Installing an update failed with
+"Could not start the updater: helper exited (0)", and the app offered the same
+update at the next launch. The helper that installs the update after Zyvro
+closes was started in a way that made PowerShell exit before running a line.
+It now starts, survives Zyvro closing and installs the update; a new check runs
+the real script with Windows PowerShell on every build.
+
+If you are on alpha.87 to alpha.89 on Windows, that version cannot update itself:
+install this one once with `Zyvro.Studio.Setup.0.1.0-alpha.90.exe`. Your
+settings and sessions are kept. Updates install by themselves from then on.
+
 ## New in alpha.89
 
 Fixes from a review of alpha.88.
