@@ -665,8 +665,75 @@ export async function init(root: string): Promise<void> {
 // a state the person did not ask for and cannot see.
 async function checkedPaths(root: string, relatives: string[]): Promise<string[]> {
   if (relatives.length === 0) throw new Error("No file was named.")
-  for (const relative of relatives) await resolveInside(root, relative)
+  // Le dossier de chacun, pas chaque fichier : un lien symbolique qui ferait
+  // sortir du projet est un dossier, et vingt mille changements tiennent dans
+  // quelques centaines de dossiers. Vérifier les vingt mille fichiers un à un
+  // coûtait plus que la commande git elle-même.
+  const dirs = new Set<string>()
+  for (const relative of relatives) {
+    if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) {
+      await resolveInside(root, relative)
+    }
+    dirs.add(path.posix.dirname(relative.split(path.sep).join("/")))
+  }
+  const list = [...dirs]
+  for (let i = 0; i < list.length; i += 64) {
+    await Promise.all(list.slice(i, i + 64).map((dir) => resolveInside(root, dir === "." ? "." : dir)))
+  }
   return relatives
+}
+
+// La longueur d'une ligne de commande a une limite : 32 767 caractères sous
+// Windows, de l'ordre du mégaoctet ailleurs. « Stage All » sur vingt mille
+// fichiers la dépassait — git ne partait même pas. Les chemins partent donc par
+// lots, chacun sous une borne prudente, et la même commande est répétée.
+// Sous macOS et Linux la borne est bien plus haute, et chaque lot coûte une
+// relecture complète de l'index par git : de gros lots y comptent.
+const MAX_ARGS_CHARS = process.platform === "win32" ? 24_000 : 200_000
+
+export function pathBatches(paths: string[], budget = MAX_ARGS_CHARS): string[][] {
+  const batches: string[][] = []
+  let current: string[] = []
+  let size = 0
+  for (const p of paths) {
+    const cost = p.length + 3
+    if (current.length > 0 && size + cost > budget) {
+      batches.push(current)
+      current = []
+      size = 0
+    }
+    current.push(p)
+    size += cost
+  }
+  if (current.length > 0) batches.push(current)
+  return batches
+}
+
+// Au-delà de quelques centaines de chemins, git lui-même devient lent : chaque
+// fichier du dépôt est comparé à chaque chemin donné. Mesuré sur vingt mille
+// changements : `git add -- <10 000 chemins>` prend 3 s, `git add --all` sans
+// chemin 0,3 s. Quand la demande couvre TOUT ce que git voit de ce côté-là —
+// c'est le cas de « Stage All », « Unstage All », « Discard All » —, une seule
+// commande sans chemins fait exactement la même chose.
+const MANY_PATHS = 500
+
+async function coversEverything(
+  root: string,
+  paths: string[],
+  side: "staged" | "unstaged"
+): Promise<boolean> {
+  if (paths.length < MANY_PATHS) return false
+  const output = await run(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  const groups = parseStatus(output)
+  if (groups.conflicts.length > 0) return false
+  const asked = new Set(paths)
+  return groups[side].every((change) => asked.has(change.path))
+}
+
+async function runOnPaths(root: string, args: string[], paths: string[], options: RunOptions = {}): Promise<string> {
+  let out = ""
+  for (const batch of pathBatches(paths)) out += await run(root, [...args, "--", ...batch], options)
+  return out
 }
 
 export async function stage(root: string, relatives: string[]): Promise<void> {
@@ -674,7 +741,11 @@ export async function stage(root: string, relatives: string[]): Promise<void> {
   // --all so a deletion stages as a deletion. `git add <deleted file>` alone
   // does record it in modern git, but being explicit means this does not depend
   // on which git is installed.
-  await run(root, ["add", "--all", "--", ...paths])
+  if (await coversEverything(root, paths, "unstaged")) {
+    await run(root, ["add", "--all"])
+    return
+  }
+  await runOnPaths(root, ["add", "--all"], paths)
 }
 
 export async function unstage(root: string, relatives: string[]): Promise<void> {
@@ -688,12 +759,19 @@ export async function unstage(root: string, relatives: string[]): Promise<void> 
   // Found by check-git.mjs on the second call it ever made. It is exactly the
   // state a person is in one minute after clicking Initialize Repository — they
   // stage everything, notice one file they did not mean to, and click the minus.
+  const everything = await coversEverything(root, paths, "staged")
   if (await isUnborn(root)) {
-    await run(root, ["rm", "--cached", "--", ...paths])
+    if (everything) await run(root, ["rm", "--cached", "-r", "--quiet", "--", ":/"])
+    else await runOnPaths(root, ["rm", "--cached"], paths)
+    return
+  }
+  if (everything) {
+    // Tout remettre comme HEAD l'a, pour l'index seulement : le travail reste.
+    await run(root, ["reset", "--quiet"])
     return
   }
   // `restore --staged` rather than `reset`, because it says what it does.
-  await run(root, ["restore", "--staged", "--", ...paths])
+  await runOnPaths(root, ["restore", "--staged"], paths)
 }
 
 // isUnborn is "this repository has no commit yet". Asked of git rather than
@@ -714,21 +792,38 @@ async function isUnborn(root: string): Promise<boolean> {
 // confirmation nobody can style or translate.
 export async function discard(root: string, relatives: string[]): Promise<void> {
   const paths = await checkedPaths(root, relatives)
+  if (await coversEverything(root, paths, "unstaged")) {
+    // Tout le travail non indexé : les fichiers suivis reviennent à l'index,
+    // les autres partent — ni plus ni moins que la liste demandée, puisqu'elle
+    // est toute la liste. `clean` sans -x laisse les fichiers ignorés, que le
+    // statut ne montrait pas non plus.
+    // Sans fichier suivi modifié (un dépôt sans commit, que des fichiers neufs),
+    // git répond 1 « pathspec did not match » : rien à remettre, pas une erreur.
+    await run(root, ["checkout", "--", ":/"], { allow: [1] })
+    await run(root, ["clean", "-f", "-d", "--quiet", "--", ":/"])
+    return
+  }
   // Two different operations behind one word. A tracked file goes back to what
   // the index holds; an untracked file has no such state to go back to and is
   // deleted. Sorting them here rather than asking the renderer to means the
   // panel cannot get the distinction wrong.
-  const tracked: string[] = []
-  const untracked: string[] = []
-  for (const relative of paths) {
-    const known = await run(root, ["ls-files", "--error-unmatch", "--", relative], { allow: [1, 128] })
-    if (known.trim()) tracked.push(relative)
-    else untracked.push(relative)
-  }
-  if (tracked.length > 0) await run(root, ["checkout", "--", ...tracked])
-  for (const relative of untracked) {
-    const absolute = await resolveInside(root, relative)
-    await fs.rm(absolute, { recursive: true, force: true })
+  //
+  // Une seule question à git pour tout le lot — ce qu'il suit parmi ces
+  // chemins — plutôt qu'un `ls-files` par fichier : vingt mille processus pour
+  // « Discard All » sur un gros changement, c'était des minutes.
+  const known = new Set(
+    (await runOnPaths(root, ["ls-files", "-z"], paths)).split("\0").filter(Boolean)
+  )
+  const tracked = paths.filter((relative) => known.has(relative))
+  const untracked = paths.filter((relative) => !known.has(relative))
+  if (tracked.length > 0) await runOnPaths(root, ["checkout"], tracked)
+  for (let i = 0; i < untracked.length; i += 256) {
+    await Promise.all(
+      untracked.slice(i, i + 256).map(async (relative) => {
+        const absolute = await resolveInside(root, relative)
+        await fs.rm(absolute, { recursive: true, force: true })
+      })
+    )
   }
 }
 

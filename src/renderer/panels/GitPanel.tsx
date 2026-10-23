@@ -142,6 +142,13 @@ function Row({ change, actions, onOpen }: { change: Change; actions: RowAction[]
   )
 }
 
+// Combien de lignes un groupe dessine d'abord. Vingt mille changements — un
+// `node_modules` commité par erreur, un générateur lâché sur le dépôt — faisaient
+// monter vingt mille lignes d'un coup, chacune avec ses boutons : la fenêtre
+// gelait au clic sur le panneau. Les actions de groupe (Stage All…) portent
+// toujours sur tout le groupe ; seul l'affichage est mesuré.
+export const ROWS_PAGE = 300
+
 function Group({
   title,
   changes,
@@ -156,7 +163,10 @@ function Group({
   onOpen: (change: Change) => void
 }) {
   const [open, setOpen] = useState(true)
+  const [shown, setShown] = useState(ROWS_PAGE)
   if (changes.length === 0) return null
+  const visibles = changes.length > shown ? changes.slice(0, shown) : changes
+  const reste = changes.length - visibles.length
   return (
     <section className="mt-1">
       <div className="group flex items-center gap-1 px-1">
@@ -182,7 +192,7 @@ function Group({
       </div>
       {open && (
         <div className="pl-1">
-          {changes.map((change) => (
+          {visibles.map((change) => (
             <Row
               key={`${change.staged ? "s" : "w"}:${change.path}`}
               change={change}
@@ -190,6 +200,15 @@ function Group({
               onOpen={() => onOpen(change)}
             />
           ))}
+          {reste > 0 && (
+            <button
+              type="button"
+              className="mx-2 my-1 text-[12px] text-muted-foreground hover:text-foreground"
+              onClick={() => setShown((n) => n + ROWS_PAGE * 4)}
+            >
+              Show {Math.min(reste, ROWS_PAGE * 4)} more · {reste} not shown
+            </button>
+          )}
         </div>
       )}
     </section>

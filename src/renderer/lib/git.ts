@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { CommitOptions } from "../../preload"
+import type { CommitOptions, GitStatus, NoRepository } from "../../preload"
 import { useWorkspace } from "~/state/workspace"
 import { GIT_VERBS, gitFinished, gitStarted } from "~/state/git"
 
@@ -24,6 +24,8 @@ export const gitKey = ["git"] as const
 // be right, and it is also exactly when the person has just finished doing
 // something to the repository somewhere else.
 const POLL_MS = 3000
+const BIG_STATUS = 2000
+const SLOW_POLL_MS = 15_000
 
 // Les dépôts du projet : lui-même et ses sous-dossiers directs qui en sont un.
 // Plus lent que le statut, parce que chaque entrée est un `git status` à elle
@@ -56,7 +58,15 @@ export function useGitStatus(enabled = true) {
     // Une liste qui échoue ne doit pas bloquer le statut : il lit alors la
     // racine, comme avant, et dit lui-même ce qui ne va pas.
     enabled: enabled && Boolean(project) && (selected !== undefined || repos.isError),
-    refetchInterval: POLL_MS,
+    // Un dépôt avec des milliers de changements : chaque relecture fait
+    // traverser des mégaoctets à l'IPC et recompare tout. On y relit moins
+    // souvent — la fenêtre qui reprend le focus et chaque action git relisent
+    // de toute façon tout de suite.
+    refetchInterval: (query) => {
+      const data = query.state.data as GitStatus | NoRepository | undefined
+      const total = data && data.repository ? data.staged.length + data.unstaged.length + data.conflicts.length : 0
+      return total > BIG_STATUS ? SLOW_POLL_MS : POLL_MS
+    },
     refetchOnWindowFocus: true,
     // Keeping the previous answer while the next one is in flight is what stops
     // the list blinking empty every three seconds.
