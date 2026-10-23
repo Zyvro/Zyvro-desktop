@@ -401,7 +401,22 @@ function recu(r) {
     const id = runner.send(target, "claude", "test", { projectDir: projet, workflows: [], daemonOrigin: "http://127.0.0.1:1", daemonToken: "test" }, `conv-${mode}`)
     const child = runner.turns.get(id).child
     let helper = null
-    const alive = (pid) => { try { process.kill(pid, 0); return true } catch { return false } }
+    // Un processus tué dont le parent est mort aussi reste « zombie » tant que
+    // personne ne le ramasse — dans un conteneur sans init qui ramasse, pour
+    // toujours. `kill(pid, 0)` répond alors oui à un mort : sous Linux on lit
+    // son état plutôt que de le croire vivant.
+    const alive = (pid) => {
+      try {
+        process.kill(pid, 0)
+      } catch {
+        return false
+      }
+      try {
+        return !/^State:\s+Z/m.test(readFileSync(`/proc/${pid}/status`, "utf8"))
+      } catch {
+        return true
+      }
+    }
     try {
       const until = Date.now() + 3000
       while (!events.some((e) => e.channel === "agent:text") && Date.now() < until) await new Promise((r) => setTimeout(r, 20))

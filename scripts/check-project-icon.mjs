@@ -123,7 +123,11 @@ app.whenReady().then(async () => {
     // Le résultat dit ce qui s'est passé ; un code de sortie seul ne le dit pas.
     journal = `${err?.stdout ?? ""}${err?.stderr ?? ""}`.trim().slice(-1500)
   }
-  if (!existsSync(path.join(projet, "demarre"))) {
+  // Electron peut démarrer son processus puis renoncer faute d'écran : le
+  // fichier « demarre » existe alors sans que rien n'ait pu tourner. Même cas
+  // qu'une machine sans session graphique.
+  const sansEcran = /Missing X server or \$DISPLAY|platform failed to initialize/.test(journal)
+  if (!existsSync(path.join(projet, "demarre")) || (sansEcran && !existsSync(sortie))) {
     // Une machine qui ne lance pas Electron (pas de session graphique) n'en
     // dit rien sur l'icône : l'essai est sauté, à voix haute.
     console.log(`  skip  recadrage dans Electron — Electron ne démarre pas ici${journal ? `\n        ${journal.split("\n").join("\n        ")}` : ""}`)
