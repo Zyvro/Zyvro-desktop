@@ -47,6 +47,30 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.88
+
+**Zyvro Studio is now a workspace for native agents.** The graph workflow
+editor, the workflows list, the store and the persistent tmux/screen shells are
+gone from the desktop app. Workflows live on zyv.ro. Agents that must outlive the
+window run in the background host introduced in alpha.87. Plugins installed
+earlier from the store can still be removed in Settings › Plugins. Signing in
+(only needed to publish a screen capture) moved to Settings › General.
+
+**The bar's plugins reach the agent you are using.** A plugin action, such as
+updating the project memory or an action of an installed plugin, is pasted into
+the live agent that has focus and sent; with no live agent, it opens one.
+Turning *Advanced skills* on while an agent runs sends it the skills catalog.
+codex and qwen now receive the project memory, the skills catalog and the
+profile instructions even when they start without a task (codex through
+`developer_instructions`, qwen through `--append-system-prompt`).
+
+**Git with 20,000 changes.** Opening the Source Control panel on a repository
+with 20,000 changed files took 2.8 s and then froze the window for 3.5 s on
+every refresh. It now shows the first 300 rows of each group with a *Show more*
+button, and refreshes a large status every 15 s instead of 3. Stage All went
+from 7 s to 0.5 s and Discard All from 16 s to 1.1 s. On Windows, staging
+thousands of files no longer exceeds the command-line limit.
+
 ## New in alpha.87
 
 **Agents keep working while Zyvro is closed or updating.** Agents no longer run
