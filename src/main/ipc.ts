@@ -1788,7 +1788,12 @@ export function registerIpc(onRecents?: () => void): void {
 
     // Tenu par l'hôte de terminaux : l'agent survit à la fermeture de Zyvro. S'il
     // tourne encore, on s'y rattache — rien à reprendre, il n'a jamais arrêté.
-    const detach = sanitizeAgentSettings(context.agentSettings).detachAgents
+    //
+    // Pas sous Windows pour l'instant : ConPTY, lancé depuis l'hôte détaché, rendait
+    // un agent qui se terminait aussitôt (vu sur la machine de build Windows), et
+    // rien ici ne permet encore de le vérifier. Là-bas les agents restent dans
+    // l'application, comme avant — mieux qu'un agent qui meurt au démarrage.
+    const detach = process.platform !== "win32" && sanitizeAgentSettings(context.agentSettings).detachAgents
     const dimLine = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
     if (previous && detach && (await hostedAlive()).has(previous.id)) {
       const session = ws.terminals.create(event.sender, root, cols || 80, rows || 24, null, {

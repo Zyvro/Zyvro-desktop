@@ -194,7 +194,9 @@ Closing an agent's tab or switching its model still stops it. The model gateway
 lives in the host too, at a stable address, so an agent aimed at a provider
 through it keeps its model while Zyvro restarts. The project's MCP servers do
 not: the engine restarts on a new port. Turn it off in Settings › Agents
-(*Keep agents running when Zyvro quits*) to have agents stop with the app.
+(*Keep agents running when Zyvro quits*) to have agents stop with the app. Not on Windows yet: ConPTY started from the
+detached host ended the agent at once on the Windows build machine, so there
+agents still run inside the app.
 
 The chat panel's *Open in terminal* button now opens this too: the thread's model,
 the permission from the chat toolbar (no longer an implicit YOLO) and the

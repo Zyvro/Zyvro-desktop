@@ -111,43 +111,48 @@ const intrus = client("pas-le-bon")
 await intrus.closed
 check("**sans le jeton, la connexion est coupée**", !intrus.messages.some((m) => m.t === "hello"))
 
-// lancer, écrire
-const a = client()
-check("le bon jeton est accueilli", Boolean(await a.until((m) => m.t === "hello")))
-a.send({ t: "spawn", key: "agent-1", ...echo("pret"), cwd: work, cols: 80, rows: 24 })
-await a.until((m) => m.t === "data" && m.data.includes("pret"))
-a.send({ t: "write", key: "agent-1", data: "bonjour\n" })
-await a.until(() => text(a, "agent-1").includes("bonjour"))
-check("l'agent répond", text(a, "agent-1").includes("bonjour"))
-
-// 1. se déconnecter ne tue pas
-a.socket.destroy()
-await new Promise((r) => setTimeout(r, 300))
+// Les agents eux-mêmes : pas sous Windows, où l'application ne les détache pas
+// encore (ConPTY depuis un hôte détaché, voir agentshell:open). Le jeton et la
+// passerelle, eux, sont vérifiés partout.
 const b = client()
 await b.until((m) => m.t === "hello")
-b.send({ t: "list", id: 1 })
-const liste = await b.until((m) => m.t === "list")
-check("**le client parti, l'agent tourne toujours**", liste?.keys.includes("agent-1"), JSON.stringify(liste))
+if (process.platform !== "win32") {
+  // lancer, écrire
+  const a = client()
+  check("le bon jeton est accueilli", Boolean(await a.until((m) => m.t === "hello")))
+  a.send({ t: "spawn", key: "agent-1", ...echo("pret"), cwd: work, cols: 80, rows: 24 })
+  await a.until((m) => m.t === "data" && m.data.includes("pret"))
+  a.send({ t: "write", key: "agent-1", data: "bonjour\n" })
+  await a.until(() => text(a, "agent-1").includes("bonjour"))
+  check("l'agent répond", text(a, "agent-1").includes("bonjour"))
 
-// 2. rejeu
-b.send({ t: "attach", key: "agent-1" })
-const rejeu = await b.until((m) => m.t === "replay")
-check("**le rattachement rejoue l'écran**", rejeu?.data.includes("pret") && rejeu.data.includes("bonjour"), JSON.stringify(rejeu))
-b.send({ t: "write", key: "agent-1", data: "encore\n" })
-check("et le flux reprend", Boolean(await b.until((m) => m.t === "data" && m.data.includes("encore"))))
+  // 1. se déconnecter ne tue pas
+  a.socket.destroy()
+  await new Promise((r) => setTimeout(r, 300))
+  b.send({ t: "list", id: 1 })
+  const liste = await b.until((m) => m.t === "list")
+  check("**le client parti, l'agent tourne toujours**", liste?.keys.includes("agent-1"), JSON.stringify(liste))
 
-// 3. pas de double
-b.send({ t: "spawn", key: "agent-1", ...echo("DOUBLE"), cwd: work, cols: 80, rows: 24 })
-await new Promise((r) => setTimeout(r, 400))
-check("**un second lancement sur une clé vivante se rattache**", !text(b, "agent-1").includes("DOUBLE"))
+  // 2. rejeu
+  b.send({ t: "attach", key: "agent-1" })
+  const rejeu = await b.until((m) => m.t === "replay")
+  check("**le rattachement rejoue l'écran**", rejeu?.data.includes("pret") && rejeu.data.includes("bonjour"), JSON.stringify(rejeu))
+  b.send({ t: "write", key: "agent-1", data: "encore\n" })
+  check("et le flux reprend", Boolean(await b.until((m) => m.t === "data" && m.data.includes("encore"))))
 
-// un agent qui finit
-b.send({ t: "kill", key: "agent-1" })
-check("tué, il le dit", Boolean(await b.until((m) => m.t === "exit" && m.key === "agent-1")))
-b.send({ t: "list", id: 2 })
-check("et il n'est plus vivant", !(await b.until((m) => m.t === "list" && m.id === 2))?.keys.includes("agent-1"))
-b.send({ t: "attach", key: "agent-1" })
-check("se rattacher à un agent fini apprend sa fin", Boolean(await b.until((m) => m.t === "exit" && m.key === "agent-1" && b.messages.filter((x) => x.t === "exit").length >= 2)))
+  // 3. pas de double
+  b.send({ t: "spawn", key: "agent-1", ...echo("DOUBLE"), cwd: work, cols: 80, rows: 24 })
+  await new Promise((r) => setTimeout(r, 400))
+  check("**un second lancement sur une clé vivante se rattache**", !text(b, "agent-1").includes("DOUBLE"))
+
+  // un agent qui finit
+  b.send({ t: "kill", key: "agent-1" })
+  check("tué, il le dit", Boolean(await b.until((m) => m.t === "exit" && m.key === "agent-1")))
+  b.send({ t: "list", id: 2 })
+  check("et il n'est plus vivant", !(await b.until((m) => m.t === "list" && m.id === 2))?.keys.includes("agent-1"))
+  b.send({ t: "attach", key: "agent-1" })
+  check("se rattacher à un agent fini apprend sa fin", Boolean(await b.until((m) => m.t === "exit" && m.key === "agent-1" && b.messages.filter((x) => x.t === "exit").length >= 2)))
+}
 
 // 5. passerelle
 b.send({ t: "gateway", id: 3, key: "lm/mini", aim: { provider: "lmstudio", url: "http://127.0.0.1:1", key: "", model: "mini" } })

@@ -47,7 +47,7 @@ export function SettingsProfiles() {
 
       <SettingRow
         title="Keep agents running when Zyvro quits"
-        hint="Agents run in a small background host instead of inside the app: quitting or updating Zyvro detaches from them and they keep working. When Zyvro opens again it reattaches and replays their screen. Closing an agent's tab still stops it."
+        hint="Agents run in a small background host instead of inside the app: quitting or updating Zyvro detaches from them and they keep working. When Zyvro opens again it reattaches and replays their screen. Closing an agent's tab still stops it. macOS and Linux for now; on Windows agents still stop with the app."
       >
         <Toggle
           label="Keep agents running when Zyvro quits"

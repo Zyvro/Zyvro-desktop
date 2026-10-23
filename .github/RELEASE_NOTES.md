@@ -59,7 +59,7 @@ previous version stay with their host until they finish, and new ones go to the 
 version's. An agent that reaches its model through Zyvro's gateway keeps it while
 the app restarts. The project's MCP tools do not survive a restart yet. To have
 agents stop with the app instead, turn off Settings › Agents › *Keep agents running
-when Zyvro quits*.
+when Zyvro quits*. macOS only for now: on Windows, agents still stop with the app.
 
 **Every open agent comes back.** At startup, all the agents that were open in a
 project reopen. Before, only six did, without saying so, and switching projects
