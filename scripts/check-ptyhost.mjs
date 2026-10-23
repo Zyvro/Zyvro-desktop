@@ -32,7 +32,12 @@ function check(name, ok, detail = "") {
 }
 
 const work = mkdtempSync(path.join(tmpdir(), "zyvro-ptyhost-"))
-const out = path.join(work, "ptyhost.cjs")
+// Le script construit reste DANS le dépôt, comme out/main/ptyhost.js dans
+// l'application : c'est de là que `require("node-pty")` trouve node_modules.
+// Construit dans le dossier temporaire, il ne le trouvait pas, et l'hôte
+// retombait sans bruit sur le repli `script` — que macOS refuse sans terminal.
+const buildDir = mkdtempSync(path.join(process.cwd(), "node_modules", ".zyvro-check-ptyhost-"))
+const out = path.join(buildDir, "ptyhost.cjs")
 await build({
   entryPoints: ["src/main/ptyhost.ts"],
   bundle: true,
@@ -156,6 +161,7 @@ check("et elle répond", reponse?.status === 404)
 b.socket.destroy()
 host.kill()
 rmSync(work, { recursive: true, force: true })
+rmSync(buildDir, { recursive: true, force: true })
 
 console.log(failures === 0 ? "\nLes agents survivent à l'application, et on les retrouve tels qu'ils étaient." : `\n${failures} échec(s)`)
 process.exit(failures === 0 ? 0 : 1)
