@@ -35,7 +35,7 @@ try {
   const mockElectron = path.join(dir, "electron.cjs")
   const mockHelper = path.join(dir, "mock-helper.ts")
   fs.writeFileSync(mockElectron, `const {EventEmitter} = require('node:events'); const app = new EventEmitter(); app.getPath = () => ${JSON.stringify(dir)}; app.quits = 0; app.quit = () => app.quits++; module.exports = { app, net: {}, shell: {} }`)
-  fs.writeFileSync(mockHelper, `export const startUpdateHelper = (...args) => globalThis.updateBootstrap(...args)`)
+  fs.writeFileSync(mockHelper, `export const startUpdateHelper = (...args) => globalThis.updateBootstrap(...args)\nexport const windowsLaunch = (command, args) => { globalThis.viaLauncher = true; return { command, args } }`)
   await build({ entryPoints: [path.join(root, "src/main/updater.ts")], outfile: path.join(dir, "updater.cjs"), bundle: true, format: "cjs", platform: "node", logLevel: "silent",
     external: [mockElectron],
     alias: { electron: mockElectron },
@@ -61,6 +61,7 @@ try {
   assert.equal(app.quits, 0, "a second window must not quit or replace the first helper")
   assert.equal(launchArgs[2], updates)
   assert.ok(launchArgs[1].includes("-Installer"))
+  assert.ok(globalThis.viaLauncher, "Windows must start the helper through windowsLaunch, not detached")
   complete()
   assert.equal(await pending, "quitting")
   assert.equal(app.quits, 1)

@@ -67,7 +67,7 @@ const powershell = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32"
 const appScript = path.join(work, "fake app.mjs")
 fs.writeFileSync(appScript, `
 import fs from "node:fs"
-const { startUpdateHelper } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, "src/main/update-helper.ts")).href)})
+const { startUpdateHelper, windowsLaunch } = await import(${JSON.stringify(pathToFileURL(path.join(ROOT, "src/main/update-helper.ts")).href)})
 const args = [
   "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", ${JSON.stringify(script)},
   "-ProcId", String(process.pid),
@@ -80,7 +80,8 @@ const args = [
   "-Commit", ${JSON.stringify(commit)},
 ]
 try {
-  await startUpdateHelper(${JSON.stringify(powershell)}, args, ${JSON.stringify(updates)}, ${JSON.stringify(ready)}, ${JSON.stringify(bootstrap)})
+  const launch = windowsLaunch(${JSON.stringify(powershell)}, args, ${JSON.stringify(ready)})
+  await startUpdateHelper(launch.command, launch.args, ${JSON.stringify(updates)}, ${JSON.stringify(ready)}, ${JSON.stringify(bootstrap)})
 } catch (err) {
   console.log("HELPER-FAILED " + err.message)
   process.exit(3)

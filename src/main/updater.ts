@@ -5,7 +5,7 @@ import path from "node:path"
 import { spawn } from "node:child_process"
 import { Readable } from "node:stream"
 import { pipeline } from "node:stream/promises"
-import { startUpdateHelper } from "./update-helper"
+import { startUpdateHelper, windowsLaunch } from "./update-helper"
 import { checksumFrom, compareVersions, newestRelease, pickUpdate, type PackageKind, type Release } from "../shared/update"
 
 // Les mises à jour de l'application.
@@ -463,7 +463,8 @@ async function prepareUpdate(file: string, info: UpdateInfo): Promise<"quitting"
       "-Commit", commit,
     ]
     const powershell = path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
-    await startUpdateHelper(powershell, args, dir, ready, path.join(dir, "apply-bootstrap.log"))
+    const launch = windowsLaunch(powershell, args, ready)
+    await startUpdateHelper(launch.command, launch.args, dir, ready, path.join(dir, "apply-bootstrap.log"))
     partir = () => fsBrut().writeFileSync(commit, "quit")
   } else {
     throw new Error("Updates install by themselves on macOS and Windows only.")
