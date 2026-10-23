@@ -89,3 +89,18 @@ jobs:
       - name: Verify the app and its tests
         working-directory: Zyvro-desktop
         run: npm run typecheck
+
+  # La mise à jour Windows avec le vrai PowerShell : rapide, à part, pour qu'une
+  # panne du script se voie sans attendre toute la chaîne.
+  update-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: Zyvro-desktop
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply an update with the real PowerShell script
+        working-directory: Zyvro-desktop
+        run: node --experimental-strip-types scripts/check-update-windows.mjs
