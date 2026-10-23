@@ -535,6 +535,10 @@ export function GitPanel() {
   const unstage = useGitAction(gitActions.unstage)
   const discard = useGitAction(gitActions.discard)
   const branch = useGitAction(gitActions.createBranch)
+  // Le dépôt que montre le panneau quand on clique, et null tant qu'il montre
+  // encore l'ancien (un autre dépôt choisi, sa réponse pas encore là) : une
+  // action envoyée alors partirait avec les chemins de l'un vers l'autre.
+  const shownRoot = useRef<string | null>(null)
 
   if (!project) {
     return <p className="p-3 text-[12px] text-muted-foreground">Open a project to use source control.</p>
@@ -575,7 +579,13 @@ export function GitPanel() {
   }
 
   const repo = status.data
+  const stale = status.isPlaceholderData
+  shownRoot.current = stale ? null : repo.root
+  const when = (run: () => void) => () => {
+    if (shownRoot.current === repo.root) run()
+  }
   const discardWith = async (paths: string[], what: string) => {
+    if (shownRoot.current !== repo.root) return
     // The only irreversible thing in this panel, so it is the only one that
     // asks. Typing the word is deliberate: a dialog you dismiss with Enter is a
     // dialog that does not slow anybody down, which is the whole point here.
@@ -584,7 +594,8 @@ export function GitPanel() {
       label: "This throws the changes away and git cannot bring them back. Type discard to confirm.",
       confirmLabel: "Discard",
     })
-    if (confirmed?.trim().toLowerCase() === "discard") discard.mutate(paths)
+    // Relu après la question : le dépôt a pu changer pendant qu'on tapait.
+    if (confirmed?.trim().toLowerCase() === "discard" && shownRoot.current === repo.root) discard.mutate(paths)
   }
 
   const allUnstaged = repo.unstaged.map((c) => c.path)
@@ -632,35 +643,38 @@ export function GitPanel() {
           cannot clear by clicking a plus, and anything below them is waiting on
           them anyway. */}
       <Group
+        key={`${repo.root}:conflicts`}
         title="Merge Changes"
         changes={repo.conflicts}
         actions={[]}
         rowActions={(change) => [
-          { icon: Plus, label: "Stage as resolved", onClick: () => stage.mutate([change.path]) },
+          { icon: Plus, label: "Stage as resolved", onClick: when(() => stage.mutate([change.path])) },
         ]}
         onOpen={(change) => openDiff(change.path, false)}
       />
 
       <Group
+        key={`${repo.root}:staged`}
         title="Staged Changes"
         changes={repo.staged}
-        actions={[{ icon: Minus, label: "Unstage all", onClick: () => unstage.mutate(allStaged) }]}
+        actions={[{ icon: Minus, label: "Unstage all", onClick: when(() => unstage.mutate(allStaged)) }]}
         rowActions={(change) => [
-          { icon: Minus, label: "Unstage", onClick: () => unstage.mutate([change.path]) },
+          { icon: Minus, label: "Unstage", onClick: when(() => unstage.mutate([change.path])) },
         ]}
         onOpen={(change) => openDiff(change.path, true)}
       />
 
       <Group
+        key={`${repo.root}:changes`}
         title="Changes"
         changes={repo.unstaged}
         actions={[
           { icon: Undo2, label: "Discard all", onClick: () => void discardWith(allUnstaged, "every change") },
-          { icon: Plus, label: "Stage all", onClick: () => stage.mutate(allUnstaged) },
+          { icon: Plus, label: "Stage all", onClick: when(() => stage.mutate(allUnstaged)) },
         ]}
         rowActions={(change) => [
           { icon: Undo2, label: "Discard", onClick: () => void discardWith([change.path], basename(change.path)) },
-          { icon: Plus, label: "Stage", onClick: () => stage.mutate([change.path]) },
+          { icon: Plus, label: "Stage", onClick: when(() => stage.mutate([change.path])) },
         ]}
         onOpen={(change) => openDiff(change.path, false)}
       />

@@ -21,12 +21,12 @@
 // Lancé par `ELECTRON_RUN_AS_NODE=1 <électron> ptyhost.js` (ptyHostClient.ts).
 // Il s'arrête de lui-même quand il n'a plus ni agent ni client.
 import { randomBytes } from "node:crypto"
-import { appendFileSync, chmodSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import net from "node:net"
 import { spawnPty, type PtyLike } from "./ptySpawn"
 import { startGateway, type GatewayHandle } from "./responses"
 import type { Aim } from "../shared/harness"
-import { infoFile, lineReader, PROTOCOL, socketPath, type FromHost, type ToHost } from "./ptyHostProtocol"
+import { infoFile, lineReader, PROTOCOL, socketDir, socketPath, type FromHost, type ToHost } from "./ptyHostProtocol"
 
 const dataDir = process.env.ZYVRO_PTYHOST_DIR ?? ""
 if (!dataDir) {
@@ -65,7 +65,13 @@ type Hosted = {
   clients: Set<net.Socket>
   exited: number | null
   exitedAt: number
+  /** Tué à la demande, pas encore mort : plus personne ne l'écoute ni ne s'y rattache. */
+  killing: boolean
 }
+
+// Un agent qui ne s'arrête pas sur SIGHUP (il finit d'écrire, il ignore le
+// signal) est tué net passé ce délai.
+const KILL_GRACE_MS = 2500
 
 const token = randomBytes(24).toString("hex")
 const sockets = new Set<net.Socket>()
@@ -92,13 +98,15 @@ function remember(entry: Hosted, data: string): void {
 
 function spawn(socket: net.Socket, m: Extract<ToHost, { t: "spawn" }>): void {
   const before = hosted.get(m.key)
-  if (before && before.exited === null) {
+  // Un agent qu'on vient de tuer (changement de modèle) et qui meurt encore :
+  // le nouveau prend sa place sous la même clé, l'ancien finit seul.
+  if (before && before.exited === null && !before.killing) {
     // Déjà vivant : on s'y rattache plutôt que de lancer un second processus
     // sur la même conversation.
     attach(socket, m.key)
     return
   }
-  const entry: Hosted = { pty: null, seen: "", clients: new Set([socket]), exited: null, exitedAt: 0 }
+  const entry: Hosted = { pty: null, seen: "", clients: new Set([socket]), exited: null, exitedAt: 0, killing: false }
   hosted.set(m.key, entry)
   try {
     entry.pty = spawnPty(m.cwd, m.cols, m.rows, m.env, m.file, m.args)
@@ -117,6 +125,9 @@ function spawn(socket: net.Socket, m: Extract<ToHost, { t: "spawn" }>): void {
     entry.exited = code
     entry.exitedAt = Date.now()
     entry.pty = null
+    // Remplacé entre-temps par un agent neuf sous la même clé : rien à dire de
+    // l'ancien, et surtout pas à la place du nouveau.
+    if (hosted.get(m.key) !== entry) return
     log(`exit ${m.key} ${code}`)
     for (const client of entry.clients) send(client, { t: "exit", key: m.key, code })
     entry.clients.clear()
@@ -125,7 +136,7 @@ function spawn(socket: net.Socket, m: Extract<ToHost, { t: "spawn" }>): void {
 
 function attach(socket: net.Socket, key: string): void {
   const entry = hosted.get(key)
-  if (!entry) {
+  if (!entry || entry.killing) {
     send(socket, { t: "gone", key })
     return
   }
@@ -166,12 +177,31 @@ function handle(socket: net.Socket, m: ToHost): void {
       return
     case "kill": {
       const entry = hosted.get(m.key)
-      entry?.pty?.kill()
+      if (!entry?.pty || entry.killing) return
+      // Celui qui tue n'attend pas de fin : l'onglet est fermé, ou un agent neuf
+      // va prendre cette clé. Personne n'écoute plus celui-ci.
+      entry.killing = true
+      entry.clients.clear()
+      const pid = entry.pty.pid
+      entry.pty.kill()
+      setTimeout(() => {
+        if (entry.exited !== null || pid <= 0) return
+        try {
+          process.kill(pid, "SIGKILL")
+        } catch {
+          // Déjà parti.
+        }
+      }, KILL_GRACE_MS).unref?.()
       return
     }
     case "list": {
-      const keys = [...hosted.entries()].filter(([, e]) => e.exited === null).map(([key]) => key)
-      send(socket, { t: "list", id: m.id, keys })
+      const keys: string[] = []
+      const dying: string[] = []
+      for (const [key, e] of hosted) {
+        if (e.exited !== null) continue
+        ;(e.killing ? dying : keys).push(key)
+      }
+      send(socket, { t: "list", id: m.id, keys, dying })
       return
     }
     case "gateway":
@@ -180,7 +210,7 @@ function handle(socket: net.Socket, m: ToHost): void {
   }
 }
 
-const where = socketPath(dataDir, version)
+const where = socketPath(dataDir, version, socketDir())
 
 const server = net.createServer((socket) => {
   let trusted = false
@@ -210,14 +240,32 @@ const server = net.createServer((socket) => {
   })
 })
 
+// Avant d'écouter, une erreur dit qu'on ne pourra pas servir : on s'en va.
+// Après, c'est une connexion qui a mal tourné (trop de fichiers ouverts…) :
+// sortir tuerait tous les agents pour elle.
+let listening = false
 server.on("error", (err) => {
+  if (listening) {
+    log(`server error: ${err.message}`)
+    return
+  }
   log(`listen failed: ${err.message}`)
   process.exit(1)
 })
 
 // Un hôte déjà là (deux lancements de l'application en même temps) : on lui
-// laisse la place. Sinon la socket restante est celle d'un hôte mort.
-const probe = net.connect(where)
+// laisse la place. Sinon la socket restante est celle d'un hôte mort. On
+// frappe là où son fichier dit qu'il écoute — pas forcément `where`, quand le
+// dossier commun n'était pas sûr et qu'il a pris un dossier au hasard.
+function announced(): string {
+  try {
+    const info = JSON.parse(readFileSync(infoFile(dataDir, version), "utf8")) as { socket?: unknown }
+    return typeof info.socket === "string" && info.socket ? info.socket : where
+  } catch {
+    return where
+  }
+}
+const probe = net.connect(announced())
 probe.on("connect", () => {
   probe.destroy()
   log("another host is already listening; leaving")
@@ -232,6 +280,7 @@ probe.on("error", () => {
     }
   }
   server.listen(where, () => {
+    listening = true
     if (process.platform !== "win32") {
       try {
         chmodSync(where, 0o600)

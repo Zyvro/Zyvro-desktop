@@ -47,6 +47,38 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.89
+
+Fixes from a review of alpha.88.
+
+**Source Control in a project inside a larger repository.** When the open
+project is a subfolder of a repository, *Discard All* on 500 files or more
+targeted the whole repository, so files outside the project could be lost.
+Discard now touches only the files it lists, always, and refuses a nested Git
+repository instead of deleting it. Stage, unstage and diff now work from such a
+subfolder; before, they looked for the wrong paths. The panel ignores clicks
+while it still shows the previous repository after you switch.
+
+**Background agents.**
+- Closing an agent tab while the agent is still starting now stops it. Before,
+  it kept running in the background and came back at the next launch.
+- With *Keep agents running when Zyvro quits* turned off, an agent started
+  while it was on is reattached instead of being started a second time on the
+  same conversation.
+- Switching an agent's model no longer reattaches to the old process while it
+  is exiting. An agent that ignores the stop signal is killed after 2.5 s.
+- Background hosts left by an older version now exit once their agents finish.
+  A host that is only slow to answer is no longer forgotten.
+- The background host's socket now lives in a folder only your account can
+  open.
+- A very large system prompt (project memory plus a large skills catalog) is
+  sent with the first task instead of on the command line, where it could stop
+  the agent from starting.
+
+**Terminal scrolling.** Dragging the scrollbar while an agent prints no longer
+snaps back to the bottom, and scrolling back down with the mouse wheel
+re-attaches the view to the bottom.
+
 ## New in alpha.88
 
 **Zyvro Studio is now a workspace for native agents.** The graph workflow

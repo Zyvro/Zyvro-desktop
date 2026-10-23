@@ -106,7 +106,7 @@ s = await git.status(repo)
 check("**jeter une partie ne jette que cette partie**", s.unstaged.length === 1100, String(s.unstaged.length))
 await git.discard(repo, s.unstaged.map((c) => c.path))
 s = await git.status(repo)
-check("**tout jeter (raccourci) remet le dépôt propre**", s.unstaged.length === 0 && s.staged.length === 0)
+check("**tout jeter remet le dépôt propre**", s.unstaged.length === 0 && s.staged.length === 0)
 check("et un fichier ignoré, que la liste ne montrait pas, reste", readFileSync(path.join(repo, "keep.log"), "utf8") === "precious\n")
 
 let refused = false
@@ -116,6 +116,67 @@ try {
   refused = true
 }
 check("un chemin hors du projet est toujours refusé", refused)
+
+// ---- un projet ouvert dans un sous-dossier du dépôt ----------------------------------
+// Le statut rend des chemins relatifs au dépôt. Avant : « Discard All » sur 500
+// fichiers lançait `checkout -- :/` et `clean -- :/`, la racine du DÉPÔT — les
+// fichiers voisins du projet partaient avec.
+{
+  const mono = path.join(work, "mono")
+  const m = (...args) => execFileSync("git", args, { cwd: mono, encoding: "utf8" })
+  mkdirSync(path.join(mono, "app"), { recursive: true })
+  mkdirSync(path.join(mono, "other"), { recursive: true })
+  m("init", "-q")
+  m("config", "user.email", "check@example.test")
+  m("config", "user.name", "check")
+  for (let f = 0; f < 600; f++) writeFileSync(path.join(mono, `app/f${f}.txt`), "v1\n")
+  writeFileSync(path.join(mono, "other/keep.txt"), "v1\n")
+  m("add", "-A")
+  m("commit", "-qm", "init")
+  for (let f = 0; f < 600; f++) writeFileSync(path.join(mono, `app/f${f}.txt`), "v2\n")
+  for (let f = 0; f < 50; f++) writeFileSync(path.join(mono, `app/new${f}.txt`), "n\n")
+  writeFileSync(path.join(mono, "other/keep.txt"), "mine\n")
+  writeFileSync(path.join(mono, "other/fresh.txt"), "mine\n")
+  mkdirSync(path.join(mono, "app/nested"))
+  execFileSync("git", ["init", "-q"], { cwd: path.join(mono, "app/nested") })
+  writeFileSync(path.join(mono, "app/nested/x.txt"), "x\n")
+
+  const app = path.join(mono, "app")
+  let t = await git.status(app)
+  const inApp = t.unstaged.map((c) => c.path).filter((p) => p.startsWith("app/") && p !== "app/nested/")
+  check("le statut d'un sous-projet nomme les chemins depuis le dépôt", inApp.length === 650, String(inApp.length))
+
+  await git.stage(app, inApp)
+  t = await git.status(app)
+  check("**indexer depuis un sous-projet indexe ces fichiers-là**", t.staged.length === 650, String(t.staged.length))
+  check("et pas les voisins du projet", t.unstaged.some((c) => c.path === "other/keep.txt"))
+  const diffText = await git.diff(app, "app/f0.txt", true)
+  check("le diff d'un fichier du sous-projet se lit", /\+v2/.test(diffText))
+  await git.unstage(app, t.staged.map((c) => c.path))
+  t = await git.status(app)
+  check("retirer de l'index depuis un sous-projet", t.staged.length === 0)
+
+  let outside = false
+  try {
+    await git.discard(app, [...inApp, "other/keep.txt"])
+  } catch {
+    outside = true
+  }
+  check("**un chemin hors du sous-projet est refusé, et rien n'est jeté**", outside && readFileSync(path.join(mono, "app/f0.txt"), "utf8") === "v2\n")
+
+  let nested = false
+  try {
+    await git.discard(app, ["app/nested/"])
+  } catch {
+    nested = true
+  }
+  check("**un dépôt imbriqué n'est jamais effacé**", nested && readFileSync(path.join(mono, "app/nested/x.txt"), "utf8") === "x\n")
+
+  await git.discard(app, inApp)
+  t = await git.status(app)
+  check("**tout jeter depuis un sous-projet remet le sous-projet propre**", t.unstaged.filter((c) => c.path.startsWith("app/") && c.path !== "app/nested/").length === 0)
+  check("**et ne touche à rien hors du projet**", readFileSync(path.join(mono, "other/keep.txt"), "utf8") === "mine\n" && readFileSync(path.join(mono, "other/fresh.txt"), "utf8") === "mine\n")
+}
 
 // ---- le panneau -----------------------------------------------------------------------
 {

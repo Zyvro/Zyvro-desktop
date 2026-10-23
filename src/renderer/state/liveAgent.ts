@@ -9,23 +9,34 @@ import type { AgentKind } from "../../shared/harness"
 // la file de tâches. Le panneau Shell sait quel agent a la main ; il s'inscrit
 // ici, et les plugins demandent ici, sans dépendre du composant.
 
-type Driver = {
-  /** Coller ce texte dans l'agent vivant qui a la main, puis Entrée. Faux s'il n'y en a pas. */
+/** Un agent précis, figé au moment où on l'a demandé. */
+export type LiveAgent = {
+  kind: AgentKind | null
+  /** Coller ce texte dans CET agent, puis Entrée. Faux s'il n'est plus là. */
   prompt: (text: string) => boolean
-  /** Le harnais de cet agent, ou null. */
-  kind: () => AgentKind | null
 }
 
-let driver: Driver = { prompt: () => false, kind: () => null }
+type Driver = {
+  /** L'agent vivant qui a la main, ou null. */
+  current: () => LiveAgent | null
+}
+
+let driver: Driver = { current: () => null }
 
 export function setLiveAgentDriver(next: Driver): void {
   driver = next
 }
 
-export function promptLiveAgent(text: string): boolean {
-  return text.trim() ? driver.prompt(text) : false
+/**
+ * L'agent qui a la main MAINTENANT. À garder plutôt qu'à redemander après une
+ * attente : changer d'onglet pendant qu'un catalogue se charge ne doit pas
+ * envoyer la suite à un autre agent que celui qu'on visait.
+ */
+export function liveAgent(): LiveAgent | null {
+  return driver.current()
 }
 
-export function liveAgentKind(): AgentKind | null {
-  return driver.kind()
+export function promptLiveAgent(text: string): boolean {
+  if (!text.trim()) return false
+  return driver.current()?.prompt(text) ?? false
 }

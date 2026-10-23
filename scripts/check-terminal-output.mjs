@@ -207,7 +207,10 @@ const E = mod.SYNC_END
   check("fermer le terminal vide aussi la file", /output\.dispose\(\)/.test(panel))
   // Collé en bas : un redessin d'agent qui efface aussi l'historique (ED3), ou
   // un onglet caché puis remontré, faisait tomber le défilement tout en haut.
-  check("**en bas avant l'écriture, en bas après**", /if \(colle && !enBas\(\)\) term\.scrollToBottom\(\)/.test(panel))
+  check("**en bas avant l'écriture, en bas après**", /if \(colle && !glisse && !enBas\(\)\) term\.scrollToBottom\(\)/.test(panel))
+  // xterm 5.5 n'émet pas `onScroll` pour la molette ni la barre (suppressScrollEvent) :
+  // seul l'événement `scroll` du cadre dit qu'on est revenu en bas, ou qu'on tire la barre.
+  check("**la molette et la barre sont suivies par l'événement scroll du cadre**", /querySelector\("\.xterm-viewport"\)/.test(panel) && /addEventListener\("scroll", suivre/.test(panel))
   check("**on ne décroche du bas que par un geste (molette, barre, Maj+Page↑)**", /event\.deltaY < 0/.test(panel) && /if \(glisse\) colle = enBas\(\)/.test(panel) && /decrocher\(\)/.test(panel))
   check("**un onglet remontré revient en bas s'il y était**", /fitAddon\.fit\(\)\s*\/\/[^\n]*\n\s*recoller\(\)/.test(panel))
   const sched = readFileSync(path.join(ROOT, "src/renderer/lib/frameScheduler.ts"), "utf8")

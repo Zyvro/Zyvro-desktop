@@ -482,12 +482,15 @@ export async function repositories(root: string): Promise<RepositorySummary[]> {
 
 // diff answers with a unified diff for one path, so the renderer can show the
 // two sides. `--no-color` and a fixed context keep the output stable.
+//
+// Le chemin est celui du statut, relatif au dépôt : la commande part de sa racine.
 export async function diff(root: string, relative: string, staged: boolean): Promise<string> {
-  await resolveInside(root, relative)
-  const args = ["diff", "--no-color", "--no-ext-diff"]
+  const scope = await scopeOf(root)
+  const [repoPath] = await checkedPaths(root, scope, [relative])
+  const args = ["--literal-pathspecs", "diff", "--no-color", "--no-ext-diff"]
   if (staged) args.push("--staged")
-  args.push("--", relative)
-  return run(root, args)
+  args.push("--", repoPath)
+  return run(scope.top, args)
 }
 
 // headText : ce que contient un fichier au dernier commit, pour la marge de
@@ -507,10 +510,13 @@ export async function headText(root: string, relative: string): Promise<string |
 // fileAt reads a path as of a revision, which is what a side-by-side diff needs
 // for its left-hand pane. An untracked file has no such side, and asking for
 // one answers empty rather than raising: "nothing there before" is the truth.
+//
+// `rev:chemin` se lit depuis la racine du dépôt, comme les chemins du statut.
 export async function fileAt(root: string, relative: string, revision: string): Promise<string> {
-  await resolveInside(root, relative)
+  const scope = await scopeOf(root)
+  const [repoPath] = await checkedPaths(root, scope, [relative])
   try {
-    return await run(root, ["show", `${revision}:${relative}`])
+    return await run(scope.top, ["show", `${revision}:${repoPath}`])
   } catch {
     return ""
   }
@@ -660,27 +666,54 @@ export async function init(root: string): Promise<void> {
   // person's back is how a tool ends up disagreeing with their own config.
 }
 
+// Les chemins du panneau sont ceux de `git status --porcelain`, toujours
+// relatifs à la racine du DÉPÔT — pas du projet. Pour un projet ouvert dans un
+// sous-dossier (`mono/app` ouvert seul), « app/src/x.ts » n'existe pas depuis
+// le projet. Chaque écriture se fait donc depuis la racine du dépôt, et chaque
+// chemin doit être dans le projet : celui qui en sort est refusé, pas suivi.
+type Scope = { top: string; prefix: string }
+
+async function scopeOf(root: string): Promise<Scope> {
+  const top = (await run(root, ["rev-parse", "--show-toplevel"], { quiet: true })).trim()
+  const projectReal = await fs.realpath(root).catch(() => root)
+  const topReal = await fs.realpath(top).catch(() => top)
+  const rel = path.relative(topReal, projectReal).split(path.sep).join("/")
+  return { top: topReal, prefix: rel.startsWith("..") || path.isAbsolute(rel) ? "" : rel }
+}
+
+// local : ce chemin du dépôt vu depuis le projet, ou une erreur s'il n'y est pas.
+function local(scope: Scope, relative: string): string {
+  const clean = relative.split("\\").join("/")
+  if (!scope.prefix) return clean
+  if (clean.startsWith(`${scope.prefix}/`)) return clean.slice(scope.prefix.length + 1)
+  throw new Error(`${relative} is outside this project (${scope.prefix}).`)
+}
+
 // paths are checked one by one before any of them is sent. All or nothing: a
 // staging call that did half its list and then refused would leave the index in
 // a state the person did not ask for and cannot see.
-async function checkedPaths(root: string, relatives: string[]): Promise<string[]> {
+async function checkedPaths(root: string, scope: Scope, relatives: string[]): Promise<string[]> {
   if (relatives.length === 0) throw new Error("No file was named.")
   // Le dossier de chacun, pas chaque fichier : un lien symbolique qui ferait
   // sortir du projet est un dossier, et vingt mille changements tiennent dans
   // quelques centaines de dossiers. Vérifier les vingt mille fichiers un à un
   // coûtait plus que la commande git elle-même.
   const dirs = new Set<string>()
+  const out: string[] = []
   for (const relative of relatives) {
     if (!relative || path.isAbsolute(relative) || relative.split(/[\\/]/).includes("..")) {
       await resolveInside(root, relative)
     }
-    dirs.add(path.posix.dirname(relative.split(path.sep).join("/")))
+    const inProject = local(scope, relative)
+    if (!inProject) throw new Error(`${relative} is not a file of this project.`)
+    dirs.add(path.posix.dirname(inProject))
+    out.push(scope.prefix ? `${scope.prefix}/${inProject}` : inProject)
   }
   const list = [...dirs]
   for (let i = 0; i < list.length; i += 64) {
-    await Promise.all(list.slice(i, i + 64).map((dir) => resolveInside(root, dir === "." ? "." : dir)))
+    await Promise.all(list.slice(i, i + 64).map((dir) => resolveInside(root, dir)))
   }
-  return relatives
+  return out
 }
 
 // La longueur d'une ligne de commande a une limite : 32 767 caractères sous
@@ -713,43 +746,53 @@ export function pathBatches(paths: string[], budget = MAX_ARGS_CHARS): string[][
 // fichier du dépôt est comparé à chaque chemin donné. Mesuré sur vingt mille
 // changements : `git add -- <10 000 chemins>` prend 3 s, `git add --all` sans
 // chemin 0,3 s. Quand la demande couvre TOUT ce que git voit de ce côté-là —
-// c'est le cas de « Stage All », « Unstage All », « Discard All » —, une seule
-// commande sans chemins fait exactement la même chose.
+// c'est le cas de « Stage All » et « Unstage All » —, une seule commande sans
+// chemins fait exactement la même chose.
+//
+// Seulement quand le projet EST le dépôt : depuis un sous-dossier, « tout ce
+// que git voit » déborde du projet. Et jamais pour « Discard » : c'est la seule
+// action qui ne se rattrape pas, elle ne touche que les chemins nommés.
 const MANY_PATHS = 500
 
 async function coversEverything(
-  root: string,
+  scope: Scope,
   paths: string[],
   side: "staged" | "unstaged"
 ): Promise<boolean> {
-  if (paths.length < MANY_PATHS) return false
-  const output = await run(root, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
+  if (scope.prefix || paths.length < MANY_PATHS) return false
+  const output = await run(scope.top, ["status", "--porcelain=v1", "-z", "--untracked-files=all"])
   const groups = parseStatus(output)
   if (groups.conflicts.length > 0) return false
   const asked = new Set(paths)
   return groups[side].every((change) => asked.has(change.path))
 }
 
-async function runOnPaths(root: string, args: string[], paths: string[], options: RunOptions = {}): Promise<string> {
+// --literal-pathspecs : un fichier nommé `:x` ou `*.log` est ce fichier-là, pas
+// une directive ni un motif — les chemins viennent du statut, tels quels.
+async function runOnPaths(top: string, args: string[], paths: string[], options: RunOptions = {}): Promise<string> {
   let out = ""
-  for (const batch of pathBatches(paths)) out += await run(root, [...args, "--", ...batch], options)
+  for (const batch of pathBatches(paths)) {
+    out += await run(top, ["--literal-pathspecs", ...args, "--", ...batch], options)
+  }
   return out
 }
 
 export async function stage(root: string, relatives: string[]): Promise<void> {
-  const paths = await checkedPaths(root, relatives)
+  const scope = await scopeOf(root)
+  const paths = await checkedPaths(root, scope, relatives)
   // --all so a deletion stages as a deletion. `git add <deleted file>` alone
   // does record it in modern git, but being explicit means this does not depend
   // on which git is installed.
-  if (await coversEverything(root, paths, "unstaged")) {
-    await run(root, ["add", "--all"])
+  if (await coversEverything(scope, paths, "unstaged")) {
+    await run(scope.top, ["add", "--all"])
     return
   }
-  await runOnPaths(root, ["add", "--all"], paths)
+  await runOnPaths(scope.top, ["add", "--all"], paths)
 }
 
 export async function unstage(root: string, relatives: string[]): Promise<void> {
-  const paths = await checkedPaths(root, relatives)
+  const scope = await scopeOf(root)
+  const paths = await checkedPaths(root, scope, relatives)
 
   // Before the first commit there is no HEAD, and "put it back the way HEAD has
   // it" is a question with no answer: `git restore --staged` fails outright with
@@ -759,19 +802,19 @@ export async function unstage(root: string, relatives: string[]): Promise<void> 
   // Found by check-git.mjs on the second call it ever made. It is exactly the
   // state a person is in one minute after clicking Initialize Repository — they
   // stage everything, notice one file they did not mean to, and click the minus.
-  const everything = await coversEverything(root, paths, "staged")
-  if (await isUnborn(root)) {
-    if (everything) await run(root, ["rm", "--cached", "-r", "--quiet", "--", ":/"])
-    else await runOnPaths(root, ["rm", "--cached"], paths)
+  const everything = await coversEverything(scope, paths, "staged")
+  if (await isUnborn(scope.top)) {
+    if (everything) await run(scope.top, ["rm", "--cached", "-r", "--quiet", "--", "."])
+    else await runOnPaths(scope.top, ["rm", "--cached", "--quiet"], paths)
     return
   }
   if (everything) {
     // Tout remettre comme HEAD l'a, pour l'index seulement : le travail reste.
-    await run(root, ["reset", "--quiet"])
+    await run(scope.top, ["reset", "--quiet"])
     return
   }
   // `restore --staged` rather than `reset`, because it says what it does.
-  await runOnPaths(root, ["restore", "--staged"], paths)
+  await runOnPaths(scope.top, ["restore", "--staged"], paths)
 }
 
 // isUnborn is "this repository has no commit yet". Asked of git rather than
@@ -791,18 +834,8 @@ async function isUnborn(root: string): Promise<boolean> {
 // does not ask, because a confirmation buried in the main process is a
 // confirmation nobody can style or translate.
 export async function discard(root: string, relatives: string[]): Promise<void> {
-  const paths = await checkedPaths(root, relatives)
-  if (await coversEverything(root, paths, "unstaged")) {
-    // Tout le travail non indexé : les fichiers suivis reviennent à l'index,
-    // les autres partent — ni plus ni moins que la liste demandée, puisqu'elle
-    // est toute la liste. `clean` sans -x laisse les fichiers ignorés, que le
-    // statut ne montrait pas non plus.
-    // Sans fichier suivi modifié (un dépôt sans commit, que des fichiers neufs),
-    // git répond 1 « pathspec did not match » : rien à remettre, pas une erreur.
-    await run(root, ["checkout", "--", ":/"], { allow: [1] })
-    await run(root, ["clean", "-f", "-d", "--quiet", "--", ":/"])
-    return
-  }
+  const scope = await scopeOf(root)
+  const paths = await checkedPaths(root, scope, relatives)
   // Two different operations behind one word. A tracked file goes back to what
   // the index holds; an untracked file has no such state to go back to and is
   // deleted. Sorting them here rather than asking the renderer to means the
@@ -811,16 +844,35 @@ export async function discard(root: string, relatives: string[]): Promise<void> 
   // Une seule question à git pour tout le lot — ce qu'il suit parmi ces
   // chemins — plutôt qu'un `ls-files` par fichier : vingt mille processus pour
   // « Discard All » sur un gros changement, c'était des minutes.
-  const known = new Set(
-    (await runOnPaths(root, ["ls-files", "-z"], paths)).split("\0").filter(Boolean)
-  )
+  // Passé quelques centaines de chemins, la liste entière de ce que git suit
+  // (sous le projet) coûte moins que la comparaison chemin par chemin.
+  const listed =
+    paths.length < MANY_PATHS
+      ? await runOnPaths(scope.top, ["ls-files", "-z"], paths)
+      : await run(scope.top, ["--literal-pathspecs", "ls-files", "-z", "--", scope.prefix || "."])
+  const known = new Set(listed.split("\0").filter(Boolean))
   const tracked = paths.filter((relative) => known.has(relative))
   const untracked = paths.filter((relative) => !known.has(relative))
-  if (tracked.length > 0) await runOnPaths(root, ["checkout"], tracked)
+  // Un dépôt imbriqué apparaît comme un seul chemin non suivi (`lib/`) : le
+  // jeter effacerait tout un dépôt, historique compris. Refusé avant de rien
+  // toucher, comme le reste de la liste.
+  for (const relative of untracked) {
+    const absolute = path.join(scope.top, relative)
+    const isDir = await fs.lstat(absolute).then((st) => st.isDirectory(), () => false)
+    if (isDir && (await fs.lstat(path.join(absolute, ".git")).then(() => true, () => false))) {
+      throw new Error(`${relative} is a Git repository of its own; it was not deleted.`)
+    }
+  }
+  // `checkout-index` lit les chemins sur son entrée, un par un et tels quels :
+  // ni ligne de commande trop longue, ni comparaison de motifs (`checkout --
+  // <10 000 chemins>` en mettait 8 s).
+  if (tracked.length > 0) {
+    await run(scope.top, ["checkout-index", "--force", "-z", "--stdin"], { stdin: tracked.join("\0") + "\0" })
+  }
   for (let i = 0; i < untracked.length; i += 256) {
     await Promise.all(
       untracked.slice(i, i + 256).map(async (relative) => {
-        const absolute = await resolveInside(root, relative)
+        const absolute = await resolveInside(root, local(scope, relative))
         await fs.rm(absolute, { recursive: true, force: true })
       })
     )

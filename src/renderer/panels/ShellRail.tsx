@@ -4,7 +4,7 @@ import { SHELL_PLUGINS } from "../../shared/plugins"
 import { AgentRail, type AgentRailContext } from "~/plugins"
 import { getLauncher, launcherSpec, openLauncher, setLauncher, subscribeLauncher } from "~/state/launcher"
 import { askAgent } from "~/state/openRequests"
-import { liveAgentKind, promptLiveAgent } from "~/state/liveAgent"
+import { liveAgent, promptLiveAgent } from "~/state/liveAgent"
 import { getSettings } from "~/state/settings"
 import { requestTerminalSplit } from "~/state/terminalSplit"
 import { shellDock, subscribeShellDock, toggleShellDock } from "~/state/shellDock"
@@ -32,12 +32,14 @@ import { RailProject } from "./ProjectIcon"
 
 // Le catalogue de skills, envoyé à l'agent qui a la main quand on les active.
 async function briefLiveAgentOnSkills(): Promise<void> {
-  const kind = liveAgentKind()
-  if (!kind) return
+  // L'agent visé est fixé avant d'attendre le catalogue : la réponse ira à lui,
+  // même si un autre onglet a pris la main entre-temps.
+  const agent = liveAgent()
+  if (!agent?.kind) return
   try {
-    const brief = await window.zyvro.agentShell.skillsBrief(kind, getSettings().agent)
+    const brief = await window.zyvro.agentShell.skillsBrief(agent.kind, getSettings().agent)
     if (!brief) return
-    promptLiveAgent(`${brief}\n\nThese skills are now available in this session. Use them when they fit what I ask; reply with one short line to acknowledge.`)
+    agent.prompt(`${brief}\n\nThese skills are now available in this session. Use them when they fit what I ask; reply with one short line to acknowledge.`)
   } catch {
     // Pas de catalogue : l'agent continue comme avant, le prochain lancé l'aura.
   }

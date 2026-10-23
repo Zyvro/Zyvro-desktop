@@ -1692,7 +1692,10 @@ export function registerIpc(onRecents?: () => void): void {
     // l'application, comme avant — mieux qu'un agent qui meurt au démarrage.
     const detach = process.platform !== "win32" && sanitizeAgentSettings(context.agentSettings).detachAgents
     const dimLine = (line: string): string => `\x1b[2m${line}\x1b[0m\r\n`
-    if (previous && detach && (await hostedAlive()).has(previous.id)) {
+    // Qu'il soit tenu par l'hôte se vérifie même réglage coupé : lancé détaché
+    // avant qu'on le coupe, il tourne toujours, et le relancer ici mettrait un
+    // second processus sur la même conversation.
+    if (previous && (await hostedAlive()).has(previous.id)) {
       const session = ws.terminals.create(event.sender, root, cols || 80, rows || 24, null, {
         agentShell: previous.id,
         hosted: { key: previous.id, spawn: false },
@@ -1840,8 +1843,15 @@ export function registerIpc(onRecents?: () => void): void {
     if (viaCmd && spec.model && !/^[\w.:/@+-]+$/.test(spec.model)) {
       throw new Error(`"${spec.model}" cannot be passed to ${kind} through cmd.exe: use a plain model name.`)
     }
+    // Le prompt système en argument, quand le harnais en a un et qu'il tient :
+    // un seul argument au-delà de 128 Kio fait échouer le lancement sous Linux
+    // (E2BIG), et toute la ligne est bornée à 32 767 caractères sous Windows.
+    // Une mémoire de projet et un gros catalogue de skills y arrivent. Trop long :
+    // il précède la tâche, comme pour un harnais qui n'a pas ce drapeau.
+    const systemFits = Buffer.byteLength(systemPrompt) <= (process.platform === "win32" ? 16_000 : 60_000)
+    const systemAsArg = hasSystemPromptFlag(kind) && !viaCmd && systemFits
     const task =
-      viaCmd && prompt ? `${systemPrompt}\n\n---\n\n${prompt}` : taskText(kind, systemPrompt, prompt)
+      !systemAsArg && prompt && systemPrompt ? `${systemPrompt}\n\n---\n\n${prompt}` : taskText(kind, systemPrompt, prompt)
     // cmd.exe ne sait pas porter un retour à la ligne ni ses propres signes dans
     // un argument ; une très longue tâche n'a rien à faire dans argv non plus.
     const argvOk =
@@ -1854,7 +1864,7 @@ export function registerIpc(onRecents?: () => void): void {
       name: viaCmd ? "" : spec.name || recordTitle({ name: "", prompt: spec.prompt, kind, model: spec.model }),
       sessionId,
       assign,
-      systemPrompt: hasSystemPromptFlag(kind) && !viaCmd ? systemPrompt : "",
+      systemPrompt: systemAsArg ? systemPrompt : "",
       mcpArgs,
       aimArgs: kind === "qwen" ? (aim ? agentModule.aimArgs(aim) : []) : speaksCodex(kind) && aim && vise ? agentModule.codexAimArgs(vise) : [],
       prompt: argvOk ? task : "",

@@ -45,7 +45,18 @@ function hostScript(): string {
   return path.join(__dirname, "ptyhost.js")
 }
 
-function connectTo(info: HostInfo, onMessage: (m: FromHost) => void, onClose: () => void): Promise<net.Socket> {
+/** Le processus vit-il encore ? Faux seulement quand le système dit qu'il n'existe pas. */
+function pidAlive(pid: unknown): boolean {
+  if (typeof pid !== "number" || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
+function connectTo(info: HostInfo, onMessage: (m: FromHost) => void, onClose: (socket: net.Socket) => void): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     const socket = net.connect(info.socket)
     let settled = false
@@ -72,7 +83,7 @@ function connectTo(info: HostInfo, onMessage: (m: FromHost) => void, onClose: ()
     socket.on("close", () => {
       clearTimeout(timer)
       if (!settled) fail(new Error("The terminal host closed the connection."))
-      else onClose()
+      else onClose(socket)
     })
     socket.on("connect", () => socket.write(`${JSON.stringify({ t: "hello", token: info.token } satisfies ToHost)}\n`))
   })
@@ -110,7 +121,11 @@ class HostClient {
       const info = readInfo(this.file)
       if (!info) return null
       try {
-        return await connectTo(info, (m) => this.dispatch(m), () => this.lost())
+        return await connectTo(info, (m) => this.dispatch(m), (closed) => {
+          // Seulement la connexion en cours : celle qu'on a rendue nous-mêmes
+          // (un ancien hôte qu'on n'écoute plus) ne dit pas que l'hôte est tombé.
+          if (closed === this.socket) this.lost()
+        })
       } catch {
         return null
       }
@@ -128,9 +143,11 @@ class HostClient {
       }
     }
     if (!socket) {
-      // Un hôte d'une autre version qui ne répond plus est mort : son fichier
-      // n'a plus rien à dire.
-      if (!this.start) {
+      // Un hôte d'une autre version qui ne répond plus ET dont le processus
+      // n'existe plus est mort : son fichier n'a plus rien à dire. Vivant mais
+      // lent (une machine chargée), on le garde — l'effacer rendait ses agents
+      // injoignables pour de bon.
+      if (!this.start && !pidAlive(readInfo(this.file)?.pid)) {
         try {
           unlinkSync(this.file)
         } catch {
@@ -164,12 +181,11 @@ class HostClient {
     const listener = this.listeners.get(m.key)
     if (!listener) return
     if (m.t === "replay" || m.t === "data") listener.data(m.data)
-    else if (m.t === "exit") {
+    else if (m.t === "error") listener.data(`\r\n\x1b[31m${m.message}\x1b[0m\r\n`)
+    else if (m.t === "exit" || m.t === "gone") {
       this.listeners.delete(m.key)
-      listener.exit(m.code)
-    } else if (m.t === "gone") {
-      this.listeners.delete(m.key)
-      listener.exit(1)
+      listener.exit(m.t === "exit" ? m.code : 1)
+      this.release()
     }
   }
 
@@ -187,8 +203,23 @@ class HostClient {
     this.listeners.set(key, listener)
   }
 
-  forget(key: string): void {
+  /** Ne plus écouter cette clé — seulement si c'est encore `listener` qui l'écoute. */
+  forget(key: string, listener?: KeyListener): void {
+    if (listener && this.listeners.get(key) !== listener) return
     this.listeners.delete(key)
+    this.release()
+  }
+
+  /**
+   * Rendre la connexion à un hôte d'une AUTRE version quand on n'y écoute plus
+   * rien. Une connexion ouverte le garde en vie : interrogé à chaque reprise,
+   * chaque hôte ancien restait là pour toujours, même sans plus aucun agent.
+   */
+  private release(): void {
+    if (this.start || this.listeners.size > 0 || this.requests.size > 0 || this.connecting) return
+    const socket = this.socket
+    this.socket = null
+    socket?.end()
   }
 
   async request(make: (id: number) => ToHost): Promise<FromHost> {
@@ -207,12 +238,19 @@ class HostClient {
 
   /** Les agents vivants chez cet hôte ; vide s'il ne répond pas. */
   async alive(): Promise<string[]> {
-    if (!readInfo(this.file)) return []
+    return (await this.census()).keys
+  }
+
+  /** Les agents vivants, et ceux qu'on a tués et qui meurent encore. */
+  async census(): Promise<{ keys: string[]; dying: string[] }> {
+    if (!readInfo(this.file)) return { keys: [], dying: [] }
     try {
       const answer = await this.request((id) => ({ t: "list", id }))
-      return answer.t === "list" ? answer.keys : []
+      return answer.t === "list" ? { keys: answer.keys, dying: answer.dying ?? [] } : { keys: [], dying: [] }
     } catch {
-      return []
+      return { keys: [], dying: [] }
+    } finally {
+      this.release()
     }
   }
 }
@@ -292,11 +330,17 @@ export async function hostReady(): Promise<void> {
 export async function stopHosted(key: string): Promise<void> {
   const host = await ownerOf(key)
   if (!host) return
+  await host.connect()
   host.send({ t: "kill", key })
-  const until = Date.now() + 3000
+  // L'hôte ne le donne plus pour vivant dès qu'il est tué — on ne s'y rattache
+  // plus, un agent neuf peut prendre la clé — et le tue net s'il traîne. On
+  // attend quand même sa fin : deux processus sur une même conversation
+  // écriraient ensemble dans son fichier.
+  const until = Date.now() + 4000
   while (Date.now() < until) {
+    const { keys, dying } = await host.census()
+    if (!keys.includes(key) && !dying.includes(key)) return
     await new Promise((r) => setTimeout(r, 100))
-    if (!(await host.alive()).includes(key)) return
   }
 }
 
@@ -310,16 +354,25 @@ export async function stopHosted(key: string): Promise<void> {
 export function hostedPty(key: string, spawnWith: Omit<HostSpawn, "t" | "key"> | null): PtyLike {
   const dataCbs: ((d: string) => void)[] = []
   const exitCbs: ((code: number) => void)[] = []
+  // `listening` : l'hôte où l'on écoute cette clé. `host` : le même, une fois
+  // le lancement ou l'attache envoyé — avant, rien d'autre ne doit partir.
+  let listening: HostClient | null = null
   let host: HostClient | null = null
   let done = false
   let detached = false
   let size: { cols: number; rows: number } | null = null
   // Ce qu'on tape pendant qu'on cherche l'hôte part dès qu'on l'a trouvé.
   const early: string[] = []
+  const me: KeyListener = {
+    data: (d) => {
+      for (const cb of dataCbs) cb(d)
+    },
+    exit: (code) => finish(code),
+  }
   const finish = (code: number): void => {
     if (done) return
     done = true
-    host?.forget(key)
+    listening?.forget(key, me)
     for (const cb of exitCbs) cb(code)
   }
   const find = async (): Promise<HostClient> => {
@@ -331,25 +384,27 @@ export function hostedPty(key: string, spawnWith: Omit<HostSpawn, "t" | "key"> |
     if (!owner) throw new Error("This agent is no longer running.")
     return owner
   }
-  void find().then(
-    (found) => {
+  void find()
+    .then(async (found) => {
       if (detached || done) return
-      host = found
-      found.listen(key, {
-        data: (d) => {
-          for (const cb of dataCbs) cb(d)
-        },
-        exit: finish,
-      })
+      // À l'écoute d'abord : une connexion à un ancien hôte sans personne à
+      // l'écoute est rendue, et l'attache partirait dans le vide.
+      listening = found
+      found.listen(key, me)
+      await found.connect()
+      if (detached || done) {
+        found.forget(key, me)
+        return
+      }
       found.send(spawnWith ? { t: "spawn", key, ...spawnWith } : { t: "attach", key })
       if (size) found.send({ t: "resize", key, ...size })
       for (const data of early.splice(0)) found.send({ t: "write", key, data })
-    },
-    (err: Error) => {
+      host = found
+    })
+    .catch((err: Error) => {
       for (const cb of dataCbs) cb(`\r\n\x1b[31m${err.message}\x1b[0m\r\n`)
       finish(1)
-    }
-  )
+    })
   return {
     pid: 0,
     write: (data) => {
@@ -360,14 +415,20 @@ export function hostedPty(key: string, spawnWith: Omit<HostSpawn, "t" | "key"> |
       size = { cols, rows }
       host?.send({ t: "resize", key, cols, rows })
     },
+    // Tué ou détaché, ce pty n'écoute plus sa clé : la fin tardive de l'ancien
+    // processus ne doit pas tomber sur l'onglet neuf qui la reprend.
     kill: () => {
+      detached = true
       if (host) host.send({ t: "kill", key })
-      else void ownerOf(key).then((owner) => owner?.send({ t: "kill", key }))
+      // Pas encore attaché à un agent qui tourne déjà : on le tue quand même.
+      // Un lancement pas encore envoyé, lui, ne partira plus.
+      else if (!spawnWith) void stopHosted(key)
+      listening?.forget(key, me)
     },
     detach: () => {
       detached = true
-      host?.forget(key)
       host?.send({ t: "detach", key })
+      listening?.forget(key, me)
     },
     onData: (cb) => {
       dataCbs.push(cb)

@@ -312,22 +312,26 @@ if (typeof window !== "undefined" && window.zyvro) {
 // Les plugins de la barre parlent à l'agent qui a la main (state/liveAgent).
 if (typeof window !== "undefined" && window.zyvro) {
   setLiveAgentDriver({
-    prompt: (text) => {
+    current: () => {
       const tab = liveAgentTab()
-      if (!tab?.ptyId) return false
-      const ptyId = tab.ptyId
-      if (tab.record) sentAt.set(tab.record, Date.now())
-      void window.zyvro.terminal.write(ptyId, bracketedPaste(text))
-      setTimeout(() => void window.zyvro.terminal.write(ptyId, "\r"), 300)
-      return true
-    },
-    kind: () => {
-      const tab = liveAgentTab()
-      if (!tab) return null
-      const fiche = tab.record ? recordOf(tab.record) : undefined
-      return fiche?.kind ?? statuses.get(tab.key)?.agente?.spec.kind ?? null
+      if (!tab?.ptyId) return null
+      const { ptyId, record, key } = tab
+      const fiche = record ? recordOf(record) : undefined
+      return {
+        kind: fiche?.kind ?? statuses.get(key)?.agente?.spec.kind ?? null,
+        prompt: (text) => {
+          // Toujours ce shell-là : s'il a fermé entre-temps, rien ne part.
+          const now = statuses.get(key)
+          if (now?.ptyId !== ptyId || now.exitCode !== null) return false
+          if (record) sentAt.set(record, Date.now())
+          void window.zyvro.terminal.write(ptyId, bracketedPaste(text))
+          setTimeout(() => void window.zyvro.terminal.write(ptyId, "\r"), 300)
+          return true
+        },
+      }
     },
   })
+
 }
 
 // Les gestes du panneau dont la boîte « Switch agent » a besoin : la fermeture d'un
@@ -542,7 +546,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   }
   const output = new SyncOutput((data) => {
     term.write(data, () => {
-      if (colle && !enBas()) term.scrollToBottom()
+      if (colle && !glisse && !enBas()) term.scrollToBottom()
     })
   }, frameScheduler)
   const onWheel = (event: WheelEvent): void => {
@@ -553,17 +557,26 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     if ((event.target as HTMLElement | null)?.classList?.contains("xterm-viewport")) glisse = true
   }
   const onPointerUp = (): void => {
+    if (glisse && hasSize(node)) colle = enBas()
     glisse = false
   }
-  node.addEventListener("wheel", onWheel, { passive: true })
-  node.addEventListener("pointerdown", onPointerDown)
-  window.addEventListener("pointerup", onPointerUp)
-  const scrolled = term.onScroll(() => {
+  const suivre = (): void => {
     if (!hasSize(node)) return
     if (glisse) colle = enBas()
     else if (enBas()) colle = true
     else if (colle) recoller()
-  })
+  }
+  node.addEventListener("wheel", onWheel, { passive: true })
+  node.addEventListener("pointerdown", onPointerDown)
+  window.addEventListener("pointerup", onPointerUp)
+  // Deux sources : `onScroll` pour ce que xterm fait défiler lui-même (une
+  // sortie, Maj+Page↑), et l'événement `scroll` du cadre pour la molette et la
+  // barre — xterm 5.5 les applique sans émettre `onScroll` (Viewport.ts,
+  // `suppressScrollEvent`). Sans le second, revenir en bas à la molette ne
+  // recollait jamais, et tirer la barre pendant qu'un agent écrit ramenait en bas.
+  const scrolled = term.onScroll(suivre)
+  const cadre = node.querySelector(".xterm-viewport")
+  cadre?.addEventListener("scroll", suivre, { passive: true })
 
   // A login shell prints its banner and prompt immediately, and those events
   // can reach the renderer before the `terminal:create` reply does. Buffering
@@ -691,11 +704,15 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   void ouvrir
     .then((session) => {
       if (disposed) {
-        // The tab was closed while the shell was still being spawned. Nothing
-        // is listening any more, so kill it rather than leak a login shell.
-        void window.zyvro.terminal.dispose(session.id)
+        // Démonté pendant que le shell naissait. Fermé à la main : on le tue,
+        // `close` — un agent détaché survivrait sinon à `dispose`, et revenait au
+        // lancement suivant. Seulement démonté (un autre projet) : `dispose`,
+        // comme pour tout shell de ce projet.
+        if (fermesAvantNaissance.delete(key)) void window.zyvro.terminal.close(session.id)
+        else void window.zyvro.terminal.dispose(session.id)
         return
       }
+      fermesAvantNaissance.delete(key)
       ptyId = session.id
       patchStatus(key, { ptyId: session.id, pty: session.pty })
       // Ce que ce shell a de branché, écrit avant tout le reste : la sortie du
@@ -718,6 +735,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       term.focus()
     })
     .catch((error: unknown) => {
+      fermesAvantNaissance.delete(key)
       const message = error instanceof Error ? error.message : String(error)
       term.write(`\r\n\x1b[31mCould not start a shell: ${message}\x1b[0m\r\n`)
     })
@@ -732,6 +750,7 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     offData()
     offExit()
     scrolled.dispose()
+    cadre?.removeEventListener("scroll", suivre)
     if (rattrapage) cancelAnimationFrame(rattrapage)
     node.removeEventListener("wheel", onWheel)
     node.removeEventListener("pointerdown", onPointerDown)
@@ -742,6 +761,10 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     term.dispose()
   }
 }
+
+// Les onglets fermés à la main avant que leur shell ait répondu : un agent met
+// des secondes à démarrer, et la croix ne doit pas attendre.
+const fermesAvantNaissance = new Set<string>()
 
 // ---------------------------------------------------------------------------
 // One session
@@ -1212,6 +1235,7 @@ export function TerminalPanel(): JSX.Element {
     // parti — et c'est `dispose` seul qui sert quand on change de projet.
     const ptyId = readStatus(key).ptyId
     if (ptyId) void window.zyvro.terminal.close(ptyId)
+    else fermesAvantNaissance.add(key)
     setGroups((current) => {
       if (!groupOf(current, key)) return current
       const { groups: next, fallback } = removeKey(current, key)

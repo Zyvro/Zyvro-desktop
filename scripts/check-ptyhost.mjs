@@ -15,11 +15,14 @@
 //    coupée avant d'avoir pu lancer quoi que ce soit.
 // 5. **La passerelle meurt avec l'application.** Elle vit dans l'hôte, à une
 //    adresse stable, pour qu'un agent détaché garde son modèle.
+// 6. **Changer de modèle reprend l'ancien.** Tué puis relancé sous la même
+//    clé, l'agent neuf ne se rattache pas au mourant ni ne reçoit sa fin ; un
+//    agent qui ignore le signal est tué net.
 //
 //     node scripts/check-ptyhost.mjs
 import { build } from "esbuild"
 import { spawn } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, existsSync, statSync } from "node:fs"
 import net from "node:net"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -73,6 +76,11 @@ const infoPath = path.join(dataDir, "ptyhost-1.2.3-alpha.9.json")
 for (let i = 0; i < 100 && !existsSync(infoPath); i++) await new Promise((r) => setTimeout(r, 50))
 const info = JSON.parse(readFileSync(infoPath, "utf8"))
 check("l'hôte dit où il écoute", typeof info.socket === "string" && info.token.length >= 32)
+if (process.platform !== "win32") {
+  // /tmp est partagé : la socket est dans un dossier à la personne seule.
+  const st = statSync(path.dirname(info.socket))
+  check("**la socket est dans un dossier fermé aux autres comptes**", st.isDirectory() && (st.mode & 0o077) === 0 && st.uid === process.getuid(), (st.mode & 0o777).toString(8))
+}
 
 function client(token = info.token) {
   const socket = net.connect(info.socket)
@@ -145,18 +153,59 @@ if (process.platform !== "win32") {
   await new Promise((r) => setTimeout(r, 400))
   check("**un second lancement sur une clé vivante se rattache**", !text(b, "agent-1").includes("DOUBLE"))
 
-  // un agent qui finit
+  // un agent qu'on tue : il cesse aussitôt d'être donné pour vivant (personne
+  // ne s'y rattache plus), et sa fin n'est envoyée à personne — un agent neuf
+  // peut déjà avoir pris sa clé.
   b.send({ t: "kill", key: "agent-1" })
-  check("tué, il le dit", Boolean(await b.until((m) => m.t === "exit" && m.key === "agent-1")))
   b.send({ t: "list", id: 2 })
-  check("et il n'est plus vivant", !(await b.until((m) => m.t === "list" && m.id === 2))?.keys.includes("agent-1"))
+  const apres = await b.until((m) => m.t === "list" && m.id === 2)
+  check("**tué, il n'est plus vivant pour personne**", apres && !apres.keys.includes("agent-1"), JSON.stringify(apres))
+  for (let i = 0; i < 40; i++) {
+    b.send({ t: "list", id: 100 + i })
+    const l = await b.until((m) => m.t === "list" && m.id === 100 + i)
+    if (!l?.dying?.includes("agent-1")) break
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  check("et sa fin ne part à personne", !b.messages.some((m) => m.t === "exit" && m.key === "agent-1"))
   b.send({ t: "attach", key: "agent-1" })
-  check("se rattacher à un agent fini apprend sa fin", Boolean(await b.until((m) => m.t === "exit" && m.key === "agent-1" && b.messages.filter((x) => x.t === "exit").length >= 2)))
+  check("se rattacher à un agent fini apprend sa fin", Boolean(await b.until((m) => (m.t === "exit" || m.t === "gone") && m.key === "agent-1")))
+
+  // **6. Changer de modèle** : tué puis relancé aussitôt sous la même clé. Le
+  // neuf ne doit ni se rattacher au mourant, ni recevoir sa fin.
+  const tetu = (first) => ({
+    ...echo(first),
+    args: ["-e", `process.on("SIGHUP",()=>{});process.on("SIGTERM",()=>{});process.stdout.write(${JSON.stringify(first + ":")}+process.pid+"\\n");setInterval(()=>{},1000)`],
+  })
+  b.send({ t: "spawn", key: "agent-2", ...tetu("ANCIEN"), cwd: work, cols: 80, rows: 24 })
+  const ancien = await b.until((m) => m.t === "data" && m.key === "agent-2" && /ANCIEN:\d+/.test(m.data))
+  const ancienPid = Number(/ANCIEN:(\d+)/.exec(ancien?.data ?? "")?.[1] ?? 0)
+  b.send({ t: "kill", key: "agent-2" })
+  b.send({ t: "spawn", key: "agent-2", ...echo("NEUF"), cwd: work, cols: 80, rows: 24 })
+  check("**relancé aussitôt après l'avoir tué, c'est un agent neuf**", Boolean(await b.until((m) => m.t === "data" && m.key === "agent-2" && m.data.includes("NEUF"))))
+  // L'ancien ignore SIGHUP : l'hôte le tue net passé son délai.
+  await new Promise((r) => setTimeout(r, 3200))
+  // Un zombie est mort : dans un conteneur, le processus 1 ne ramasse pas
+  // toujours les orphelins.
+  let ancienVivant = ancienPid > 0
+  try {
+    process.kill(ancienPid, 0)
+    if (existsSync(`/proc/${ancienPid}/status`) && /State:\s*Z/.test(readFileSync(`/proc/${ancienPid}/status`, "utf8"))) ancienVivant = false
+  } catch {
+    ancienVivant = false
+  }
+  check("**un agent qui ignore le signal est tué net**", ancienPid > 0 && !ancienVivant, String(ancienPid))
+  check("et sa fin n'est pas tombée sur le neuf", !b.messages.some((m) => m.t === "exit" && m.key === "agent-2"))
+  b.send({ t: "list", id: 3 })
+  const l3 = await b.until((m) => m.t === "list" && m.id === 3)
+  check("et le neuf est le seul vivant sous cette clé", l3?.keys.includes("agent-2") && !l3.dying?.includes("agent-2"), JSON.stringify(l3))
+  b.send({ t: "write", key: "agent-2", data: "toujours\n" })
+  check("et c'est lui qui répond", Boolean(await b.until((m) => m.t === "data" && m.key === "agent-2" && m.data.includes("toujours"))))
+  b.send({ t: "kill", key: "agent-2" })
 }
 
 // 5. passerelle
-b.send({ t: "gateway", id: 3, key: "lm/mini", aim: { provider: "lmstudio", url: "http://127.0.0.1:1", key: "", model: "mini" } })
-const g1 = await b.until((m) => m.t === "gateway" && m.id === 3)
+b.send({ t: "gateway", id: 13, key: "lm/mini", aim: { provider: "lmstudio", url: "http://127.0.0.1:1", key: "", model: "mini" } })
+const g1 = await b.until((m) => m.t === "gateway" && m.id === 13)
 b.send({ t: "gateway", id: 4, key: "lm/autre", aim: { provider: "lmstudio", url: "http://127.0.0.1:1", key: "", model: "autre" } })
 const g2 = await b.until((m) => m.t === "gateway" && m.id === 4)
 check("**la passerelle vit dans l'hôte, à une adresse stable**", Boolean(g1 && g2 && g1.origin === g2.origin && g1.token === g2.token), JSON.stringify([g1, g2]))
