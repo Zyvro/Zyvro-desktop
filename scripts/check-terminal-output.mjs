@@ -210,8 +210,12 @@ const E = mod.SYNC_END
   check("**en bas avant l'écriture, en bas après**", /if \(colle && !glisse && !enBas\(\)\) term\.scrollToBottom\(\)/.test(panel))
   // xterm 5.5 n'émet pas `onScroll` pour la molette ni la barre (suppressScrollEvent) :
   // seul l'événement `scroll` du cadre dit qu'on est revenu en bas, ou qu'on tire la barre.
-  check("**la molette et la barre sont suivies par l'événement scroll du cadre**", /querySelector\("\.xterm-viewport"\)/.test(panel) && /addEventListener\("scroll", suivre/.test(panel))
-  check("**on ne décroche du bas que par un geste (molette, barre, Maj+Page↑)**", /event\.deltaY < 0/.test(panel) && /if \(glisse\) colle = enBas\(\)/.test(panel) && /decrocher\(\)/.test(panel))
+  // Vu dans l'application : xterm arrête la propagation de la molette, et sous un
+  // flux continu son rafraîchissement défaisait la molette et la barre.
+  check("**la molette est écoutée en capture, et passe par scrollLines sur l'écran normal**", /addEventListener\("wheel", onWheel, \{ passive: false, capture: true \}\)/.test(panel) && /term\.scrollLines\(pas\)/.test(panel) && /mouseTrackingMode === "none"/.test(panel))
+  check("**la barre tirée est appliquée au tampon**", /term\.scrollToLine\(ligne\)/.test(panel))
+  check("**la molette et la barre sont suivies par l'événement scroll du cadre**", /querySelector<HTMLElement>\("\.xterm-viewport"\)/.test(panel) && /addEventListener\("scroll", suivre/.test(panel))
+  check("**on ne décroche du bas que par un geste (molette, barre, Maj+Page↑)**", /event\.deltaY < 0/.test(panel) && /if \(glisse\) \{[\s\S]{0,600}?colle = enBas\(\)/.test(panel) && /decrocher\(\)/.test(panel))
   check("**un onglet remontré revient en bas s'il y était**", /fitAddon\.fit\(\)\s*\/\/[^\n]*\n\s*recoller\(\)/.test(panel))
   const sched = readFileSync(path.join(ROOT, "src/renderer/lib/frameScheduler.ts"), "utf8")
   check("l'horloge a un filet quand la fenêtre n'anime plus", /setTimeout\(run, 50\)/.test(sched) && /requestAnimationFrame\(run\)/.test(sched))

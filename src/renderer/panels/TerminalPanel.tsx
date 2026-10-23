@@ -549,8 +549,35 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
       if (colle && !glisse && !enBas()) term.scrollToBottom()
     })
   }, frameScheduler)
+  const cadre = node.querySelector<HTMLElement>(".xterm-viewport")
+  // Sous un flux continu (une ligne par image), xterm 5.5 défait lui-même la
+  // molette et la barre : chaque image, son rafraîchissement remet le cadre à
+  // la ligne du bas et ignore l'événement `scroll` qui suit — le geste est
+  // perdu. Vu dans l'application, un journal qui défile ne se laissait pas
+  // remonter. Ces deux gestes passent donc par `scrollLines`, qui déplace la
+  // vue dans le tampon et dit à xterm qu'on lit plus haut.
+  //
+  // Seulement sur l'écran normal, sans suivi de la souris : sur l'écran
+  // alternatif (une interface plein écran) et quand le programme suit la
+  // souris, la molette est à lui, et xterm la lui transmet.
+  const molettePropre = (): boolean => term.buffer.active.type === "normal" && term.modes.mouseTrackingMode === "none"
+  const hauteurLigne = (): number => {
+    const lignes = term.buffer.active.length
+    return cadre && lignes > 0 ? cadre.scrollHeight / lignes : 0
+  }
+  let reste = 0
   const onWheel = (event: WheelEvent): void => {
     if (event.deltaY < 0 && term.buffer.active.baseY > 0) colle = false
+    if (!molettePropre() || event.ctrlKey || event.deltaY === 0) return
+    const h = hauteurLigne()
+    if (h <= 0) return
+    const lignes = event.deltaMode === 1 ? event.deltaY : event.deltaMode === 2 ? event.deltaY * term.rows : event.deltaY / h
+    reste += lignes
+    const pas = Math.trunc(reste)
+    reste -= pas
+    event.preventDefault()
+    event.stopPropagation()
+    if (pas !== 0) term.scrollLines(pas)
   }
   const onPointerDown = (event: PointerEvent): void => {
     // La barre de défilement : seule cible qui est le cadre de défilement lui-même.
@@ -562,12 +589,23 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   }
   const suivre = (): void => {
     if (!hasSize(node)) return
-    if (glisse) colle = enBas()
-    else if (enBas()) colle = true
+    if (glisse) {
+      // La barre tirée : la ligne qu'elle montre, appliquée au tampon avant que
+      // le prochain rafraîchissement ne la remette en bas.
+      const h = hauteurLigne()
+      if (cadre && h > 0 && molettePropre()) {
+        const ligne = Math.max(0, Math.min(term.buffer.active.baseY, Math.round(cadre.scrollTop / h)))
+        if (ligne !== term.buffer.active.viewportY) term.scrollToLine(ligne)
+      }
+      colle = enBas()
+    } else if (enBas()) colle = true
     else if (colle) recoller()
   }
-  node.addEventListener("wheel", onWheel, { passive: true })
-  node.addEventListener("pointerdown", onPointerDown)
+  // En capture : xterm arrête la propagation de la molette (`cancel`), et
+  // écouté en bulle, ce geste n'arrivait jamais jusqu'ici. Pas passif : on
+  // prend la molette à xterm sur l'écran normal.
+  node.addEventListener("wheel", onWheel, { passive: false, capture: true })
+  node.addEventListener("pointerdown", onPointerDown, { capture: true })
   window.addEventListener("pointerup", onPointerUp)
   // Deux sources : `onScroll` pour ce que xterm fait défiler lui-même (une
   // sortie, Maj+Page↑), et l'événement `scroll` du cadre pour la molette et la
@@ -575,7 +613,6 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
   // `suppressScrollEvent`). Sans le second, revenir en bas à la molette ne
   // recollait jamais, et tirer la barre pendant qu'un agent écrit ramenait en bas.
   const scrolled = term.onScroll(suivre)
-  const cadre = node.querySelector(".xterm-viewport")
   cadre?.addEventListener("scroll", suivre, { passive: true })
 
   // A login shell prints its banner and prompt immediately, and those events
@@ -752,8 +789,8 @@ function mountTerminal(node: HTMLDivElement, key: string): () => void {
     scrolled.dispose()
     cadre?.removeEventListener("scroll", suivre)
     if (rattrapage) cancelAnimationFrame(rattrapage)
-    node.removeEventListener("wheel", onWheel)
-    node.removeEventListener("pointerdown", onPointerDown)
+    node.removeEventListener("wheel", onWheel, { capture: true })
+    node.removeEventListener("pointerdown", onPointerDown, { capture: true })
     window.removeEventListener("pointerup", onPointerUp)
     output.dispose()
     input.dispose()

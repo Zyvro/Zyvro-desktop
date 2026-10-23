@@ -75,9 +75,10 @@ while it still shows the previous repository after you switch.
   sent with the first task instead of on the command line, where it could stop
   the agent from starting.
 
-**Terminal scrolling.** Dragging the scrollbar while an agent prints no longer
-snaps back to the bottom, and scrolling back down with the mouse wheel
-re-attaches the view to the bottom.
+**Terminal scrolling.** While a shell or an agent prints continuously, the
+mouse wheel and the scrollbar now hold where you scrolled; before, the terminal
+pulled the view back to the bottom on every new line. Scrolling back down to
+the end re-attaches the view to the bottom.
 
 ## New in alpha.88
 
