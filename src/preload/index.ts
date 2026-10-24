@@ -171,6 +171,10 @@ const api = {
     /** La mémoire du projet (ZYVRO.md) et son état. */
     memory: (project: string): Promise<MemoryInfo> => invoke("memory:read", project),
     saveMemory: (project: string, text: string): Promise<MemoryInfo> => invoke("memory:write", project, text),
+    /** Le fichier de mémoire du projet : un chemin relatif, ou null pour ZYVRO.md. */
+    setMemoryFile: (project: string, relative: string | null): Promise<MemoryInfo> => invoke("memory:set-file", project, relative),
+    /** Choisir le fichier de mémoire dans le Finder ; null si on annule. */
+    pickMemoryFile: (project: string): Promise<MemoryInfo | null> => invoke("memory:pick-file", project),
     choose: (): Promise<string | null> => invoke("project:choose"),
     create: (): Promise<string | null> => invoke("project:create"),
     open: (dir: string): Promise<OpenResult> => invoke("project:open", dir),

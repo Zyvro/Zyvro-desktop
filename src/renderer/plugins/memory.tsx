@@ -12,8 +12,8 @@ export const memoryPlugin: AgentPlugin = {
       <MemoryButton
         project={ctx.project}
         permission={ctx.permission}
-        onRunAgent={(exists) =>
-          ctx.actions.runInThread(exists ? "Update project memory" : "Create project memory", memoryPrompt(exists))
+        onRunAgent={(exists, file) =>
+          ctx.actions.runInThread(exists ? "Update project memory" : "Create project memory", memoryPrompt(exists, file))
         }
       />
     ) : null,

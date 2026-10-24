@@ -9,6 +9,23 @@
 
 export const MEMORY_FILE = "ZYVRO.md"
 
+/**
+ * Le fichier de mémoire se choisit, par projet : un dépôt qui tient déjà son
+ * CLAUDE.md ou son AGENTS.md n'a pas à en écrire un troisième. Ceux-ci sont
+ * proposés quand ils existent ; n'importe quel fichier texte du projet peut
+ * être choisi.
+ */
+export const MEMORY_SUGGESTIONS = ["ZYVRO.md", "CLAUDE.md", "AGENTS.md", "QWEN.md", "GEMINI.md", ".github/copilot-instructions.md", "README.md"]
+
+/** Un chemin de mémoire acceptable : relatif au projet, sans en sortir. */
+export function memoryFileOk(rel: unknown): rel is string {
+  if (typeof rel !== "string") return false
+  const clean = rel.trim()
+  if (!clean || clean.length > 300 || clean.includes("\0")) return false
+  if (/^([a-zA-Z]:)?[\\/]/.test(clean)) return false
+  return !clean.split(/[\\/]/).some((part) => part === "..")
+}
+
 /** Ce qui part dans le préambule, au plus. Au-delà, l'agent lit le fichier lui-même. */
 export const MEMORY_INJECT_LIMIT = 16_000
 
@@ -23,6 +40,10 @@ export type MemoryInfo = {
   updatedAt: number | null
   /** Commits du dépôt depuis cette écriture ; null hors dépôt git. */
   commitsSince: number | null
+  /** Le fichier de mémoire de ce projet, relatif à sa racine. */
+  file: string
+  /** Les fichiers proposés (MEMORY_SUGGESTIONS) qui existent dans ce projet. */
+  candidates: string[]
 }
 
 const DAY = 86_400_000
@@ -44,26 +65,26 @@ export function memoryState(m: { text: string | null; updatedAt: number | null; 
 }
 
 /** Le passage du préambule qui porte la mémoire, ou "" sans mémoire. */
-export function memoryPreamble(text: string | null): string {
+export function memoryPreamble(text: string | null, file = MEMORY_FILE): string {
   const body = text?.trim() ?? ""
   if (!body) return ""
   const cut = body.length > MEMORY_INJECT_LIMIT
   return [
     "",
-    `Project memory (${MEMORY_FILE} at the project root, maintained with Zyvro Studio). Read it before exploring;`,
+    `Project memory (${file} in the project, maintained with Zyvro Studio). Read it before exploring;`,
     "it can be out of date, so trust the code when the two disagree.",
     "<project-memory>",
-    cut ? `${body.slice(0, MEMORY_INJECT_LIMIT)}\n… (truncated — read ${MEMORY_FILE} for the rest)` : body,
+    cut ? `${body.slice(0, MEMORY_INJECT_LIMIT)}\n… (truncated — read ${file} for the rest)` : body,
     "</project-memory>",
   ].join("\n")
 }
 
 /** Ce qu'on demande à l'agent chargé de l'écrire ou de la remettre à jour. */
-export function memoryPrompt(exists: boolean): string {
+export function memoryPrompt(exists: boolean, file = MEMORY_FILE): string {
   return [
     exists
-      ? `Update ${MEMORY_FILE} at the project root: it is the project memory Zyvro Studio gives every new agent session at startup, and it may have drifted from the code.`
-      : `Create ${MEMORY_FILE} at the project root: the project memory Zyvro Studio gives every new agent session at startup.`,
+      ? `Update ${file} in the project: it is the project memory Zyvro Studio gives every new agent session at startup, and it may have drifted from the code.`
+      : `Create ${file} in the project: the project memory Zyvro Studio gives every new agent session at startup.`,
     "",
     "Explore the repository first: README, CLAUDE.md, AGENTS.md, CONTRIBUTING, package manifests, CI config, then the code itself.",
     "Check that commands exist rather than guessing them.",
@@ -80,7 +101,7 @@ export function memoryPrompt(exists: boolean): string {
     exists
       ? "Keep what is still true, fix what is wrong, drop what is gone, and keep any section the user clearly wrote by hand."
       : "",
-    `Write only ${MEMORY_FILE}; do not change any other file. End with a short summary of what you wrote.`,
+    `Write only ${file}; do not change any other file. End with a short summary of what you wrote.`,
   ]
     .filter((line, i, all) => line !== "" || all[i - 1] !== "")
     .join("\n")

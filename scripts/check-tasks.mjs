@@ -35,7 +35,7 @@ writeFileSync(
     `export * as shared from "${src("src/shared/tasks")}"`,
     `export * as memory from "${src("src/shared/memory")}"`,
     `export { readTasks, writeTasks } from "${src("src/main/tasks")}"`,
-    `export { readMemory, writeMemory, memoryForAgent } from "${src("src/main/memory")}"`,
+    `export { readMemory, writeMemory, memoryForAgent, setMemoryChoicesFile, setMemoryFile, memoryFileFor } from "${src("src/main/memory")}"`,
     `export { argsFor } from "${src("src/main/agent")}"`,
   ].join("\n")
 )
@@ -47,7 +47,7 @@ await build({
   absWorkingDir: ROOT, logLevel: "silent",
 })
 const req = createRequire(import.meta.url)
-const { shared, memory, readTasks, writeTasks, readMemory, writeMemory, memoryForAgent, argsFor } = req(path.join(dir, "h.cjs"))
+const { shared, memory, readTasks, writeTasks, readMemory, writeMemory, memoryForAgent, setMemoryChoicesFile, setMemoryFile, memoryFileFor, argsFor } = req(path.join(dir, "h.cjs"))
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -179,6 +179,27 @@ console.log("la mémoire du projet")
   check("qwen aussi", (qwen[qwen.indexOf("--append-system-prompt") + 1] ?? "").includes("npm test"))
   const sans = argsFor("claude", { projectDir: repo, workflows: [] }, null)
   check("sans mémoire, rien d'ajouté", !sans[sans.indexOf("--append-system-prompt") + 1].includes("project-memory"))
+  // **Le fichier de mémoire se choisit.** Un dépôt qui tient déjà son CLAUDE.md
+  // n'a pas à en écrire un troisième.
+  setMemoryChoicesFile(path.join(mkdtempSync(path.join(os.tmpdir(), "zyvro-memchoice-")), "memory-files.json"))
+  writeFileSync(path.join(repo, "CLAUDE.md"), "# Claude\n\npnpm build")
+  check("les fichiers déjà là sont proposés", (await readMemory(repo)).candidates.includes("CLAUDE.md"))
+  const choisi = await setMemoryFile(repo, "CLAUDE.md")
+  check("**choisi : c'est lui qui est lu**", choisi.file === "CLAUDE.md" && choisi.text.includes("pnpm build") && memoryFileFor(repo) === "CLAUDE.md")
+  check("et c'est lui que reçoit l'agent", (await memoryForAgent(repo)).includes("pnpm build"))
+  const nomme = argsFor("claude", { projectDir: repo, workflows: [], memory: "x", memoryFile: "CLAUDE.md" }, null)
+  check("le préambule nomme le fichier choisi", (nomme[nomme.indexOf("--append-system-prompt") + 1] ?? "").includes("CLAUDE.md in the project"))
+  check("l'agent qui l'entretient écrit CE fichier", memory.memoryPrompt(true, "docs/memo.md").includes("Write only docs/memo.md"))
+  await setMemoryFile(repo, "docs/memo.md")
+  await writeMemory(repo, "# Memo")
+  check("un fichier dans un sous-dossier se crée depuis le panneau", readFileSync(path.join(repo, "docs/memo.md"), "utf8").startsWith("# Memo"))
+  let dehors = false
+  try { await setMemoryFile(repo, "../ailleurs.md") } catch { dehors = true }
+  check("**un fichier hors du projet est refusé**", dehors && memoryFileFor(repo) === "docs/memo.md")
+  check("et un chemin absolu aussi", !memory.memoryFileOk("/etc/passwd") && !memory.memoryFileOk("C:\\x.md"))
+  await setMemoryFile(repo, null)
+  check("revenir à ZYVRO.md", memoryFileFor(repo) === "ZYVRO.md" && (await memoryForAgent(repo)).includes("npm test"))
+
   // codex et MiMo n'ont pas de prompt système : le préambule ouvre la question
   // (agent.ts). Le même `preamble`, donc la même mémoire — vérifié sur la source.
   const agent = readFileSync(path.join(ROOT, "src/main/agent.ts"), "utf8")

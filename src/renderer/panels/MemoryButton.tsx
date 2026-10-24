@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import * as Dialog from "@radix-ui/react-dialog"
-import { Brain, FileText, Loader2, Save, Sparkles, X } from "lucide-react"
+import { Brain, FileText, FolderOpen, Loader2, Save, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { queryClient } from "~/lib/queryClient"
 import { useWorkspace } from "~/state/workspace"
@@ -38,7 +38,7 @@ export function MemoryButton({
   project: string
   permission: Permission
   /** Lance l'agent qui écrit la mémoire, dans une nouvelle conversation. */
-  onRunAgent: (exists: boolean) => void
+  onRunAgent: (exists: boolean, file: string) => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const memory = useQuery({
@@ -51,13 +51,14 @@ export function MemoryButton({
   })
   const info = memory.data
   const state = info?.state ?? "empty"
+  const file = info?.file ?? MEMORY_FILE
   return (
     <>
       <button
         type="button"
         aria-label="Project memory"
         data-memory-state={state}
-        title={`Project memory (${MEMORY_FILE}): ${STATE_LABEL[state]}${info?.commitsSince ? ` — ${info.commitsSince} commit${info.commitsSince > 1 ? "s" : ""} since it was written` : ""}`}
+        title={`Project memory (${file}): ${STATE_LABEL[state]}${info?.commitsSince ? ` — ${info.commitsSince} commit${info.commitsSince > 1 ? "s" : ""} since it was written` : ""}`}
         onClick={() => {
           setOpen(true)
           void memory.refetch()
@@ -93,30 +94,84 @@ export function MemoryButton({
                 </Dialog.Close>
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-                <span className="font-mono text-foreground/80">{MEMORY_FILE}</span> at the project root. Every new agent session
-                receives it at startup, whatever the harness — so it starts knowing the layout, the commands and the gotchas.
+                <span className="font-mono text-foreground/80">{file}</span> in this project. Every new agent session receives it
+                at startup, whatever the harness — so it starts knowing the layout, the commands and the gotchas.
               </Dialog.Description>
               {!info ? (
                 <div className="flex items-center gap-2 py-8 text-[12px] text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 zy-spin" /> Reading {MEMORY_FILE}…
+                  <Loader2 className="h-3.5 w-3.5 zy-spin" /> Reading {file}…
                 </div>
               ) : (
+                <>
+                <MemoryFilePicker project={project} info={info} />
                 <MemoryEditor
-                  key={`${info.updatedAt ?? "none"}`}
+                  key={`${info.file}:${info.updatedAt ?? "none"}`}
                   project={project}
                   info={info}
                   permission={permission}
                   onRunAgent={() => {
                     setOpen(false)
-                    onRunAgent(info.state !== "empty")
+                    onRunAgent(info.state !== "empty", info.file)
                   }}
                 />
+                </>
               )}
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
       )}
     </>
+  )
+}
+
+// Quel fichier sert de mémoire : ZYVRO.md par défaut, ou un fichier que le
+// projet tient déjà (CLAUDE.md, AGENTS.md…), ou n'importe lequel du projet.
+function MemoryFilePicker({ project, info }: { project: string; info: MemoryInfo }): JSX.Element {
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  const apply = async (run: () => Promise<MemoryInfo | null>) => {
+    setBusy(true)
+    setError("")
+    try {
+      const next = await run()
+      if (next) queryClient.setQueryData(memoryKey(project), next)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  // Le fichier actuel d'abord, puis ceux que le projet a déjà, puis ZYVRO.md.
+  const options = [...new Set([info.file, ...info.candidates, MEMORY_FILE])]
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11.5px]">
+      <span className="text-muted-foreground">File</span>
+      <select
+        aria-label="Memory file"
+        value={info.file}
+        disabled={busy}
+        onChange={(e) => void apply(() => window.zyvro.project.setMemoryFile(project, e.target.value === MEMORY_FILE ? null : e.target.value))}
+        className="rounded-md border border-white/[0.08] bg-black/20 px-1.5 py-1 font-mono text-[11.5px] text-foreground outline-none"
+      >
+        {options.map((name) => (
+          <option key={name} value={name}>
+            {name}
+            {info.candidates.includes(name) ? "" : " (not created yet)"}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => void apply(() => window.zyvro.project.pickMemoryFile(project))}
+        className="flex items-center gap-1 rounded-md bg-white/[0.06] px-2 py-1 text-foreground hover:bg-white/[0.1] disabled:opacity-40"
+        title="Use any file of this project as its memory"
+      >
+        <FolderOpen className="h-3 w-3" />
+        Choose a file…
+      </button>
+      {error && <span className="basis-full text-destructive">{error}</span>}
+    </div>
   )
 }
 
@@ -166,7 +221,7 @@ function MemoryEditor({
       />
       {permission === "read" && (
         <p className="mt-2 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-200">
-          The agent is in Read only: it can explore, but not write {MEMORY_FILE}. Switch permissions to Workspace first.
+          The agent is in Read only: it can explore, but not write {info.file}. Switch permissions to Workspace first.
         </p>
       )}
       {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}

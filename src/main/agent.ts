@@ -64,6 +64,8 @@ export type AgentContext = {
   skills?: SkillEntry[]
   /** La mémoire du projet (ZYVRO.md), telle que lue pour ce tour. */
   memory?: string | null
+  /** Le fichier d'où elle vient (ZYVRO.md par défaut), relatif au projet. */
+  memoryFile?: string
 }
 
 // preamble is the few lines every agent gets about where it is. The project's
@@ -74,7 +76,7 @@ export function preamble(ctx: AgentContext): string {
 
   // La mémoire du projet, pour tous les harnais : claude lit CLAUDE.md et codex
   // AGENTS.md d'eux-mêmes, mais ni l'un ni l'autre ne connaît ZYVRO.md.
-  const memory = memoryPreamble(ctx.memory ?? null)
+  const memory = memoryPreamble(ctx.memory ?? null, ctx.memoryFile)
   if (memory) lines.push(memory)
 
   return lines.join("\n")

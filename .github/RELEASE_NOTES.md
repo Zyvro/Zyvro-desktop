@@ -47,6 +47,15 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.93
+
+**Pick your project memory file.** Project memory no longer forces a
+`ZYVRO.md` at the root. In the memory dialog, choose a file the project
+already has (`CLAUDE.md`, `AGENTS.md`, `QWEN.md`, `GEMINI.md`, Copilot
+instructions, the README), or any file of the project with *Choose a file…*.
+Every new agent session receives that file. *Create / Update with an agent*
+writes to it. The choice is kept per project, outside the repository.
+
 ## New in alpha.92
 
 **Choose where things go.** A new *Layout* button in the title bar moves the

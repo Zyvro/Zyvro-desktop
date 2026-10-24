@@ -50,7 +50,7 @@ import * as updater from "./updater"
 import { studioWindows } from "./windows"
 import { clearProjectIcon, readProjectIcon, setProjectIcon } from "./projecticon"
 import { readTasks, writeTasks } from "./tasks"
-import { memoryForAgent, readMemory, writeMemory } from "./memory"
+import { memoryFileFor, memoryForAgent, readMemory, setMemoryChoicesFile, setMemoryFile, writeMemory } from "./memory"
 import { discoverSkills, downloadPack } from "./skills"
 import { listAgentPlugins, pluginSkillDirs, removeInstalledPlugin, type PluginRoot } from "./agentPlugins"
 import { pluginOn } from "../shared/plugins"
@@ -566,7 +566,32 @@ export function registerIpc(onRecents?: () => void): void {
     }
     return written
   })
+  setMemoryChoicesFile(path.join(app.getPath("userData"), "memory-files.json"))
   ipcMain.handle("memory:read", async (event, project: unknown) => readMemory(openProjectFor(event, project)))
+  // Le fichier de mémoire de ce projet : un nom proposé, ou null pour ZYVRO.md.
+  ipcMain.handle("memory:set-file", async (event, project: unknown, relative: unknown) =>
+    setMemoryFile(openProjectFor(event, project), typeof relative === "string" ? relative : null)
+  )
+  // …ou n'importe quel fichier du projet, choisi dans le Finder. Hors du
+  // projet : refusé, rien n'est changé.
+  ipcMain.handle("memory:pick-file", async (event, project: unknown) => {
+    const { win } = requireWorkspace(event)
+    const root = openProjectFor(event, project)
+    const result = await dialog.showOpenDialog(win, {
+      title: "Choose the project memory file",
+      defaultPath: root,
+      properties: ["openFile"],
+      filters: [
+        { name: "Markdown and text", extensions: ["md", "mdx", "markdown", "txt", "rst"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    })
+    const chosen = result.canceled ? undefined : result.filePaths[0]
+    if (!chosen) return null
+    const rel = path.relative(await fs.realpath(root), await fs.realpath(chosen).catch(() => chosen))
+    if (!rel || rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("Choose a file inside the project.")
+    return setMemoryFile(root, rel.split(path.sep).join("/"))
+  })
   ipcMain.handle("memory:write", async (event, project: unknown, text: unknown) =>
     writeMemory(openProjectFor(event, project), typeof text === "string" ? text : "")
   )
@@ -1203,6 +1228,7 @@ export function registerIpc(onRecents?: () => void): void {
       // La mémoire du projet, relue à chaque tour : corrigée entre deux tours,
       // c'est la nouvelle que reçoit le suivant.
       const memory = pluginOn(agentSettings, "memory") ? await memoryForAgent(root) : null
+      const memoryFile = memoryFileFor(root)
 
       return ws.agent.send(
         event.sender,
@@ -1220,6 +1246,7 @@ export function registerIpc(onRecents?: () => void): void {
           daemonOrigin: ws.daemon.current?.origin,
           daemonToken: ws.daemon.current?.token,
           memory,
+          memoryFile,
           // Ce que l'agent a le droit de faire vient du panneau : c'est un
           // choix par conversation, et la personne le voit à côté de son texte.
           // La liste des niveaux vient du module partagé : l'écrire ici une
@@ -1807,10 +1834,11 @@ export function registerIpc(onRecents?: () => void): void {
     const skillsOn = spec.skills && pluginOn(agentSettings, "skills")
     const catalog = skillsOn ? await shellSkills(kind, root, agentSettings) : []
     const memory = pluginOn(agentSettings, "memory") ? await memoryForAgent(root) : null
+    const memoryFile = memoryFileFor(root)
     const target = { daemonOrigin: ws.daemon.current?.origin, daemonToken: ws.daemon.current?.token }
     const sections = [
       agentModule.preamble({
-        projectDir: root, workflows: cleanWorkflows(context.workflows), memory, ...target,
+        projectDir: root, workflows: cleanWorkflows(context.workflows), memory, memoryFile, ...target,
       }),
     ]
     if (spec.instructions.trim()) sections.push(`Additional instructions for this session:\n${spec.instructions.trim()}`)
