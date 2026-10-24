@@ -210,6 +210,16 @@ export async function forgetRecents(): Promise<void> {
   queryClient.setQueryData(recentsKey, recents)
 }
 
+// closeProjectAt : fermer UN projet, pas forcément celui qu'on regarde. La
+// croix d'un onglet de projet inactif fermait le projet ACTIF (closeProject ne
+// connaît que lui) : on bascule d'abord sur celui qu'on ferme.
+export async function closeProjectAt(dir: string): Promise<void> {
+  if (useWorkspace.getState().project?.project !== dir) {
+    if (!(await switchProject(dir))) return
+  }
+  await closeProject()
+}
+
 export async function closeProject(): Promise<void> {
   // Seuls les onglets du projet qu'on ferme partent ; les autres projets
   // gardent les leurs. `requestCloseTabs` demande pour les fichiers modifiés.

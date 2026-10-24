@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { findZones, zoneAt, ZONE_ATTR, type Zone } from "~/panels/ShotPicker"
+import { subscribeLayout } from "~/state/layoutPrefs"
 
 // Le champ de vision sous le curseur, dit d'un liseré.
 //
@@ -41,7 +42,11 @@ export function ZoneHover() {
     }
     window.addEventListener("mousemove", onMove, true)
     document.addEventListener("mouseleave", onLeave)
+    // Les panneaux changent de côté sous une souris immobile : le liseré
+    // mesuré avant resterait sur une place qui n'est plus la leur.
+    const offLayout = subscribeLayout(onLeave)
     return () => {
+      offLayout()
       if (frame) window.cancelAnimationFrame(frame)
       window.removeEventListener("mousemove", onMove, true)
       document.removeEventListener("mouseleave", onLeave)

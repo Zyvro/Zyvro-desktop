@@ -16,6 +16,8 @@ import { EditorArea } from "~/panels/EditorArea"
 import { TerminalPanel } from "~/panels/TerminalPanel"
 import { ShellRail } from "~/panels/ShellRail"
 import { shellDock, subscribeShellDock } from "~/state/shellDock"
+import { layoutPrefs, setLayout, subscribeLayout, type Side } from "~/state/layoutPrefs"
+import { ProjectsPanel } from "~/panels/ProjectsPanel"
 import { ShotOverlay } from "~/panels/ShotPicker"
 import { ZoneHover } from "~/panels/ZoneHover"
 import { StatusBar } from "~/panels/StatusBar"
@@ -58,7 +60,7 @@ function clamp(value: number, [min, max]: readonly [number, number]): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function ActivityBar() {
+function ActivityBar({ side, style }: { side: Side; style?: React.CSSProperties }) {
   const panels = useWorkspace((s) => s.panels)
   const setPanel = useWorkspace((s) => s.setPanel)
   const openProviders = useWorkspace((s) => s.openProviders)
@@ -106,7 +108,13 @@ function ActivityBar() {
   ]
 
   return (
-    <nav className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] bg-background py-2">
+    <nav
+      className={cn(
+        "flex w-12 shrink-0 flex-col items-center gap-1 border-white/[0.06] bg-background py-2",
+        side === "left" ? "border-r" : "border-l"
+      )}
+      style={style}
+    >
       {items.map(({ icon: Icon, label, active, onClick }) => (
         <button
           key={label}
@@ -167,6 +175,22 @@ export default function App() {
   const [shellW, setShellW] = useState(520)
   const [shellH, setShellH] = useState(260)
   const dock = useSyncExternalStore(subscribeShellDock, shellDock, () => "right" as const)
+  const prefs = useSyncExternalStore(subscribeLayout, layoutPrefs, layoutPrefs)
+  const side = prefs.sidebar
+  // Chaque pièce garde sa place dans l'arbre et ne change que d'ORDRE (CSS
+  // `order`) : déplacer un composant React le remonterait, et l'explorateur
+  // perdrait ses dossiers dépliés, le Shell ses processus.
+  //   projets à gauche | barre d'activité, fichiers | code + Shell | fichiers,
+  //   barre d'activité | projets à droite | barre du Shell
+  const order = {
+    projects: prefs.projects === "left" ? 1 : 60,
+    projectsSplit: prefs.projects === "left" ? 2 : 59,
+    activity: side === "left" ? 10 : 53,
+    sidebar: side === "left" ? 11 : 52,
+    sidebarSplit: side === "left" ? 12 : 51,
+    centre: 30,
+    rail: 70,
+  }
 
   return (
     <div className="flex h-full flex-col bg-background text-foreground">
@@ -176,7 +200,23 @@ export default function App() {
           dernière visée, et c'est elle qu'on veut quand on montre l'atelier
           plutôt qu'un panneau. */}
       <div data-shot-zone="Window" className="flex min-h-0 flex-1">
-        <ActivityBar />
+        {prefs.projects !== "top" && (
+          <>
+            <div className="min-h-0 shrink-0" style={{ order: order.projects, width: prefs.projectsWidth }}>
+              <ProjectsPanel side={prefs.projects} />
+            </div>
+            <div style={{ order: order.projectsSplit }} className="flex">
+              <Splitter
+                orientation="vertical"
+                onResize={(delta) =>
+                  setLayout({ projectsWidth: layoutPrefs().projectsWidth + (prefs.projects === "left" ? delta : -delta) })
+                }
+              />
+            </div>
+          </>
+        )}
+
+        <ActivityBar side={side} style={{ order: order.activity }} />
 
         {view && (
           <>
@@ -185,8 +225,11 @@ export default function App() {
                 choix, sans que rien d'autre ait à le savoir. */}
             <aside
               data-shot-zone={view === "explorer" ? "Explorer" : view === "search" ? "Search" : "Source control"}
-              className="flex min-h-0 shrink-0 flex-col border-r border-white/[0.06] bg-background"
-              style={{ width: sidebar }}
+              className={cn(
+                "flex min-h-0 shrink-0 flex-col border-white/[0.06] bg-background",
+                side === "left" ? "border-r" : "border-l"
+              )}
+              style={{ width: sidebar, order: order.sidebar }}
             >
               {view === "search" ? (
                 <SearchPanel />
@@ -207,10 +250,12 @@ export default function App() {
                 <GitPanel />
               )}
             </aside>
-            <Splitter
-              orientation="vertical"
-              onResize={(delta) => setSidebar((w) => clamp(w + delta, LIMITS.sidebar))}
-            />
+            <div style={{ order: order.sidebarSplit }} className="flex">
+              <Splitter
+                orientation="vertical"
+                onResize={(delta) => setSidebar((w) => clamp(w + (side === "left" ? delta : -delta), LIMITS.sidebar))}
+              />
+            </div>
           </>
         )}
 
@@ -220,7 +265,10 @@ export default function App() {
             remonté, et remonter le panneau tuerait les processus de ses
             onglets — un `claude` en plein travail, un serveur de dev.
             Masqué, jamais démonté, pour la même raison. */}
-        <div className={cn("flex min-h-0 min-w-0 flex-1", dock === "right" ? "flex-row" : "flex-col")}>
+        <div
+          className={cn("flex min-h-0 min-w-0 flex-1", dock === "right" ? "flex-row" : "flex-col")}
+          style={{ order: order.centre }}
+        >
           <main
             data-shot-zone={layout.centre ? undefined : "Editor"}
             className={cn("flex min-h-0 min-w-0 flex-1 flex-col", layout.centre && "hidden")}
@@ -253,7 +301,9 @@ export default function App() {
         </div>
 
         {/* La barre latérale droite : plugins de l'agent et logo du projet. */}
-        <ShellRail />
+        <div className="flex min-h-0" style={{ order: order.rail }}>
+          <ShellRail />
+        </div>
       </div>
 
       <StatusBar />

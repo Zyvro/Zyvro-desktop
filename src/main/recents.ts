@@ -118,3 +118,41 @@ export function rememberFile(project: string, rel: string): boolean {
 export function forgetRecentFiles(): void {
   saveAll({})
 }
+
+// ---- les projets ouverts à la fermeture --------------------------------------------
+//
+// Demandé : « quand on ferme / rouvre Zyvro, ouvrir les projets qui étaient
+// déjà ouverts ». Écrit à chaque ouverture, fermeture ou bascule faite par la
+// personne — jamais à la fermeture de la fenêtre, qui défait tous les projets
+// un à un et laisserait une liste vide.
+
+export type OpenSession = { projects: string[]; active: string | null }
+
+function sessionFile(): string {
+  return path.join(app.getPath("userData"), "open-projects.json")
+}
+
+export function saveSession(session: OpenSession): void {
+  try {
+    fs.mkdirSync(path.dirname(sessionFile()), { recursive: true })
+    const projects = [...new Set(session.projects)].slice(0, 32)
+    const active = session.active && projects.includes(session.active) ? session.active : null
+    fs.writeFileSync(sessionFile(), JSON.stringify({ projects, active }, null, 2), "utf8")
+  } catch {
+    // Comme la liste des récents : un confort, jamais un obstacle.
+  }
+}
+
+/** Les projets à rouvrir, ceux qui existent encore. */
+export function loadSession(): OpenSession {
+  try {
+    const raw = JSON.parse(fs.readFileSync(sessionFile(), "utf8")) as Partial<OpenSession>
+    const projects = (Array.isArray(raw.projects) ? raw.projects : [])
+      .filter((p): p is string => typeof p === "string" && p.length > 0 && fs.existsSync(p))
+      .slice(0, 32)
+    const active = typeof raw.active === "string" && projects.includes(raw.active) ? raw.active : null
+    return { projects, active }
+  } catch {
+    return { projects: [], active: null }
+  }
+}

@@ -47,6 +47,31 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.92
+
+**Choose where things go.** A new *Layout* button in the title bar moves the
+files sidebar (explorer, search, source control) to the left or the right.
+It can also show your projects as tabs at the top, as before, or as a
+*Projects* panel on the left or the right. The panel gives each project its
+full name and the folder that holds it, so two `api` folders no longer look
+the same. It lists recent projects underneath, opened with one click, and
+offers a filter once the list grows. Middle-click a project to close it. Your
+choice is remembered.
+
+**Your projects come back.** Quitting and reopening Zyvro now reopens every
+project that was open, in the same order, on the one you were looking at.
+Their agents come back with them.
+
+**Fixes**
+- On macOS, a full-screen Zyvro window could leave its space, land on the
+  desktop without its close/minimize/zoom buttons and refuse to go full screen
+  again. Taking a screenshot with Zyvro's capture tool briefly switched the
+  whole app's process type, which macOS answers by pulling full-screen windows
+  out of their space. The capture no longer does that. The window also asks
+  for its buttons back whenever it regains focus or leaves full screen.
+- Closing a project tab that was not the active one closed the active
+  project instead.
+
 ## New in alpha.91
 
 **Agent sessions name themselves.** An agent opened without a task was called

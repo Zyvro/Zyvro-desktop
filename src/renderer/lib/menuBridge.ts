@@ -1,5 +1,5 @@
 import { focusedTabId, useWorkspace } from "~/state/workspace"
-import { closeProject, createProject, forgetRecents, openProject } from "./project"
+import { closeProject, createProject, forgetRecents, openProject, switchProject } from "./project"
 import { askSearchFocus } from "~/state/reveal"
 import { engineStopped } from "~/state/engine"
 import { saveTab } from "~/state/savers"
@@ -134,6 +134,16 @@ window.zyvro.menu.onCommandPalette(() => {
 })
 window.zyvro.menu.onOpenPath((dir) => {
   void openProject(dir)
+})
+// Les projets ouverts à la dernière fermeture : un à un — chacun démarre son
+// moteur —, puis celui qu'on regardait. Un dossier qui n'ouvre plus est passé.
+window.zyvro.menu.onRestoreProjects((session) => {
+  void (async () => {
+    for (const dir of session.projects) {
+      await openProject(dir).catch(() => null)
+    }
+    if (session.active) await switchProject(session.active).catch(() => null)
+  })()
 })
 window.zyvro.menu.onCloseProject(() => {
   void closeProject()

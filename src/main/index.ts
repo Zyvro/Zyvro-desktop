@@ -3,7 +3,7 @@ import path from "node:path"
 import { askHost, browserHost, registerIpc, disposeWorkspace, workspaceFor } from "./ipc"
 import { startShotsServer } from "./shots"
 import { BROWSER_PARTITION, noteRequest } from "./browser"
-import { loadRecents, recentFiles } from "./recents"
+import { loadRecents, loadSession, recentFiles } from "./recents"
 import { bundledBinary } from "./daemon"
 import { prepare as prepareCliPath, scrubParentAgentEnv } from "./cli"
 import { appContextTemplate } from "./contextmenu"
@@ -217,12 +217,24 @@ function createWindow(): BrowserWindow {
   // écran ; une fenêtre qui s'ouvre directement dans un espace plein écran
   // (macOS s'en souvient) ne passe jamais par là. On le redemande donc à
   // l'entrée, et au premier affichage.
+  //
+  // Et à chaque retour : en sortie de plein écran, quand la fenêtre reprend le
+  // focus ou réapparaît. Une fenêtre restée un jour entier sans ses boutons
+  // (sortie de son espace plein écran par une bascule de macOS) ne se
+  // réagrandissait plus ; les redemander ne coûte rien quand ils sont là.
   if (process.platform === "darwin") {
     const boutons = () => {
-      if (!win.isDestroyed()) win.setWindowButtonVisibility(true)
+      if (win.isDestroyed()) return
+      win.setWindowButtonVisibility(true)
+      if (!win.isFullScreenable()) win.setFullScreenable(true)
+      if (!win.isMaximizable()) win.setMaximizable(true)
+      if (!win.isMinimizable()) win.setMinimizable(true)
     }
     win.on("enter-full-screen", boutons)
-    win.once("show", boutons)
+    win.on("leave-full-screen", boutons)
+    win.on("focus", boutons)
+    win.on("show", boutons)
+    win.on("restore", boutons)
   }
 
   // Ce qu'une <webview> a le droit d'être, décidé ici et pas dans le HTML qui
@@ -330,7 +342,17 @@ function createWindow(): BrowserWindow {
   // A folder named on the command line opens once the renderer is listening.
   // Sending it earlier would be shouting at a window with no React in it yet.
   const startupFolder = folderFromArgv(process.argv)
-  if (startupFolder) {
+  // Sans dossier nommé : les projets ouverts à la dernière fermeture, une fois,
+  // dans la première fenêtre du lancement. Une fenêtre ouverte ensuite (le menu
+  // « New Window ») part de l'accueil, comme avant.
+  const session = !startupFolder && !sessionRestored ? loadSession() : null
+  sessionRestored = true
+  if (session && session.projects.length > 0) {
+    workspaceFor(win).startupPending = true
+    win.webContents.once("did-finish-load", () => {
+      win.webContents.send("menu:restore-projects", session)
+    })
+  } else if (startupFolder) {
     // Dit tout de suite, pas à l'envoi : la fenêtre demande un moteur dès
     // qu'elle est montée, et ce drapeau est ce qui l'empêche d'en démarrer un
     // second qui se battrait avec celui-ci.
@@ -347,6 +369,8 @@ function createWindow(): BrowserWindow {
   }
   return win
 }
+
+let sessionRestored = false
 
 // openStudio : une fenêtre de Studio devant, ouverte s'il n'y en a plus. Ce
 // que demande l'icône de capture — « Open Zyvro Studio », ses réglages.

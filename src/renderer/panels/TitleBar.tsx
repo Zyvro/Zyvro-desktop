@@ -1,10 +1,12 @@
 import { useSyncExternalStore } from "react"
-import { Code2, FolderOpen, PanelBottom, PanelLeft, PanelRight, Plus, Sparkles, X } from "lucide-react"
+import * as Menu from "@radix-ui/react-dropdown-menu"
+import { Check, Code2, FolderOpen, LayoutPanelLeft, PanelBottom, PanelLeft, PanelRight, Plus, Sparkles, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useWorkspace, type Mode } from "~/state/workspace"
 import { ProjectIcon } from "~/panels/ProjectIcon"
 import { shellDock, subscribeShellDock } from "~/state/shellDock"
-import { closeProject, newZyvro, openProject, switchProject } from "~/lib/project"
+import { closeProjectAt, newZyvro, openProject, switchProject } from "~/lib/project"
+import { layoutPrefs, setLayout, subscribeLayout, type LayoutPrefs } from "~/state/layoutPrefs"
 
 // The native title bar is hidden so the window reads as an editor. That makes
 // this strip responsible for two things the OS normally handles: giving the
@@ -118,7 +120,7 @@ function ProjectChip({
           active ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-60 hover:!opacity-100"
         )}
         title={`Close ${name}`}
-        onClick={() => void closeProject()}
+        onClick={() => void closeProjectAt(path)}
       >
         <X className="h-3 w-3" />
       </button>
@@ -150,6 +152,47 @@ function isFullScreen(): boolean {
   return plein
 }
 
+// Où vont les fichiers et les projets : un menu plutôt que des réglages
+// enfouis, parce qu'on essaie une disposition et qu'on juge à l'œil.
+function LayoutMenu() {
+  const prefs = useSyncExternalStore(subscribeLayout, layoutPrefs, layoutPrefs)
+  const item = (label: string, on: boolean, change: Partial<LayoutPrefs>) => (
+    <Menu.Item
+      key={label}
+      onSelect={() => setLayout(change)}
+      className="flex cursor-default items-center gap-2 rounded px-2 py-1 text-[12px] outline-none data-[highlighted]:bg-white/[0.08]"
+    >
+      <Check className={cn("h-3.5 w-3.5", on ? "opacity-100" : "opacity-0")} />
+      {label}
+    </Menu.Item>
+  )
+  const titre = (text: string) => (
+    <Menu.Label className="px-2 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{text}</Menu.Label>
+  )
+  return (
+    <Menu.Root>
+      <Menu.Trigger
+        className="zy-nodrag flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-white/[0.06] data-[state=open]:bg-white/[0.09]"
+        title="Layout — where the files and the projects go"
+      >
+        <LayoutPanelLeft className="h-4 w-4" />
+      </Menu.Trigger>
+      <Menu.Portal>
+        <Menu.Content align="end" sideOffset={6} className="panel z-50 min-w-[190px] p-1">
+          {titre("Files")}
+          {item("Left", prefs.sidebar === "left", { sidebar: "left" })}
+          {item("Right", prefs.sidebar === "right", { sidebar: "right" })}
+          <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+          {titre("Projects")}
+          {item("Tabs at the top", prefs.projects === "top", { projects: "top" })}
+          {item("Panel on the left", prefs.projects === "left", { projects: "left" })}
+          {item("Panel on the right", prefs.projects === "right", { projects: "right" })}
+        </Menu.Content>
+      </Menu.Portal>
+    </Menu.Root>
+  )
+}
+
 export function TitleBar() {
   const project = useWorkspace((s) => s.project)
   const projects = useWorkspace((s) => s.projects)
@@ -159,6 +202,8 @@ export function TitleBar() {
   const togglePanel = useWorkspace((s) => s.togglePanel)
   const isMac = window.zyvro.platform === "darwin"
   const fullScreen = useSyncExternalStore(subscribeFullScreen, isFullScreen, () => false)
+  // Projets en panneau : la barre n'en montre plus les onglets.
+  const enOnglets = useSyncExternalStore(subscribeLayout, layoutPrefs, layoutPrefs).projects === "top"
 
   return (
     <header
@@ -169,7 +214,7 @@ export function TitleBar() {
         isMac && !fullScreen ? "pl-[86px]" : "pl-2"
       )}
     >
-      {projects.length === 0 ? (
+      {!enOnglets ? null : projects.length === 0 ? (
         <button
           className="zy-nodrag flex items-center gap-2 rounded-md px-2 py-1 text-[13px] text-foreground/90 hover:bg-white/[0.06]"
           onClick={() => void openProject(null)}
@@ -204,7 +249,7 @@ export function TitleBar() {
           soit suppose qu'on sait déjà ce qu'on veut ouvrir. Les projets
           ouverts restent dans la barre. Caché tant qu'on est déjà sur ce
           Zyvro neuf : un second ne montrerait que le même accueil. */}
-      {project && (
+      {project && enOnglets && (
       <button
         className="zy-nodrag flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
         onClick={() => void newZyvro()}
@@ -218,12 +263,14 @@ export function TitleBar() {
 
       <ModeSwitch />
 
+      <LayoutMenu />
+
       <ToggleButton
         active={panels.explorer || panels.git}
         title="Toggle sidebar"
         onClick={() => togglePanel("explorer")}
       >
-        <PanelLeft className="h-4 w-4" />
+        {layoutPrefs().sidebar === "right" ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
       </ToggleButton>
       {/* The shell and the agent are Dev's to arrange. In AI mode the layout is
           the mode, and a button that let you take the agent away would leave a

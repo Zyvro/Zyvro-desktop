@@ -386,7 +386,13 @@ function selectArea(mode: "image" | "video"): Promise<{ display: Display; rect: 
         "overlay"
       )
       win.setAlwaysOnTop(true, "screen-saver")
-      if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+      // `skipTransformProcessType` : sans lui, Electron fait passer toute l'app
+      // en « UIElement » puis la ramène, à chaque appel — ses fenêtres sont
+      // cachées un instant, et une fenêtre de Studio en plein écran en sortait,
+      // revenait sur le bureau sans ses trois boutons et ne se réagrandissait
+      // plus. Le panneau (`type: "panel"`) flotte déjà au-dessus des espaces
+      // plein écran : la bascule n'apporte rien ici.
+      if (isMac) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true })
       win.setContentProtection(true)
       win.once("ready-to-show", () => {
         win.setBounds(display.bounds)

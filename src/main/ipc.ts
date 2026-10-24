@@ -20,7 +20,7 @@ import { mediaUrlFor } from "./media"
 import { mediaKindOf } from "../shared/media"
 import * as textSearch from "./search"
 import { createWatcher, type Watcher } from "./watch"
-import { forgetRecents, loadRecents, recentFiles, rememberFile, rememberRecent } from "./recents"
+import { forgetRecents, loadRecents, recentFiles, rememberFile, rememberRecent, saveSession } from "./recents"
 import { choose as chooseShell, shells as machineShells } from "./shell"
 import { authorized, currentAccount, reportBug, signIn, signOut } from "./account"
 import { onIncident, recordIncident, sendBugReport, unreportedIncidents } from "./bugreport"
@@ -435,6 +435,11 @@ async function harnessLaunch(ws: Workspace, kind: AgentKind, pinned: string | nu
 // un seul segment, sous la racine, avec un `.git`. Il est revérifié ici parce
 // que le dossier a pu disparaître depuis, et qu'on retombe alors sur le projet
 // plutôt que de lancer git dans le vide.
+// noteSession : les projets de cette fenêtre, à rouvrir au prochain lancement.
+function noteSession(ws: Workspace): void {
+  saveSession({ projects: ws.list().map((p) => p.project), active: ws.current()?.project ?? null })
+}
+
 async function requireGitRoot(ws: Workspace): Promise<string> {
   const root = requireRoot(ws)
   if (!ws.gitRepo) return root
@@ -640,6 +645,7 @@ export function registerIpc(onRecents?: () => void): void {
       rememberRecent(dir)
       onRecentsChanged?.()
       slot.startupPending = false
+      noteSession(ws)
       return { project: dir, name: path.basename(dir), daemon }
     } catch (err) {
       slot.root = null
@@ -663,6 +669,7 @@ export function registerIpc(onRecents?: () => void): void {
     const daemon = ws.daemon.current
     if (!project || !daemon) return null
     win.setTitle(`${path.basename(project)} — Zyvro Studio`)
+    noteSession(ws)
     return { project, name: path.basename(project), daemon }
   })
 
@@ -784,6 +791,7 @@ export function registerIpc(onRecents?: () => void): void {
     const { ws } = requireWorkspace(event)
     const partant = ws.project
     if (partant) await ws.closeProject(partant)
+    noteSession(ws)
     // Encore un projet ouvert : on reste dessus, son moteur est déjà le bon.
     if (ws.project && ws.daemon.current) {
       return {

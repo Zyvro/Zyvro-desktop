@@ -61,6 +61,11 @@ const read = (rel) => readFileSync(path.join(ROOT, rel), "utf8")
   check("et seulement sur macOS, hors plein écran", /isMac && !fullScreen \? "pl-\[/.test(bar))
   check("le processus principal place les boutons avec la constante", /trafficLightPosition: TRAFFIC_LIGHTS/.test(index) && /titleBarStyle: process\.platform === "darwin" \? "hidden"/.test(index))
   check("les boutons sont dits permis : réduire, agrandir, fermer, plein écran", ["minimizable", "maximizable", "closable", "fullscreenable"].every((k) => new RegExp(`${k}: true`).test(index)))
+  // Signalé : après une journée de travail, la fenêtre plein écran revenait sur
+  // le bureau sans ses trois boutons et ne se réagrandissait plus.
+  const capture = readFileSync(path.join(ROOT, "src/main/capture.ts"), "utf8")
+  check("**la capture ne fait pas basculer l'app de type de processus** (ce qui sortait la fenêtre du plein écran)", /visibleOnFullScreen: true, skipTransformProcessType: true/.test(capture) && !/visibleOnFullScreen: true \}/.test(capture))
+  check("**les boutons sont redemandés à chaque retour** (sortie de plein écran, focus, affichage)", ["leave-full-screen", "focus", "show", "restore"].every((e) => new RegExp(`win\\.on\\("${e}", boutons\\)`).test(index)))
   check("ils reviennent en plein écran (la barre qui descend en a besoin)", /setWindowButtonVisibility\(true\)/.test(index))
   check("la barre se saisit : elle est une zone de glisser, ses contrôles non", /zy-drag/.test(bar) && (bar.match(/zy-nodrag/g) ?? []).length >= 5)
   check("la plus petite fenêtre garde la barre lisible", mod.MIN_WINDOW.width >= 900 && /minWidth: MIN_WINDOW\.width/.test(index))

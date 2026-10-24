@@ -709,6 +709,9 @@ const api = {
     onOpenProject: (cb: () => void): Unsubscribe => on("menu:open-project", cb),
     onNewProject: (cb: () => void): Unsubscribe => on("menu:new-project", cb),
     onOpenPath: (cb: (dir: string) => void): Unsubscribe => on("menu:open-path", cb),
+    /** Au lancement : les projets ouverts à la dernière fermeture. */
+    onRestoreProjects: (cb: (session: { projects: string[]; active: string | null }) => void): Unsubscribe =>
+      on("menu:restore-projects", cb),
     onCloseProject: (cb: () => void): Unsubscribe => on("menu:close-project", cb),
     onForgetRecents: (cb: () => void): Unsubscribe => on("menu:forget-recents", cb),
     onToggleSidebar: (cb: () => void): Unsubscribe => on("menu:toggle-sidebar", cb),
