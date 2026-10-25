@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useSyncExternalStore } from "react"
 import { AGENT_KINDS, HARNESSES, harnessEnabled, isChatKind, type AgentKind } from "../../shared/harness"
 import { getSettings, subscribeSettings } from "~/state/settings"
+import { IMAGE_ICONS, SVG_ICONS } from "~/lib/harnessIcons"
 
 // Le choix du harnais, en menu avec logo et nom.
 //
@@ -19,6 +20,14 @@ export const HARNESS_INFO = Object.fromEntries(
   AGENT_KINDS.map((kind) => [kind, { name: HARNESSES[kind].name, vendor: HARNESSES[kind].vendor }])
 ) as Record<AgentKind, HarnessInfo>
 
+// Une marque noire (Copilot, Cursor, OpenCode) sur le fond sombre de
+// l'application disparaîtrait : sa tuile s'éclaircit juste assez pour se voir.
+function tuile(hex: string): string {
+  const n = Number.parseInt(hex.slice(1), 16)
+  const [r, g, b] = [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 40 ? "#2A2A31" : hex
+}
+
 // La teinte d'un harnais sans marque dessinée : tirée de son nom, stable d'un
 // lancement à l'autre.
 function teinte(kind: string): number {
@@ -27,11 +36,26 @@ function teinte(kind: string): number {
   return h
 }
 
-// Les marques, dessinées ici : une tuile arrondie aux couleurs de chacune, la
-// même teinte que leur nom dans le chat (lib/chatColors). Des formes simples,
-// lisibles à seize pixels — pas des reproductions de logos déposés.
+// Les marques : celles de lib/harnessIcons en priorité ; sinon une tuile
+// dessinée ici, aux couleurs de chacune.
 export function HarnessMark({ kind, className }: { kind: AgentKind; className?: string }): JSX.Element {
   const box = cn("shrink-0", className ?? "h-4 w-4")
+  // La marque de l'éditeur d'abord (lib/harnessIcons) : son tracé officiel en
+  // blanc sur sa couleur, ou son image. Les dessins ci-dessous ne servent plus
+  // que si l'une manquait.
+  const svg = SVG_ICONS[kind]
+  if (svg) {
+    return (
+      <svg viewBox="0 0 24 24" className={box} aria-hidden="true" data-harness-icon={kind}>
+        <rect width="24" height="24" rx="6" fill={tuile(svg.hex)} />
+        <path d={svg.path} fill="#FFFFFF" transform="translate(4.6 4.6) scale(0.6167)" />
+      </svg>
+    )
+  }
+  const image = IMAGE_ICONS[kind]
+  if (image) {
+    return <img src={image} alt="" aria-hidden="true" draggable={false} data-harness-icon={kind} className={cn(box, "rounded-[22%] object-cover ring-1 ring-inset ring-white/15")} />
+  }
   switch (kind) {
     case "claude":
       // L'étincelle orange d'Anthropic : huit rayons autour d'un cœur.

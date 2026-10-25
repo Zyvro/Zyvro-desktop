@@ -30,7 +30,7 @@
 //
 //     node scripts/check-harness.mjs
 import { build } from "esbuild"
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import path from "node:path"
 import { createRequire } from "node:module"
 
@@ -103,6 +103,15 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
     "**chaque harnais a son logo et son nom dans le menu**",
     /Record<AgentKind, HarnessInfo>/.test(picker) && ["claude", "codex", "qwen", "mimo"].every((k) => picker.includes(`case "${k}":`))
   )
+  // Demandé : « ajoute bien les icônes de chaque harness ». Chacun a sa marque —
+  // un tracé Simple Icons ou l'image de son éditeur — et chaque image existe.
+  const icons = readFileSync(path.join(ROOT, "src/renderer/lib/harnessIcons.ts"), "utf8")
+  const avecMarque = mod.AGENT_KINDS.filter((k) => new RegExp(`\\n  "?${k}"?: `).test(icons))
+  check("**chaque harnais a sa vraie icône**", avecMarque.length === mod.AGENT_KINDS.length, mod.AGENT_KINDS.filter((k) => !avecMarque.includes(k)).join(","))
+  const images = [...icons.matchAll(/"data:image\/png;base64,([A-Za-z0-9+/=]+)"/g)].map((m) => Buffer.from(m[1], "base64"))
+  check("et chaque image est un vrai PNG", images.length > 0 && images.every((b) => b.subarray(1, 4).toString() === "PNG"), String(images.length))
+  check("dont la source est gardée dans le dépôt", existsSync(path.join(ROOT, "src/renderer/assets/harness/codex.png")))
+  check("la marque passe avant le dessin de secours", /const svg = SVG_ICONS\[kind\]/.test(picker) && /const image = IMAGE_ICONS\[kind\]/.test(picker))
 
   // Le choix vit dans le corps d'une session neuve, pas dans la barre du haut :
   // c'est le moment où il se décide, et la barre déborde à trois boutons de

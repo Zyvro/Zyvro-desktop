@@ -47,6 +47,14 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.96
+
+**Each harness shows its own icon.** In *Providers › Harnesses*, the agent
+menu and the session list, every harness now has its real mark instead of a
+coloured letter. Claude Code, Qwen Code, MiMo Code, Gemini CLI, Copilot CLI,
+OpenCode, Cline and Cursor CLI use the Simple Icons drawings (CC0). The others
+use their publisher's own icon.
+
 ## New in alpha.95
 
 **Every coding agent on the market, as harness providers.** *Providers ›

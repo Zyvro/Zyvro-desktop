@@ -1,6 +1,6 @@
 {
   "name": "zyvro-desktop",
-  "version": "0.1.0-alpha.95",
+  "version": "0.1.0-alpha.96",
   "description": "Zyvro Studio — native coding agents beside your code",
   "main": "./out/main/index.js",
   "author": "Zyvro",
