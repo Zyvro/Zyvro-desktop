@@ -47,6 +47,12 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.94
+
+**The hover outline follows a panel you drag.** While resizing a panel, the
+thin outline around the zone under the cursor stayed at the old size until
+you let go. It now follows the panel as you drag.
+
 ## New in alpha.93
 
 **Pick your project memory file.** Project memory no longer forces a

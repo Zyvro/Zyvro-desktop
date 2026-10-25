@@ -52,7 +52,7 @@ const hover = readFileSync(path.join(ROOT, "src/renderer/panels/ZoneHover.tsx"),
 {
   check(
     "**il montre la zone sous le curseur**",
-    hover.includes("zoneAt(findZones()") && hover.includes("data-zone-hover"),
+    hover.includes("zoneAt(zones, e.clientX, e.clientY)") && hover.includes("const zones = findZones()") && hover.includes("data-zone-hover"),
     "rien ne dit où est le champ de vision"
   )
   check(
@@ -66,6 +66,13 @@ const hover = readFileSync(path.join(ROOT, "src/renderer/panels/ZoneHover.tsx"),
     "un fond ou un nom serait le mode capture, pas un coup d'œil"
   )
   check("il est monté dans l'app", app.includes("<ZoneHover />"))
+  // Signalé : en tirant un panneau, le liseré ne suivait qu'au relâchement.
+  check(
+    "**il suit un panneau qu'on tire** (pointermove, pas mousemove)",
+    /addEventListener\("pointermove", onMove, true\)/.test(hover) && !/addEventListener\("mousemove"/.test(hover),
+    "un séparateur annule son pointerdown : le navigateur supprime alors les événements souris jusqu'au relâchement"
+  )
+  check("et se remesure quand la taille change, pas seulement la zone", /sameRect\(next\?\.rect, last\?\.rect\)/.test(hover) && /e\.buttons !== 0 && last/.test(hover))
 }
 
 console.log(
