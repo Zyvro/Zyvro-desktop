@@ -187,6 +187,10 @@ function LayoutMenu() {
           {item("Tabs at the top", prefs.projects === "top", { projects: "top" })}
           {item("Panel on the left", prefs.projects === "left", { projects: "left" })}
           {item("Panel on the right", prefs.projects === "right", { projects: "right" })}
+          <Menu.Separator className="my-1 h-px bg-white/[0.08]" />
+          {titre("Agent bar")}
+          {item("Next to the Shell", prefs.rail === "shell", { rail: "shell" })}
+          {item("At the window edge", prefs.rail === "edge", { rail: "edge" })}
         </Menu.Content>
       </Menu.Portal>
     </Menu.Root>

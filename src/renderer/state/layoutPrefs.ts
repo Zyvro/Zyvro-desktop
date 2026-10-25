@@ -7,17 +7,25 @@
 export type Side = "left" | "right"
 export type ProjectsAt = "top" | Side
 
-export type LayoutPrefs = { sidebar: Side; projects: ProjectsAt; projectsWidth: number }
+/**
+ * La barre de l'agent (plugins, logo du projet) : collée au Shell, ou au bord
+ * de la fenêtre. Collée par défaut — avec les fichiers à droite, elle se
+ * retrouvait sinon séparée du Shell par toute la barre des fichiers.
+ */
+export type RailAt = "shell" | "edge"
+
+export type LayoutPrefs = { sidebar: Side; projects: ProjectsAt; projectsWidth: number; rail: RailAt }
 
 const KEY = "zyvro.layout"
-const DEFAULTS: LayoutPrefs = { sidebar: "left", projects: "top", projectsWidth: 240 }
+const DEFAULTS: LayoutPrefs = { sidebar: "left", projects: "top", projectsWidth: 240, rail: "shell" }
 
 export function sanitizeLayout(raw: unknown): LayoutPrefs {
   const r = (raw && typeof raw === "object" ? raw : {}) as Partial<Record<keyof LayoutPrefs, unknown>>
   const sidebar: Side = r.sidebar === "right" ? "right" : "left"
   const projects: ProjectsAt = r.projects === "left" || r.projects === "right" ? r.projects : "top"
   const width = typeof r.projectsWidth === "number" && Number.isFinite(r.projectsWidth) ? r.projectsWidth : DEFAULTS.projectsWidth
-  return { sidebar, projects, projectsWidth: Math.min(480, Math.max(180, Math.round(width))) }
+  const rail: RailAt = r.rail === "edge" ? "edge" : "shell"
+  return { sidebar, projects, projectsWidth: Math.min(480, Math.max(180, Math.round(width))), rail }
 }
 
 function read(): LayoutPrefs {

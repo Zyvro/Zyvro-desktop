@@ -180,8 +180,9 @@ export default function App() {
   // Chaque pièce garde sa place dans l'arbre et ne change que d'ORDRE (CSS
   // `order`) : déplacer un composant React le remonterait, et l'explorateur
   // perdrait ses dossiers dépliés, le Shell ses processus.
-  //   projets à gauche | barre d'activité, fichiers | code + Shell | fichiers,
-  //   barre d'activité | projets à droite | barre du Shell
+  //   projets à gauche | barre d'activité, fichiers | code + Shell | barre du
+  //   Shell (collée) | fichiers, barre d'activité | projets à droite | barre du
+  //   Shell (au bord)
   const order = {
     projects: prefs.projects === "left" ? 1 : 60,
     projectsSplit: prefs.projects === "left" ? 2 : 59,
@@ -189,7 +190,9 @@ export default function App() {
     sidebar: side === "left" ? 11 : 52,
     sidebarSplit: side === "left" ? 12 : 51,
     centre: 30,
-    rail: 70,
+    // Collée au Shell : juste après le code et le Shell, avant des fichiers
+    // rangés à droite. Au bord : tout à droite, après eux.
+    rail: prefs.rail === "shell" ? 31 : 70,
   }
 
   return (

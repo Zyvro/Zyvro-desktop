@@ -59,8 +59,12 @@ const mod = createRequire(import.meta.url)(out)
   const app = read("src/renderer/App.tsx")
   check("**les pièces changent d'ordre CSS, pas de place dans l'arbre**", /order: order\.sidebar/.test(app) && /order: order\.centre/.test(app) && /order: order\.activity/.test(app) && /order: order\.projects/.test(app))
   check("le séparateur des fichiers tire dans le bon sens des deux côtés", /side === "left" \? delta : -delta/.test(app))
+  // Signalé : fichiers à droite, la barre de l'agent restait au bord de la
+  // fenêtre, séparée du Shell par toute la barre des fichiers.
+  check("**la barre de l'agent reste collée au Shell** (juste après lui, avant des fichiers à droite)", /rail: prefs\.rail === "shell" \? 31 : 70/.test(app) && /centre: 30/.test(app) && /sidebar: side === "left" \? 11 : 52/.test(app))
+  check("ou au bord, au choix", mod.sanitizeLayout({ rail: "edge" }).rail === "edge" && mod.sanitizeLayout({ rail: "x" }).rail === "shell")
   const bar = read("src/renderer/panels/TitleBar.tsx")
-  check("le menu Layout propose les deux côtés et les trois places", /"Panel on the left"/.test(bar) && /"Panel on the right"/.test(bar) && /"Tabs at the top"/.test(bar))
+  check("le menu Layout propose les deux côtés et les trois places", /"Panel on the left"/.test(bar) && /"Panel on the right"/.test(bar) && /"Tabs at the top"/.test(bar) && /"Next to the Shell"/.test(bar) && /"At the window edge"/.test(bar))
   check("**projets en panneau : plus d'onglets en haut**", /!enOnglets \? null/.test(bar))
   check("**la croix d'un onglet ferme CE projet**", /closeProjectAt\(path\)/.test(bar) && !/onClick=\{\(\) => void closeProject\(\)\}/.test(bar))
   const proj = read("src/renderer/lib/project.ts")
