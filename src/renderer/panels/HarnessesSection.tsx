@@ -6,13 +6,26 @@ import { getSettings, subscribeSettings, updateSettings } from "~/state/settings
 import { installHarness, useHarnessesInstalled } from "~/lib/harnessInstall"
 import { HarnessMark } from "./HarnessPicker"
 
-// Les harnais du marché, allumés ou éteints — Providers › Harnesses.
+// Les harnais du marché, allumés ou éteints — leur page à eux, « Harness
+// Providers », ouverte depuis la barre d'activité. À part des Providers : ceux-là
+// sont les fournisseurs de modèles et leurs clefs, une autre affaire — demandé
+// tel quel : « sépare bien les settings de harness providers des providers ».
 //
 // Demandé : « ajoute tous les harness qui existent sur le marché, sous forme de
 // plugin providers, avec un espace dédié pour les enable / disable ; par défaut
 // claude, codex et qwen activés ». Un harnais allumé apparaît dans le menu
 // « agent » du Shell et dans le lanceur ; éteint, il n'encombre rien. Les
 // sessions déjà ouvertes avec lui restent ouvertes.
+
+export function HarnessesTab(): JSX.Element {
+  return (
+    <div className="zy-scroll h-full overflow-y-auto">
+      <div className="mx-auto max-w-4xl px-8 py-8">
+        <HarnessesSection />
+      </div>
+    </div>
+  )
+}
 
 export function HarnessesSection(): JSX.Element {
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
@@ -32,11 +45,11 @@ export function HarnessesSection(): JSX.Element {
   const allumes = AGENT_KINDS.filter((kind) => harnessEnabled(settings.agent, kind)).length
 
   return (
-    <section className="mt-8" data-harnesses>
+    <section data-harnesses>
       <div className="flex items-end gap-3">
         <div className="flex-1">
-          <h2 className="text-base font-semibold">Harnesses</h2>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <h1 className="text-xl font-semibold">Harness Providers</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
             The coding agents you can open in the Shell. {allumes} enabled — enabled ones appear in the agent menu and the
             launcher. Each runs with its own account and settings.
           </p>
@@ -52,7 +65,7 @@ export function HarnessesSection(): JSX.Element {
         </label>
       </div>
 
-      <div className="panel mt-3 divide-y divide-white/[0.06]">
+      <div className="panel mt-6 divide-y divide-white/[0.06]">
         {list.map((kind) => {
           const h = HARNESSES[kind]
           const on = harnessEnabled(settings.agent, kind)

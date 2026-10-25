@@ -150,7 +150,7 @@ export function HarnessPicker({
   chatOnly?: boolean
 }): JSX.Element {
   const current = HARNESS_INFO[kind]
-  // Les harnais allumés (Providers › Harnesses), et celui déjà choisi même éteint.
+  // Les harnais allumés (la page Harness Providers), et celui déjà choisi même éteint.
   const agent = useSyncExternalStore(subscribeSettings, getSettings).agent
   const options = AGENT_KINDS.filter(
     (option) => option === kind || (harnessEnabled(agent, option) && (!chatOnly || isChatKind(option)))

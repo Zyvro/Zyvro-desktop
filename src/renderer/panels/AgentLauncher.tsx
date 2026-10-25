@@ -107,7 +107,7 @@ export function AgentLauncher(): JSX.Element {
   const state = useSyncExternalStore(subscribeLauncher, getLauncher)
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const installed = useHarnessesInstalled()
-  // Les profils des harnais allumés (Providers › Harnesses), et un par défaut
+  // Les profils des harnais allumés (la page Harness Providers), et un par défaut
   // pour chaque harnais allumé qui n'en a pas.
   const profiles = launchProfiles(settings.agent.profiles, settings.agent)
 

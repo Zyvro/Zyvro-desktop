@@ -930,7 +930,7 @@ export function TerminalPanel(): JSX.Element {
   // Les noms des onglets d'agent viennent des enregistrements : un
   // renommage fait depuis la barre latérale doit se lire ici.
   useSyncExternalStore(subscribeAgentShells, agentShellsVersion, () => 0)
-  // Les harnais allumés seulement (Providers › Harnesses).
+  // Les harnais allumés seulement (la page Harness Providers).
   const reglages = useSyncExternalStore(subscribeSettings, getSettings)
   const profils = launchProfiles(reglages.agent.profiles, reglages.agent)
   const launcherNow = useSyncExternalStore(subscribeLauncher, getLauncher)

@@ -13,6 +13,7 @@ import { DiffView } from "./DiffView"
 import { GitOutput } from "./GitOutput"
 import { Welcome } from "./Welcome"
 import { ProvidersTab } from "./ProvidersTab"
+import { HarnessesTab } from "./HarnessesSection"
 import { SettingsTab } from "./SettingsTab"
 import { PreviewTab } from "./PreviewTab"
 import { ProblemsTab } from "./ProblemsTab"
@@ -154,6 +155,8 @@ function TabBody({ tab, group = "main" }: { tab: Tab; group?: "main" | "split" }
       return <GitOutput />
     case "providers":
       return <ProvidersTab />
+    case "harnesses":
+      return <HarnessesTab />
     case "settings":
       return <SettingsTab />
     case "preview":

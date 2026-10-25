@@ -44,7 +44,7 @@ export type AgentSettings = {
    */
   detachAgents: boolean
   /**
-   * Les harnais allumés ou éteints (Providers › Harnesses). Absent : l'état
+   * Les harnais allumés ou éteints (la page Harness Providers). Absent : l'état
    * par défaut — claude, codex et qwen allumés, les autres éteints.
    */
   harnesses: Partial<Record<AgentKind, boolean>>

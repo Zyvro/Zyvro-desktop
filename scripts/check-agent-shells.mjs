@@ -575,7 +575,11 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("**sa tâche est collée, préambule en tête**", mod.promptDelivery("gemini") === "paste" && !mod.hasSystemPromptFlag("gemini") && mod.taskText("gemini", "PRE", "do it").startsWith("PRE"))
   const ui = readFileSync(path.join(ROOT, "src/renderer/panels/HarnessesSection.tsx"), "utf8")
   const prov = readFileSync(path.join(ROOT, "src/renderer/panels/ProvidersTab.tsx"), "utf8")
-  check("**Providers › Harnesses les allume et les éteint**", /<HarnessesSection \/>/.test(prov) && /role="switch"/.test(ui) && /harnesses: \{ \.\.\.agent\.harnesses, \[kind\]: on \}/.test(ui))
+  const area = readFileSync(path.join(ROOT, "src/renderer/panels/EditorArea.tsx"), "utf8")
+  const appSrc = readFileSync(path.join(ROOT, "src/renderer/App.tsx"), "utf8")
+  check("**une page à part, Harness Providers, les allume et les éteint**", /case "harnesses":\s*return <HarnessesTab \/>/.test(area) && /label: "Harness Providers"/.test(appSrc) && /role="switch"/.test(ui) && /harnesses: \{ \.\.\.agent\.harnesses, \[kind\]: on \}/.test(ui))
+  // Demandé : « sépare bien les settings de harness providers des providers ».
+  check("**et plus dans Providers** (les fournisseurs de modèles)", !/Harnesses/.test(prov))
   const picker = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
   check("le panneau de conversation ne propose que ce qu'il sait lire", /<HarnessPicker chatOnly/.test(picker))
 }

@@ -255,7 +255,7 @@ export function isChatKind(kind: AgentKind | string): boolean {
 
 /**
  * Allumés d'office : claude, codex et qwen. Les autres s'allument dans
- * Providers › Harnesses, et n'apparaissent dans les menus qu'une fois allumés.
+ * la page Harness Providers, et n'apparaissent dans les menus qu'une fois allumés.
  */
 export const DEFAULT_ENABLED_HARNESSES: readonly AgentKind[] = ["claude", "codex", "qwen"]
 

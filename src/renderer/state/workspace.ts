@@ -14,6 +14,9 @@ export type Tab =
   // aperçu, que le prochain fichier ouvert remplace.
   | { kind: "file"; id: string; path: string; title: string; pinned?: boolean }
   | { kind: "providers"; id: "providers"; title: string }
+  // Les harnais (les agents en ligne de commande), à part des fournisseurs de
+  // modèles et de leurs clefs : deux choses qu'on ne règle pas ensemble.
+  | { kind: "harnesses"; id: "harnesses"; title: string }
   | { kind: "settings"; id: "settings"; title: string }
   | { kind: "problems"; id: "problems"; title: string }
   // L'aperçu d'un fichier Markdown, rendu, qui suit le texte pendant qu'on
@@ -178,6 +181,7 @@ type WorkspaceState = {
   openCompare: (left: string, right: string) => void
   openGitOutput: () => void
   openProviders: () => void
+  openHarnesses: () => void
   openSettings: () => void
   openProblems: () => void
   openPreview: (path: string) => void
@@ -582,6 +586,16 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
       return
     }
     const tab: Tab = { kind: "providers", id, title: "Providers" }
+    set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
+  },
+
+  openHarnesses: () => {
+    const id = "harnesses"
+    if (get().tabs.some((t) => t.id === id)) {
+      set({ activeTabId: id })
+      return
+    }
+    const tab: Tab = { kind: "harnesses", id, title: "Harness Providers" }
     set((s) => ({ tabs: [...s.tabs.filter((t) => t.kind !== "welcome"), tab], activeTabId: id }))
   },
 

@@ -1,5 +1,5 @@
 // Les icônes des harnais : la marque de chacun, pour qu'on les reconnaisse
-// d'un coup d'œil dans les menus et dans Providers › Harnesses.
+// d'un coup d'œil dans les menus et dans la page Harness Providers.
 //
 // Deux sources :
 // - les tracés de Simple Icons (simpleicons.org, v16.36, licence CC0), posés

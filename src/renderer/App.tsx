@@ -1,6 +1,6 @@
 import { useState, useSyncExternalStore } from "react"
 import "~/lib/chatTheme"
-import { Boxes, FolderTree, GitBranch, Search, Settings2 } from "lucide-react"
+import { Bot, Boxes, FolderTree, GitBranch, Search, Settings2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { sidebarView, useWorkspace, type Mode, type PanelKey } from "~/state/workspace"
 import { useCurrentProject } from "~/lib/project"
@@ -64,6 +64,7 @@ function ActivityBar({ side, style }: { side: Side; style?: React.CSSProperties 
   const panels = useWorkspace((s) => s.panels)
   const setPanel = useWorkspace((s) => s.setPanel)
   const openProviders = useWorkspace((s) => s.openProviders)
+  const openHarnesses = useWorkspace((s) => s.openHarnesses)
   const openSettings = useWorkspace((s) => s.openSettings)
   const activeTabId = useWorkspace((s) => s.activeTabId)
 
@@ -93,6 +94,13 @@ function ActivityBar({ side, style }: { side: Side; style?: React.CSSProperties 
   // pied de sa barre. Le bouton du bas ouvrait Providers une seconde fois ; il
   // ouvre maintenant Settings.
   const bottom = [
+    // Les agents en ligne de commande, à part des fournisseurs de modèles.
+    {
+      icon: Bot,
+      label: "Harness Providers",
+      active: activeTabId === "harnesses",
+      onClick: openHarnesses,
+    },
     {
       icon: Boxes,
       label: "Providers",
