@@ -47,6 +47,30 @@ shasum -a 256 ~/Downloads/Zyvro*        # macOS
 certutil -hashfile Zyvro*.exe SHA256    # Windows
 ```
 
+## New in alpha.95
+
+**Every coding agent on the market, as harness providers.** *Providers ›
+Harnesses* lists the command-line coding agents Zyvro can open in the Shell,
+each with an on/off switch, whether it is installed, and an *Install* button.
+Besides Claude Code, Codex, Qwen Code and MiMo Code, the list has:
+
+- Gemini CLI, Copilot CLI, OpenCode, Aider, Amp and Crush
+- iFlow CLI, Auggie, Kilo Code, Cline, Qoder CLI and Continue CLI
+- Grok CLI, Cursor CLI, Goose, Droid and OpenHands
+
+Claude Code, Codex and Qwen Code are on by default. Turn others on and they
+appear in the Shell's agent menu and in the launcher. Turn one off and it
+leaves the menus; its open sessions keep running. The new harnesses run with
+their own account and settings. Your task, the project memory and the skills
+are pasted in when the agent is ready. *Full access* uses each one's own
+"allow all" option, read from its `--help`. The chat panel still drives the
+four it reads (Claude Code, Codex, Qwen Code, MiMo Code).
+
+**The agent bar stays with the Shell.** With the files sidebar on the right,
+the agent bar (plugins, project logo) was stuck at the window edge, separated
+from the Shell by the whole sidebar. It now sits next to the Shell. *Layout ›
+Agent bar* puts it back at the window edge if you prefer.
+
 ## New in alpha.94
 
 **The hover outline follows a panel you drag.** While resizing a panel, the

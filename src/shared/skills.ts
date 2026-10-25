@@ -43,6 +43,11 @@ export type AgentSettings = {
    * s'y rattache.
    */
   detachAgents: boolean
+  /**
+   * Les harnais allumés ou éteints (Providers › Harnesses). Absent : l'état
+   * par défaut — claude, codex et qwen allumés, les autres éteints.
+   */
+  harnesses: Partial<Record<AgentKind, boolean>>
 }
 
 export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
@@ -56,6 +61,7 @@ export const DEFAULT_AGENT_SETTINGS: AgentSettings = {
   defaultProfile: null,
   restoreAgentShells: true,
   detachAgents: true,
+  harnesses: {},
 }
 
 // skillFrontmatter lit le nom et la description dans le frontmatter d'un

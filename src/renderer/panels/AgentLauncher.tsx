@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react"
 import * as Menu from "@radix-ui/react-dropdown-menu"
 import { Bookmark, Check, ChevronDown, ChevronRight, Plug, Sparkles, TerminalSquare } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { EFFORTS, supportsEffort, type AgentProfile, type Effort } from "../../shared/agentShell"
+import { EFFORTS, launchProfiles, supportsEffort, type AgentProfile, type Effort } from "../../shared/agentShell"
 import { HARNESSES, type AgentKind } from "../../shared/harness"
 import { getSettings, subscribeSettings, updateSettings } from "~/state/settings"
 import {
@@ -107,7 +107,9 @@ export function AgentLauncher(): JSX.Element {
   const state = useSyncExternalStore(subscribeLauncher, getLauncher)
   const settings = useSyncExternalStore(subscribeSettings, getSettings)
   const installed = useHarnessesInstalled()
-  const profiles = settings.agent.profiles
+  // Les profils des harnais allumés (Providers › Harnesses), et un par défaut
+  // pour chaque harnais allumé qui n'en a pas.
+  const profiles = launchProfiles(settings.agent.profiles, settings.agent)
 
   // Ce que l'arbre ou les réglages remettent « à l'agent ». Un chemin est écrit
   // dans le shell actif, cité comme un fichier déposé et sans Entrée : on

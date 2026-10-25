@@ -150,6 +150,11 @@ export function sanitizeAgentSettings(raw: unknown): AgentSettings {
     enabledPacks: ids(r.enabledPacks),
     disabledPlugins: ids(r.disabledPlugins),
     ...profilesOf(r),
+    harnesses: Object.fromEntries(
+      Object.entries(r.harnesses && typeof r.harnesses === "object" ? (r.harnesses as Record<string, unknown>) : {}).filter(
+        ([kind, on]) => isAgentKind(kind) && typeof on === "boolean"
+      )
+    ),
   }
 }
 

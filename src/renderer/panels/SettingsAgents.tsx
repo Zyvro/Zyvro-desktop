@@ -34,7 +34,7 @@ export function SettingsAgents({ permissionsOnly = false }: { permissionsOnly?: 
   </>
   return <>
     <SettingRow title="Default agent" hint="Used when you create a new chat. Existing conversations keep their agent.">
-      <HarnessPicker kind={a.defaultKind} installed={(kind) => installed.data?.harnesses[kind] ?? true} onChange={(defaultKind) => updateSettings({ agent: { ...a, defaultKind } })} />
+      <HarnessPicker chatOnly kind={a.defaultKind} installed={(kind) => installed.data?.harnesses[kind] ?? true} onChange={(defaultKind) => updateSettings({ agent: { ...a, defaultKind } })} />
     </SettingRow>
     <SettingRow title="Default model" hint="Remembered separately for each agent. You can still change the model in a conversation.">
       <ModelPicker kind={a.defaultKind} model={a.defaultModels[a.defaultKind] ?? null} ranWith={null} onChange={(model) => updateSettings({ agent: { ...a, defaultModels: { ...a.defaultModels, [a.defaultKind]: model } } })} />

@@ -11,7 +11,46 @@
 // disaient la même chose, et un troisième harnais à ajouter : c'est le moment
 // exact où elles se mettent à diverger.
 
-export type AgentKind = "claude" | "codex" | "qwen" | "mimo"
+export type AgentKind =
+  | "claude"
+  | "codex"
+  | "qwen"
+  | "mimo"
+  // Les autres harnais du marché, ouverts dans un shell seulement (`launch`).
+  | "gemini"
+  | "copilot"
+  | "opencode"
+  | "aider"
+  | "amp"
+  | "crush"
+  | "iflow"
+  | "auggie"
+  | "kilo"
+  | "cline"
+  | "qoder"
+  | "continue"
+  | "cursor"
+  | "goose"
+  | "droid"
+  | "openhands"
+  | "grok"
+
+/**
+ * Comment ouvrir dans un shell un harnais que Zyvro ne pilote pas plus loin :
+ * le binaire, ses options relevées sur son `--help` (rien de deviné), et la
+ * tâche collée dans son invite une fois prêt. Ni reprise de session, ni
+ * serveurs MCP de Zyvro, ni visée d'un fournisseur : son propre compte et sa
+ * propre configuration. La mémoire du projet et les skills arrivent en tête
+ * de la première tâche.
+ */
+export type ShellLaunch = {
+  /** Arguments toujours passés (une sous-commande : `goose session`). */
+  args?: string[]
+  /** Ce qui lève les demandes d'autorisation, pour la permission « yolo ». */
+  yolo?: string[]
+  /** L'option qui choisit le modèle, s'il en a une. */
+  modelFlag?: string
+}
 
 // Comment un harnais raconte son tour.
 //
@@ -29,6 +68,15 @@ export type Envelope = "claude" | "codex" | "opencode"
 
 export type Harness = {
   kind: AgentKind
+  /** Son nom, tel qu'on le montre. */
+  name: string
+  /** Qui le publie. */
+  vendor: string
+  /**
+   * Ouvert dans un shell seulement — pas dans le panneau de conversation, qui
+   * lit la sortie JSON de claude, codex, qwen et MiMo. Présent : voir ShellLaunch.
+   */
+  launch?: ShellLaunch
   /** Ce qu'on lance. Sur Windows le fichier porte une extension ; cli.ts s'en occupe. */
   bin: string
   /** Comment l'installer, pour que « pas trouvé » soit une phrase actionnable. */
@@ -99,6 +147,8 @@ export type ModelChoices = {
 export const HARNESSES: Record<AgentKind, Harness> = {
   claude: {
     kind: "claude",
+    name: "Claude Code",
+    vendor: "Anthropic",
     bin: "claude",
     install: "npm install -g @anthropic-ai/claude-code",
     npmPackage: "@anthropic-ai/claude-code",
@@ -108,6 +158,8 @@ export const HARNESSES: Record<AgentKind, Harness> = {
   },
   codex: {
     kind: "codex",
+    name: "Codex",
+    vendor: "OpenAI",
     bin: "codex",
     install: "npm install -g @openai/codex",
     npmPackage: "@openai/codex",
@@ -117,6 +169,8 @@ export const HARNESSES: Record<AgentKind, Harness> = {
   },
   qwen: {
     kind: "qwen",
+    name: "Qwen Code",
+    vendor: "Alibaba Qwen",
     bin: "qwen",
     install: "npm install -g @qwen-code/qwen-code",
     npmPackage: "@qwen-code/qwen-code",
@@ -130,6 +184,8 @@ export const HARNESSES: Record<AgentKind, Harness> = {
   // 0.1.15 plutôt que supposé.
   mimo: {
     kind: "mimo",
+    name: "MiMo Code",
+    vendor: "Xiaomi",
     bin: "mimo",
     // Une phrase et pas une commande : sous Windows il n'y a pas de bash à qui
     // donner `curl … | bash`, et le bouton Install fait le travail partout.
@@ -139,6 +195,74 @@ export const HARNESSES: Record<AgentKind, Harness> = {
     aimable: false,
     gateway: false,
   },
+  // ---- les autres harnais du marché ----------------------------------------
+  //
+  // Paquets et binaires relevés sur le registre npm, options sur le `--help`
+  // des versions installées le 25/10/2026 (gemini 0.65, copilot 1.0.103,
+  // opencode 1.19, crush 0.98, iflow 0.5.19, auggie 0.36, kilo 7.8, cline 3.0,
+  // qodercli 1.1.78, cn 1.5.47, aider). Une option qu'on n'a pas vue n'est pas
+  // écrite : le harnais s'ouvre alors sans elle.
+  ...shellOnly("gemini", "Gemini CLI", "Google", "gemini", "@google/gemini-cli", { yolo: ["--yolo"], modelFlag: "--model" }),
+  ...shellOnly("copilot", "Copilot CLI", "GitHub", "copilot", "@github/copilot", { yolo: ["--allow-all-tools"], modelFlag: "--model" }),
+  ...shellOnly("opencode", "OpenCode", "SST", "opencode", "opencode-ai", { yolo: ["--auto"], modelFlag: "--model" }),
+  ...shellOnly("aider", "Aider", "Aider", "aider", null, { yolo: ["--yes-always"], modelFlag: "--model" }, "python -m pip install aider-install && aider-install"),
+  ...shellOnly("amp", "Amp", "Sourcegraph", "amp", "@sourcegraph/amp", {}),
+  ...shellOnly("crush", "Crush", "Charm", "crush", "@charmland/crush", { yolo: ["--yolo"] }),
+  ...shellOnly("iflow", "iFlow CLI", "iFlow", "iflow", "@iflow-ai/iflow-cli", { yolo: ["--yolo"], modelFlag: "--model" }),
+  ...shellOnly("auggie", "Auggie", "Augment Code", "auggie", "@augmentcode/auggie", { modelFlag: "--model" }),
+  ...shellOnly("kilo", "Kilo Code", "Kilo", "kilo", "@kilocode/cli", { yolo: ["--auto"], modelFlag: "--model" }),
+  ...shellOnly("cline", "Cline", "Cline", "cline", "cline", { yolo: ["--yolo"], modelFlag: "--model" }),
+  ...shellOnly("qoder", "Qoder CLI", "Qoder", "qodercli", "@qoder-ai/qodercli", { yolo: ["--dangerously-skip-permissions"], modelFlag: "--model" }),
+  ...shellOnly("continue", "Continue CLI", "Continue", "cn", "@continuedev/cli", { yolo: ["--auto"], modelFlag: "--model" }),
+  ...shellOnly("grok", "Grok CLI", "Vibe Kit (community)", "grok", "@vibe-kit/grok-cli", {}),
+  // Sans paquet npm : leur installateur, en une ligne à lancer soi-même.
+  ...shellOnly("cursor", "Cursor CLI", "Anysphere", "cursor-agent", null, {}, "curl https://cursor.com/install -fsS | bash"),
+  ...shellOnly("goose", "Goose", "Block", "goose", null, { args: ["session"] }, "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash"),
+  ...shellOnly("droid", "Droid", "Factory", "droid", null, {}, "curl -fsSL https://app.factory.ai/cli | sh"),
+  ...shellOnly("openhands", "OpenHands CLI", "All Hands AI", "openhands", null, {}, "uv tool install openhands"),
+} as Record<AgentKind, Harness>
+
+function shellOnly(
+  kind: AgentKind,
+  name: string,
+  vendor: string,
+  bin: string,
+  npmPackage: string | null,
+  launch: ShellLaunch,
+  install?: string
+): Partial<Record<AgentKind, Harness>> {
+  return {
+    [kind]: {
+      kind,
+      name,
+      vendor,
+      bin,
+      install: install ?? `npm install -g ${npmPackage}`,
+      ...(npmPackage ? { npmPackage } : {}),
+      launch,
+      // Lu par personne : le panneau de conversation ne lui est pas ouvert.
+      envelope: "claude",
+      aimable: false,
+      gateway: false,
+    },
+  }
+}
+
+/** Ceux que le panneau de conversation sait piloter (sortie JSON lue). */
+export function isChatKind(kind: AgentKind | string): boolean {
+  return !harness(kind).launch
+}
+
+/**
+ * Allumés d'office : claude, codex et qwen. Les autres s'allument dans
+ * Providers › Harnesses, et n'apparaissent dans les menus qu'une fois allumés.
+ */
+export const DEFAULT_ENABLED_HARNESSES: readonly AgentKind[] = ["claude", "codex", "qwen"]
+
+/** Ce harnais est-il proposé dans les menus ? */
+export function harnessEnabled(settings: { harnesses?: Partial<Record<string, boolean>> } | undefined, kind: AgentKind): boolean {
+  const chosen = settings?.harnesses?.[kind]
+  return typeof chosen === "boolean" ? chosen : DEFAULT_ENABLED_HARNESSES.includes(kind)
 }
 
 // speaksCodex : ce harnais est-il codex ? Ce qui dépend du binaire — la

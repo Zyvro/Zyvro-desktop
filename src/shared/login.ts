@@ -12,5 +12,7 @@ export function loginArgs(kind: AgentKind): string[] {
     case "codex": return ["login"]
     case "mimo": return ["auth", "login"]
     case "qwen": return ["--prompt-interactive", "/auth"]
+    // Les autres se connectent dans leur propre interface, au premier lancement.
+    default: return []
   }
 }

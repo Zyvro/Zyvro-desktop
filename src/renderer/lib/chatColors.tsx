@@ -2,7 +2,7 @@ import { useMemo, useSyncExternalStore, type ReactNode } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Sparkle } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { AgentKind } from "../../shared/harness"
+import { AGENT_KINDS, type AgentKind } from "../../shared/harness"
 import type { CustomIndicator, WorkingIndicatorId } from "../../shared/chatThemes"
 import { getSettings, subscribeSettings } from "~/state/settings"
 
@@ -20,7 +20,7 @@ import { getSettings, subscribeSettings } from "~/state/settings"
 // ---------- les harnais ----------
 
 /** La teinte de chaque harnais : sa pastille et son nom au-dessus de ses réponses. */
-export const HARNESS_TINT: Record<AgentKind, { dot: string; text: string }> = {
+const TINTS: Partial<Record<AgentKind, { dot: string; text: string }>> = {
   // L'orange de Claude, le vert-bleu de Codex, le violet de Qwen, l'orange
   // Xiaomi de MiMo — reconnaissables sans lire le nom.
   claude: { dot: "bg-[#d97757]", text: "text-[#e8957a]" },
@@ -28,6 +28,11 @@ export const HARNESS_TINT: Record<AgentKind, { dot: string; text: string }> = {
   qwen: { dot: "bg-violet-400", text: "text-violet-300" },
   mimo: { dot: "bg-[#ff6900]", text: "text-[#ff8a3d]" },
 }
+// Les harnais ouverts en shell seulement n'écrivent pas dans le chat : une
+// teinte neutre suffit, au cas où.
+export const HARNESS_TINT = Object.fromEntries(
+  AGENT_KINDS.map((kind) => [kind, TINTS[kind] ?? { dot: "bg-sky-400", text: "text-sky-300" }])
+) as Record<AgentKind, { dot: string; text: string }>
 
 // ---------- le code ----------
 

@@ -1,7 +1,9 @@
 import * as Menu from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { AGENT_KINDS, type AgentKind } from "../../shared/harness"
+import { useSyncExternalStore } from "react"
+import { AGENT_KINDS, HARNESSES, harnessEnabled, isChatKind, type AgentKind } from "../../shared/harness"
+import { getSettings, subscribeSettings } from "~/state/settings"
 
 // Le choix du harnais, en menu avec logo et nom.
 //
@@ -13,11 +15,16 @@ import { AGENT_KINDS, type AgentKind } from "../../shared/harness"
 type HarnessInfo = { name: string; vendor: string }
 
 /** Le nom qu'on lit, et de qui il vient. */
-export const HARNESS_INFO: Record<AgentKind, HarnessInfo> = {
-  claude: { name: "Claude Code", vendor: "Anthropic" },
-  codex: { name: "Codex", vendor: "OpenAI" },
-  qwen: { name: "Qwen Code", vendor: "Alibaba Qwen" },
-  mimo: { name: "MiMo Code", vendor: "Xiaomi" },
+export const HARNESS_INFO = Object.fromEntries(
+  AGENT_KINDS.map((kind) => [kind, { name: HARNESSES[kind].name, vendor: HARNESSES[kind].vendor }])
+) as Record<AgentKind, HarnessInfo>
+
+// La teinte d'un harnais sans marque dessinée : tirée de son nom, stable d'un
+// lancement à l'autre.
+function teinte(kind: string): number {
+  let h = 0
+  for (const c of kind) h = (h * 31 + c.charCodeAt(0)) % 360
+  return h
 }
 
 // Les marques, dessinées ici : une tuile arrondie aux couleurs de chacune, la
@@ -82,6 +89,19 @@ export function HarnessMark({ kind, className }: { kind: AgentKind; className?: 
           />
         </svg>
       )
+    default: {
+      // Les autres : une tuile à leur teinte et l'initiale de leur nom — pas
+      // de logo déposé reproduit.
+      const nom = HARNESSES[kind]?.name ?? kind
+      return (
+        <svg viewBox="0 0 24 24" className={box} aria-hidden="true">
+          <rect width="24" height="24" rx="6" fill={`hsl(${teinte(kind)} 55% 38%)`} />
+          <text x="12" y="16.4" textAnchor="middle" fontSize="12" fontWeight="700" fill="#fff" fontFamily="system-ui, sans-serif">
+            {nom.slice(0, 1).toUpperCase()}
+          </text>
+        </svg>
+      )
+    }
   }
 }
 
@@ -93,6 +113,7 @@ export function HarnessPicker({
   onChange,
   installed,
   className,
+  chatOnly = false,
 }: {
   kind: AgentKind
   onChange: (kind: AgentKind) => void
@@ -101,8 +122,15 @@ export function HarnessPicker({
   /** Ce qui est installé sur la machine ; un harnais absent le dit, et le choisir
    *  amène la bannière qui l'installe. */
   installed: (kind: AgentKind) => boolean
+  /** Le panneau de conversation : seulement les harnais dont il lit la sortie. */
+  chatOnly?: boolean
 }): JSX.Element {
   const current = HARNESS_INFO[kind]
+  // Les harnais allumés (Providers › Harnesses), et celui déjà choisi même éteint.
+  const agent = useSyncExternalStore(subscribeSettings, getSettings).agent
+  const options = AGENT_KINDS.filter(
+    (option) => option === kind || (harnessEnabled(agent, option) && (!chatOnly || isChatKind(option)))
+  )
   return (
     <Menu.Root>
       <Menu.Trigger
@@ -123,7 +151,7 @@ export function HarnessPicker({
           sideOffset={4}
           collisionPadding={8}
         >
-          {AGENT_KINDS.map((option) => {
+          {options.map((option) => {
             const info = HARNESS_INFO[option]
             const present = installed(option)
             return (

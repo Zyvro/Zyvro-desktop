@@ -38,7 +38,7 @@ writeFileSync(
   `export * from "${from("src/shared/agentShell")}"\n` +
     `export * as store from "${from("src/main/agentShells")}"\n` +
     `export { claudePermission, qwenPermission, mimoPermission, codexPermission } from "${from("src/main/agent")}"\n` +
-    `export { AGENT_KINDS } from "${from("src/shared/harness")}"\n` +
+    `export { AGENT_KINDS, HARNESSES, isChatKind, harnessEnabled, DEFAULT_ENABLED_HARNESSES } from "${from("src/shared/harness")}"\n` +
     `export { PERMISSIONS } from "${from("src/shared/permission")}"\n` +
     `export { sanitizeAgentSettings, sanitizeSettings, DEFAULT_SETTINGS } from "${from("src/shared/settings")}"\n`
 )
@@ -53,6 +53,8 @@ await build({
   logLevel: "silent",
 })
 const mod = createRequire(import.meta.url)(path.join(dir, "h.cjs"))
+// Les harnais que le panneau pilote ; les autres s'ouvrent en shell seulement.
+const CHAT = mod.AGENT_KINDS.filter((kind) => mod.isChatKind(kind))
 
 let failures = 0
 const check = (name, ok, detail = "") => {
@@ -216,8 +218,10 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("l'effort est retiré d'un harnais qui ne le prend pas", brut[2].effort === null)
   check("un identifiant douteux est remplacé", /^[A-Za-z0-9_-]+$/.test(brut[2].id))
   check("`mcp: false` est respecté", brut[0].mcp === false)
-  check("une liste vide redonne un profil par harnais", mod.sanitizeProfiles([]).length === mod.AGENT_KINDS.length)
-  check("une valeur qui n'est pas une liste aussi", mod.sanitizeProfiles("x").length === mod.AGENT_KINDS.length)
+  // Un profil par harnais du panneau ; ceux ouverts en shell seulement en
+  // reçoivent un de `launchProfiles` quand on les allume.
+  check("une liste vide redonne un profil par harnais du panneau", mod.sanitizeProfiles([]).length === CHAT.length)
+  check("une valeur qui n'est pas une liste aussi", mod.sanitizeProfiles("x").length === CHAT.length)
   check("jamais plus de 24 profils", mod.sanitizeProfiles(Array.from({ length: 50 }, (_, i) => ({ id: `p${i}`, kind: "claude" }))).length === 24)
 
   const spec = mod.sanitizeSpec({ kind: "claude", prompt: "x".repeat(50_000), name: "a\nb\tc", resume: "../x", conversation: 5, instructions: 3 })
@@ -229,7 +233,7 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
 
   const reglages = mod.sanitizeAgentSettings({ profiles: [{ id: "z", kind: "codex" }], defaultProfile: "absent" })
   check("**le profil par défaut doit exister**", reglages.defaultProfile === null)
-  check("réglages d'avant : des profils par défaut et la reprise allumée", mod.sanitizeAgentSettings({}).profiles.length === mod.AGENT_KINDS.length && mod.sanitizeAgentSettings({}).restoreAgentShells === true)
+  check("réglages d'avant : des profils par défaut et la reprise allumée", mod.sanitizeAgentSettings({}).profiles.length === CHAT.length && mod.sanitizeAgentSettings({}).restoreAgentShells === true)
   check("la reprise au démarrage peut s'éteindre", mod.sanitizeAgentSettings({ restoreAgentShells: false }).restoreAgentShells === false)
   check("les réglages sains se relisent à l'identique", JSON.stringify(mod.sanitizeSettings(mod.sanitizeSettings({}))) === JSON.stringify(mod.sanitizeSettings({})))
 }
@@ -408,7 +412,7 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
     qwen: ["--approval-mode", "yolo"],
     mimo: ["--dangerously-skip-permissions", "--trust"],
   }
-  for (const kind of mod.AGENT_KINDS) {
+  for (const kind of CHAT) {
     const spec = mod.sanitizeSpec({ kind, permission: "yolo" })
     const ligne = line(kind, { permission: spec.permission }).join(" ")
     check(`**${kind} : « yolo » demandé → ${YOLO[kind].join(" ")}**`, spec.permission === "yolo" && ligne.includes(YOLO[kind].join(" ")), ligne)
@@ -550,6 +554,30 @@ const line = (kind, over = {}) => mod.nativeArgs({ ...base, kind, ...over })
   check("**un nom choisi n'est jamais remplacé**", /item\.name\.trim\(\) \|\| item\.prompt\.trim\(\)\) return item/.test(ipcSrc))
   const panelSrc = readFileSync(path.join(ROOT, "src/renderer/panels/TerminalPanel.tsx"), "utf8")
   check("**l'onglet d'un agent se renomme d'un double clic**", /onDoubleClick=\{\(\) => void renommerOnglet\(principal\)\}/.test(panelSrc))
+}
+
+// ---- les harnais du marché ---------------------------------------------------------
+{
+  const autres = mod.AGENT_KINDS.filter((kind) => !mod.isChatKind(kind))
+  check("**les autres harnais du marché sont là** (gemini, copilot, opencode, aider, cursor…)", ["gemini", "copilot", "opencode", "aider", "amp", "crush", "cline", "cursor", "goose", "kilo", "qoder", "continue"].every((k) => autres.includes(k)), autres.join(","))
+  check("chacun a un nom, un éditeur, un binaire et une façon de s'installer", mod.AGENT_KINDS.every((k) => mod.HARNESSES[k] && mod.HARNESSES[k].name && mod.HARNESSES[k].vendor && mod.HARNESSES[k].bin && mod.HARNESSES[k].install))
+  check("**par défaut : claude, codex et qwen allumés, les autres éteints**", mod.AGENT_KINDS.every((k) => mod.harnessEnabled({}, k) === ["claude", "codex", "qwen"].includes(k)))
+  check("un choix fait l'emporte sur le défaut", mod.harnessEnabled({ harnesses: { gemini: true } }, "gemini") && !mod.harnessEnabled({ harnesses: { claude: false } }, "claude"))
+  const lu = mod.sanitizeAgentSettings({ harnesses: { gemini: true, claude: false, inconnu: true, codex: "oui" } }).harnesses
+  check("les réglages ne gardent que des harnais connus et des booléens", lu.gemini === true && lu.claude === false && !("inconnu" in lu) && !("codex" in lu))
+  const menu = mod.launchProfiles(mod.DEFAULT_PROFILES, { harnesses: { gemini: true, mimo: false } })
+  const kinds = menu.map((p) => p.kind)
+  check("**le menu ne propose que les allumés, et un profil pour un allumé qui n'en a pas**", kinds.includes("gemini") && !kinds.includes("mimo") && kinds.includes("claude") && !kinds.includes("aider"), kinds.join(","))
+  const gem = mod.nativeArgs({ kind: "gemini", model: "gemini-2.5-pro", permission: "yolo", effort: null, name: "x", sessionId: "abc", assign: false, systemPrompt: "SYS", mcpArgs: ["--mcp"], aimArgs: [], prompt: "" })
+  check("**un harnais ouvert en shell : ses options relevées, rien d'inventé**", gem.join(" ") === "--yolo --model gemini-2.5-pro", gem.join(" "))
+  const goose = mod.nativeArgs({ kind: "goose", model: "m", permission: "workspace", effort: null, name: "", sessionId: null, assign: false, systemPrompt: "", mcpArgs: [], aimArgs: [], prompt: "" })
+  check("sa sous-commande d'abord, et pas de modèle sans option pour le dire", goose.join(" ") === "session", goose.join(" "))
+  check("**sa tâche est collée, préambule en tête**", mod.promptDelivery("gemini") === "paste" && !mod.hasSystemPromptFlag("gemini") && mod.taskText("gemini", "PRE", "do it").startsWith("PRE"))
+  const ui = readFileSync(path.join(ROOT, "src/renderer/panels/HarnessesSection.tsx"), "utf8")
+  const prov = readFileSync(path.join(ROOT, "src/renderer/panels/ProvidersTab.tsx"), "utf8")
+  check("**Providers › Harnesses les allume et les éteint**", /<HarnessesSection \/>/.test(prov) && /role="switch"/.test(ui) && /harnesses: \{ \.\.\.agent\.harnesses, \[kind\]: on \}/.test(ui))
+  const picker = readFileSync(path.join(ROOT, "src/renderer/panels/AgentPanel.tsx"), "utf8")
+  check("le panneau de conversation ne propose que ce qu'il sait lire", /<HarnessPicker chatOnly/.test(picker))
 }
 
 console.log(

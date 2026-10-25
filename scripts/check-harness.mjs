@@ -72,7 +72,9 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
 
 // ---- une seule liste -----------------------------------------------------
 {
-  check("**quatre harnais**", mod.AGENT_KINDS.join(",") === "claude,codex,qwen,mimo", mod.AGENT_KINDS.join(","))
+  // Quatre que le panneau de conversation pilote ; les autres harnais du marché
+  // s'ouvrent dans un shell (Providers › Harnesses).
+  check("**quatre harnais pilotés par le panneau, en tête**", mod.AGENT_KINDS.slice(0, 4).join(",") === "claude,codex,qwen,mimo" && mod.AGENT_KINDS.slice(4).every((k) => mod.harness(k).launch), mod.AGENT_KINDS.join(","))
   // MiMo, c'est MiMo Code : son binaire à lui, `mimo`, et l'enveloppe
   // d'opencode dont il est un fork. Pas codex.
   const mimo = mod.harness("mimo")
@@ -95,7 +97,7 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
   const picker = readFileSync(path.join(ROOT, "src/renderer/panels/HarnessPicker.tsx"), "utf8")
   check(
     "et le sélecteur la prend telle quelle",
-    picker.includes("AGENT_KINDS.map(") && panel.includes("<HarnessPicker kind={kind}")
+    picker.includes("AGENT_KINDS.filter(") && picker.includes("options.map(") && panel.includes("<HarnessPicker chatOnly kind={kind}")
   )
   check(
     "**chaque harnais a son logo et son nom dans le menu**",
@@ -377,7 +379,9 @@ const appServer = await mod.startShotsServer(() => [], undefined, async () => ({
       `${kind} sait comment on l'installe`,
       // npm pour trois d'entre eux ; MiMo Code, par le bouton, qui le
       // télécharge — et jamais une commande bash, qu'un Windows ne sait pas lancer.
-      /^npm install -g \S+/.test(h.install) || (h.installer === "mimo" && /Install button/.test(h.install)),
+      // Les harnais publiés hors de npm : la ligne de leur éditeur, lancée dans
+      // un onglet (macOS, Linux) ou copiée (Windows).
+      /^npm install -g \S+/.test(h.install) || (h.installer === "mimo" && /Install button/.test(h.install)) || (Boolean(h.launch) && !h.npmPackage && /^(curl|python|uv) /.test(h.install)),
       h.install
     )
   }
@@ -600,7 +604,7 @@ await appServer?.stop?.()
     const h = mod.harness(kind)
     check(
       `**ce que le bouton lance pour ${kind} est ce que la phrase d'installation nomme**`,
-      h.npmPackage ? h.install === `npm install -g ${h.npmPackage}` : h.installer === "mimo" && !/curl|bash/.test(h.install),
+      h.npmPackage ? h.install === `npm install -g ${h.npmPackage}` : h.launch ? !h.installer : h.installer === "mimo" && !/curl|bash/.test(h.install),
       `${h.install} / ${h.npmPackage ?? h.installer}`
     )
   }

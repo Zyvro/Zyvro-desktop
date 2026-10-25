@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
-import type { AgentKind } from "../../shared/harness"
+import { AGENT_KINDS, harnessEnabled, type AgentKind } from "../../shared/harness"
+import { getSettings } from "~/state/settings"
 import { askInstall } from "~/state/openRequests"
 import { useWorkspace } from "~/state/workspace"
 
@@ -15,7 +16,10 @@ export function useHarnessesInstalled() {
     refetchOnWindowFocus: true,
     refetchInterval: (query) => {
       const data = query.state.data
-      return data && Object.values(data.harnesses).every(Boolean) ? false : 4000
+      // Seulement les harnais allumés : une vingtaine d'éteints, jamais installés,
+      // feraient sonder pour toujours.
+      const wanted = AGENT_KINDS.filter((kind) => harnessEnabled(getSettings().agent, kind))
+      return data && wanted.every((kind) => data.harnesses[kind]) ? false : 4000
     },
   })
 }

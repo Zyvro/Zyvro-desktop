@@ -2528,7 +2528,7 @@ export function AgentPanel(): JSX.Element {
                 <span className="text-[11px] uppercase tracking-wide">Harness</span>
                 {/* Un menu, logo et nom : quatre mots côte à côte se lisaient un
                     par un ; une marque se reconnaît. */}
-                <HarnessPicker kind={kind} onChange={(option) => setKind(thread.id, option)} installed={present} />
+                <HarnessPicker chatOnly kind={kind} onChange={(option) => setKind(thread.id, option)} installed={present} />
               </div>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] uppercase tracking-wide">Model</span>

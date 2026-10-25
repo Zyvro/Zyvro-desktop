@@ -20,11 +20,11 @@ import { SwitchAgentDialog, type SwitchChoice } from "./SwitchAgentDialog"
 import { askSwitch } from "~/state/switchAgent"
 import { AgentLauncher } from "./AgentLauncher"
 import { HarnessMark } from "./HarnessPicker"
-import { recordTitle, type NativeSpec } from "../../shared/agentShell"
+import { launchProfiles, recordTitle, type NativeSpec } from "../../shared/agentShell"
 import type { AgentShellRecord } from "../../shared/agentShell"
 import { agentShellsVersion, noteRecord, recordOf, refreshAgentShells, subscribeAgentShells } from "~/state/agentShells"
 import { agentContext } from "~/lib/agentContext"
-import { getSettings } from "~/state/settings"
+import { getSettings, subscribeSettings } from "~/state/settings"
 import { openLauncher, runProfile } from "~/state/launcher"
 import { openShellToken, subscribeOpenShell } from "~/state/shellRequests"
 import { askAgent } from "~/state/openRequests"
@@ -930,7 +930,9 @@ export function TerminalPanel(): JSX.Element {
   // Les noms des onglets d'agent viennent des enregistrements : un
   // renommage fait depuis la barre latérale doit se lire ici.
   useSyncExternalStore(subscribeAgentShells, agentShellsVersion, () => 0)
-  const profils = getSettings().agent.profiles
+  // Les harnais allumés seulement (Providers › Harnesses).
+  const reglages = useSyncExternalStore(subscribeSettings, getSettings)
+  const profils = launchProfiles(reglages.agent.profiles, reglages.agent)
   const launcherNow = useSyncExternalStore(subscribeLauncher, getLauncher)
   const groupsRef = useRef<Groups>([])
 

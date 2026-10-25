@@ -27,7 +27,7 @@
 // 5. **Une permission élargie.** « project » ne doit jamais devenir « yolo », et
 //    un niveau inconnu retombe sur le défaut, pas sur le plus permissif.
 
-import { AGENT_KINDS, HARNESSES, isAgentKind, speaksCodex, type AgentKind } from "./harness"
+import { AGENT_KINDS, HARNESSES, harnessEnabled, isAgentKind, speaksCodex, type AgentKind } from "./harness"
 import { DEFAULT_PERMISSION, PERMISSIONS, type Permission } from "./permission"
 
 // ---- l'effort ------------------------------------------------------------------
@@ -112,8 +112,23 @@ export function defaultProfile(kind: AgentKind): AgentProfile {
   }
 }
 
-/** Un profil par harnais, au départ : choisir et lancer doit marcher sans réglage. */
-export const DEFAULT_PROFILES: AgentProfile[] = AGENT_KINDS.map(defaultProfile)
+/**
+ * Un profil par harnais du panneau, au départ : choisir et lancer doit marcher
+ * sans réglage. Les harnais ouverts en shell seulement n'en ont pas d'écrit :
+ * `launchProfiles` leur en donne un quand on les allume.
+ */
+export const DEFAULT_PROFILES: AgentProfile[] = AGENT_KINDS.filter((kind) => !HARNESSES[kind].launch).map(defaultProfile)
+
+/**
+ * Ce que le menu « agent » propose : les profils des harnais allumés, et un
+ * profil par défaut pour chaque harnais allumé qui n'en a aucun.
+ */
+export function launchProfiles(profiles: AgentProfile[], settings: { harnesses?: Partial<Record<string, boolean>> } | undefined): AgentProfile[] {
+  const on = (kind: AgentKind): boolean => harnessEnabled(settings, kind)
+  const kept = profiles.filter((profile) => on(profile.kind))
+  const covered = new Set(kept.map((profile) => profile.kind))
+  return [...kept, ...AGENT_KINDS.filter((kind) => on(kind) && !covered.has(kind)).map(defaultProfile)]
+}
 
 export function sanitizeProfile(raw: unknown): AgentProfile | null {
   if (!raw || typeof raw !== "object") return null
@@ -422,6 +437,7 @@ export function promptDelivery(kind: AgentKind): "argv" | "paste" {
  * rien, et activer « Advanced skills » n'y changeait rien.
  */
 export function hasSystemPromptFlag(kind: AgentKind): boolean {
+  if (HARNESSES[kind].launch) return false
   return HARNESSES[kind].envelope === "claude" || kind === "qwen" || speaksCodex(kind)
 }
 
@@ -442,6 +458,10 @@ export function tomlString(value: string): string {
  * interface, et « Ask » veut dire qu'elle demande, à l'écran, dans le terminal.
  */
 export function nativePermission(kind: AgentKind, permission: Permission): string[] {
+  // Un harnais ouvert dans un shell seulement : son option « tout autoriser »
+  // pour yolo, relevée sur son --help ; ses propres réglages sinon.
+  const launch = HARNESSES[kind].launch
+  if (launch) return permission === "yolo" ? [...(launch.yolo ?? [])] : []
   if (kind === "claude") {
     switch (permission) {
       case "read":
@@ -529,6 +549,14 @@ export function nativeArgs(input: NativeInput): string[] {
   const id = sessionIdOk(input.sessionId) ? input.sessionId : null
   const prompt = input.prompt
   const args: string[] = []
+
+  const launch = HARNESSES[kind].launch
+  if (launch) {
+    args.push(...(launch.args ?? []))
+    args.push(...nativePermission(kind, input.permission))
+    if (model && launch.modelFlag) args.push(launch.modelFlag, model)
+    return args
+  }
 
   if (kind === "claude") {
     args.push(...nativePermission(kind, input.permission))

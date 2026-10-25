@@ -1,5 +1,6 @@
 import { Terminal as TerminalIcon } from "lucide-react"
 import { ProviderKeys } from "@/components/ProviderKeys"
+import { HarnessesSection } from "./HarnessesSection"
 
 // Same provider panel as the web app. The difference worth saying out loud is
 // at the top: on this machine there is a way to run a workflow that needs no
@@ -30,6 +31,10 @@ export function ProvidersTab() {
             </p>
           </div>
         </div>
+
+        {/* Les agents en ligne de commande : un harnais est un fournisseur
+            d'agent, et c'est ici qu'on choisit lesquels sont proposés. */}
+        <HarnessesSection />
 
         <div className="mt-6">
           <ProviderKeys />

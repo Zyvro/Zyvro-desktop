@@ -1526,6 +1526,10 @@ export function registerIpc(onRecents?: () => void): void {
       const script = path.join(os.tmpdir(), `zyvro-mimo-install-${randomUUID()}.cjs`)
       await fs.writeFile(script, mimoInstall.installerSource(), "utf8")
       command = { file: process.execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: "1" } }
+    } else if (process.platform !== "win32" && table.launch) {
+      // Un harnais publié avec son propre installateur (curl, pip, uv) : sa
+      // ligne, lancée dans un onglet où l'on voit tout ce qu'elle fait.
+      command = { file: "/bin/sh", args: ["-c", table.install] }
     } else {
       throw new Error(`${table.bin} cannot be installed from here. Install it with: ${table.install}`)
     }
